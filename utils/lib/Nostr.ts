@@ -56,9 +56,7 @@ export async function updateProfile(ndk: NDK, fromKeys: KeyPair, profileData: Pr
 
 export async function follow(ndk: NDK, fromKeys: KeyPair, toPubkey: string) {
     const signer = new NDKPrivateKeySigner(fromKeys.secretKey);
-    const timestamp = Math.floor(Date.now() / 1000); // Use Unix timestamp in seconds
     const event = new NDKEvent(ndk);
-
     // Set the kind to 3 (contact list)
     event.kind = NDKKind.Contacts;
     // Add p tags for each pubkey you want to follow
@@ -66,6 +64,8 @@ export async function follow(ndk: NDK, fromKeys: KeyPair, toPubkey: string) {
 
     // Sign and publish the event
     try {
+        event.created_at = Math.floor(Date.now() / 1000);
+        event.sig = await event.sign(signer);
         await event.publish();
         console.log('Follow event published successfully!');
         return event.id;
@@ -135,7 +135,7 @@ export async function Wrap(ndk: NDK, message: string, fromKeys: KeyPair, To: str
 
     //giftwrap Envelope Using random Postman
     const secretKey = generateSecretKey();
-    let postMan: KeyPair = {
+    const postMan: KeyPair = {
         secretKey: toString(secretKey),
         publicKey: getPublicKey(secretKey)
     }
@@ -182,7 +182,7 @@ export async function Unwrap(wrapped: string, localKeys: KeyPair, wrappedPubKey:
                 content: openEnv.content
             };
         }
-        else { throw new Error("Pubkeys don't match, Sender doesn't match writer") };
+        else { throw new Error("Pubkeys don't match, Sender doesn't match writer") }
     }
     catch (error: any) {
         console.error('Error Unwrapping Message', error);

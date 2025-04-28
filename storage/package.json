@@ -1,7 +1,7 @@
 {
     "name": "@tat-protocol/storage",
     "version": "1.0.0",
-    "description": "Storage implementation for TAT Protocol",
+    "description": "Storage module for TAT Protocol",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
@@ -20,7 +20,11 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
-        "nostr-tools": "^2.12.0"
+        "localdrive": "^1.0.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "@types/node": "^20.0.0"
     },
     "peerDependencies": {
         "@tat-protocol/types": "workspace:*",

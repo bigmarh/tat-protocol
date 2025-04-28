@@ -1,0 +1,23 @@
+{
+  "name": "@tat-protocol/core",
+  "version": "1.0.0",
+  "description": "TAT Protocol Core Package",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write ."
+  },
+  "dependencies": {
+    "@tat-protocol/forge": "workspace:*",
+    "@tat-protocol/nwpc": "workspace:*",
+    "@tat-protocol/storage": "workspace:*",
+    "@tat-protocol/hdkeys": "workspace:*",
+    "@tat-protocol/types": "workspace:*",
+    "@tat-protocol/utils": "workspace:*",
+    "@tat-protocol/token": "workspace:*",
+    "@tat-protocol/pocket": "workspace:*"
+  }
+} 

@@ -1,14 +1,16 @@
 import NDK, { NDKEvent } from "@nostr-dev-kit/ndk";
-import { Unwrap, Wrap } from "@tat-protocol/utils/Nostr";
-import { NWPCResponse, NWPCHandler, MessageHookOptions, NWPCResponseObject, NWPCConfig, NWPCRoute } from "./NWPCResponseTypes";
+import { Unwrap, Wrap } from "@tat-protocol/utils";
+import { NWPCResponse, NWPCHandler, MessageHookOptions, NWPCResponseObject, NWPCConfig, NWPCRoute, NWPCRequest, NWPCContext } from "./NWPCResponseTypes";
 import { NWPCRouter } from "./NWPCRouter";
 import { NWPCBase } from "./NWPCBase";
+import { HandlerEngine } from "./HandlerEngine";
 
 export class NWPCServer extends NWPCBase {
-
+    private handlerEngine: HandlerEngine;
 
     constructor(config: NWPCConfig) {
         super(config);
+        this.handlerEngine = new HandlerEngine(this);
         // Bind handleEvent to this instance
         this.handleEvent = this.handleEvent.bind(this);
     }
@@ -19,7 +21,7 @@ export class NWPCServer extends NWPCBase {
                 console.error('NWPCServer: Keys not initialized');
                 return;
             }
-           
+
             const unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
             if (!unwrapped) {
                 console.log('NWPCServer: Failed to unwrap event:', event.id);
@@ -41,7 +43,7 @@ export class NWPCServer extends NWPCBase {
             }
 
             const res = new NWPCResponseObject(request.id, this, context);
-            const response = await this.router.handle(request, context, res);
+            await this.router.handle(request, context, res);
 
             // Apply afterRequest hook if it exists
             if (this.hooks.afterRequest) {
@@ -83,5 +85,11 @@ export class NWPCServer extends NWPCBase {
         );
     }
 
-   
+    async handleRequest(request: NWPCRequest, context: NWPCContext, res: NWPCResponseObject): Promise<void> {
+        try {
+            await this.handlerEngine.execute(request, context, res);
+        } catch (error) {
+            res.send({ error: { code: 500, message: 'Internal server error' } });
+        }
+    }
 }

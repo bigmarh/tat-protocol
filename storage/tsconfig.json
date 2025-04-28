@@ -7,12 +7,17 @@
         "paths": {
             "@tat-protocol/*": ["../*/src"]
         },
-        "composite": true
+        "composite": true,
+        "typeRoots": ["./node_modules/@types", "../node_modules/@types"],
+        "skipLibCheck": true,
+        "noImplicitAny": false,
+        "noUnusedLocals": false,
+        "noUnusedParameters": false
     },
     "references": [
         { "path": "../types" },
         { "path": "../utils" }
     ],
-    "include": ["**/*.ts"],
-    "exclude": ["node_modules", "dist", "**/*.test.ts"]
+    "include": ["lib/**/*", "index.ts"],
+    "exclude": ["node_modules", "**/*.test.ts"]
 } 

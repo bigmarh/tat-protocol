@@ -1,7 +1,7 @@
-import { NWPCContext, NWPCHandler, NWPCMiddleware, NWPCPeer, NWPCRequest, NWPCResponse, NWPCResponseObject, NWPCServer } from "@tat-protocol/nwpc";
+import { NWPCContext, NWPCHandler, NWPCPeer, NWPCRequest, NWPCResponseObject } from "@tat-protocol/nwpc";
 import { HDKey } from "@tat-protocol/hdkeys";
 import { DebugLogger } from "@tat-protocol/utils";
-import { StorageInterface, Storage } from "store";
+import { StorageInterface, Storage } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/types';
 
@@ -14,7 +14,7 @@ type tokenString = string;
 export type token_hash = string;
 export type issuerId = string;
 
-/**
+/** 
  * Interface for a single-use keypair
  */
 export interface SingleUseKeyPair {
@@ -32,7 +32,7 @@ export interface PocketConfig {
     storageType?: 'node' | 'browser';
     requestHandlers?: Map<string, NWPCHandler>;
     keys?: KeyPair;
-} 
+}
 
 export interface PocketState {
     favorites: string[];
@@ -40,7 +40,7 @@ export interface PocketState {
     singleUseKeys: Map<string, SingleUseKey>;
     tokens: Map<string, Map<string, string>>;
     balances: Map<string, number>;
-} 
+}
 
 
 
@@ -87,7 +87,7 @@ export class Pocket {
     * @throws Error if initialization fails
     */
     async initialize(privateKey?: string): Promise<KeyPair | void> {
-        
+
         if (this.isInitialized) {
             return;
         }
@@ -137,27 +137,23 @@ export class Pocket {
                 storage: this.storage
             });
 
-            const defaultRequestHandlers = {
-                'message': {
-                    middleware: [],
-                    handler: async (req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) => {
-                        console.log("message received");
-                        //TODO: handle message, store it for later reading
-                        return res.send({ success: true });
-                    }
-                },
-                'requestSignature': async (req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) => {
+            const defaultRequestHandlers = new Map<string, NWPCHandler>([
+                ['message', async (req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) => {
+                    console.log("message received");
+                    //TODO: handle message, store it for later reading
+                    return res.send({ success: true });
+                }],
+                ['requestSignature', async (req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) => {
                     console.log("requestSignature received");
                     return res.send({ success: true });
-                }
-            }
-    
+                }]
+            ]);
+
             // Register Default NWPC handlers
             this.registerNWPCHandlers(defaultRequestHandlers);
             // Register additional request handlers if provided
             if (this.config?.requestHandlers) {
-                const handlersObj = Object.fromEntries(this.config.requestHandlers);
-                this.registerNWPCHandlers(handlersObj);
+                this.registerNWPCHandlers(this.config.requestHandlers);
             }
 
             await this.savePocketState();
@@ -167,6 +163,25 @@ export class Pocket {
         catch (error: any) {
             throw new Error(`Failed to initialize Pocket: ${error}`);
         }
+    }
+
+
+    private registerNWPCHandlers(requestHandlers: Map<string, NWPCHandler[] | NWPCHandler>) {
+        //TODO: check if the requestHandlers is a map   
+        if (requestHandlers instanceof Map) {
+            for (const [key, handler] of requestHandlers.entries()) {
+                if (handler instanceof Array) { 
+                    this.nwpcClient.use(key, ...handler);
+                }
+                else {
+                    this.nwpcClient.use(key, handler);
+                }
+            }
+        }
+        else {
+            throw new Error('Request handlers must be a map');
+        }
+
     }
 
 
@@ -276,26 +291,7 @@ export class Pocket {
 
 
 
-    public registerNWPCHandlers(requestHandlers?: {
-        [key: string]: {
-            middleware: NWPCMiddleware[];
-            handler: NWPCHandler;
-        } | NWPCHandler;
-    }) {
-        if (requestHandlers) {
-            for (const [key, value] of Object.entries(requestHandlers)) {
-                if (typeof value === 'function') {
-                    this.nwpcClient?.use(key, value);
-                }
-                else {
-                    this.nwpcClient?.use(key, value.middleware, value.handler);
-                }
-            }
-        }
-        else {
-            console.error("No additional request handlers provided");
-        }
-    }
+
 
 
 }

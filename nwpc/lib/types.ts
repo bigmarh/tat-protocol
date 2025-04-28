@@ -1,6 +1,4 @@
 import { NDKEvent } from "@nostr-dev-kit/ndk";
-import { KeyPair } from "@tat-protocol/types";
-import { StorageInterface } from "@tat-protocol/storage";
 import { NWPCBase } from "./NWPCBase";
 
 export interface MessageHookOptions {
@@ -10,14 +8,6 @@ export interface MessageHookOptions {
     afterResponse?: MessageHook;
 }
 
-export interface NWPCConfig {
-    relays?: string[];
-    keys: KeyPair;  
-     hooks?: MessageHookOptions;
-    storage?: StorageInterface;
-    requestHandlers?: Map<string, NWPCRoute>;
-    type?: 'client' | 'server';
-}
 
 export interface NWPCError {
     code: number;

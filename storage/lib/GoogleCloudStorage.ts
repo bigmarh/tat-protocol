@@ -1,4 +1,4 @@
-import { Storage, Bucket, File } from "@google-cloud/storage";
+import { Storage, Bucket } from "@google-cloud/storage";
 import { StorageInterface } from "./StorageInterface";
 
 export class GoogleCloudStorage implements StorageInterface {

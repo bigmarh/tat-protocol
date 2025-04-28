@@ -1,7 +1,6 @@
 import NDK from "@nostr-dev-kit/ndk";
 import { NWPCServer } from "../lib";
-import type { NWPCHandler, NWPCRequest, NWPCContext, NWPCResponseObject } from '@tat-protocol/nwpc';
-import readline from 'readline';
+import type { NWPCHandler, NWPCRequest, NWPCContext, NWPCResponseObject } from '../lib/NWPCResponseTypes';
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
 

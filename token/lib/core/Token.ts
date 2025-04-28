@@ -1,4 +1,3 @@
-
 import { base64 } from '@scure/base';
 import { bytesToHex } from '@noble/hashes/utils';
 import { createHash, removeBase64Padding, signMessage, DebugLogger } from '@tat-protocol/utils';
@@ -417,14 +416,12 @@ export default class Token {
      * Creates a derived token with flexible access control
      * @param parentToken - The parent token to derive from
      * @param accessRules - Flexible access control rules
-     * @param timeWindow - Optional time window for the derived token
      * @returns A new derived token
      */
     static async createDerivedToken(
         tokenType: TokenType,
         parentToken: Token,
-        accessRules: { [key: string]: any },
-        timeWindow?: number
+        accessRules: { [key: string]: any }
     ): Promise<Token> {
         // Verify parent token is valid
         if (!parentToken.header.token_hash) {
@@ -435,12 +432,11 @@ export default class Token {
         const derivedPayload: DerivedPayload = {
             ...parentToken.payload,
             parentToken: parentToken.header.token_hash,
-            access: accessRules,
-            timeLock: timeWindow ? Math.floor(Date.now() / 1000) + timeWindow : undefined
+            access: accessRules
         };
 
         // Create the derived token
-        const derivedToken = new DerivedToken(parentToken, accessRules, timeWindow);
+        const derivedToken = new DerivedToken(parentToken, accessRules);
         await derivedToken.build({
             token_type: tokenType,
             payload: derivedPayload
@@ -459,7 +455,7 @@ class DerivedToken extends Token {
     public parentToken: Token;
     public accessRules: { [key: string]: any };
     public payload: DerivedPayload;
-    constructor(parentToken: Token, accessRules: { [key: string]: any }, timeWindow?: number) {
+    constructor(parentToken: Token, accessRules: { [key: string]: any }) {
         super();
         if (!parentToken.header.token_hash) {
             throw new Error('Parent token must have a valid hash');

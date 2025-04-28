@@ -11,9 +11,6 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { StorageInterface } from '@tat-protocol/storage/lib/StorageInterface';
 import { Storage } from '@tat-protocol/storage/lib/Storage';
 import NDK from '@nostr-dev-kit/ndk';
-import * as nodeCrypto from 'crypto';
-import { EventEmitter } from 'events';
-
 
 /**
  * Main Forge class that handles token minting and management
@@ -175,7 +172,7 @@ export class Forge {
         return Array.from(this.state.authorizedForgers);
     }
 
-    private async initializeKeys(forgeId?: number): Promise<void> {
+    private async initializeKeys(): Promise<void> {
         try {
             const forgeKeyId = 'forge-keys';
             const existingKeys = await this.storage.getItem(forgeKeyId);
@@ -494,87 +491,7 @@ export class Forge {
         return await token.toJWT(bytesToHex(signature));
     }
 
-    /**
-     * Verifies a token's access rules and owner signature
-     * @param tokenJWT - The token JWT
-     * @param requiredAccess - The required access rules to verify against
-     * @param ownerPubkey - Optional owner's public key to verify against
-     * @returns true if the token has the required access and valid owner signature
-     */
-    async verifyAccess(
-        tokenJWT: string,
-        requiredAccess: { [key: string]: any },
-        ownerPubkey?: string
-    ): Promise<boolean> {
-        const token = await new Token().restore(tokenJWT);
 
-
-
-        // Verify the token signature
-        if (!await this.verifyToken(
-            token.header.token_hash!,
-            token.signature,
-            token.payload.iss
-        )) {
-            return false;
-        }
-
-        // Get token's access rules
-        const tokenAccess = token.getAccessRules();
-        if (!tokenAccess) {
-            return false;
-        }
-
-        // Verify each required access rule
-        for (const [key, value] of Object.entries(requiredAccess)) {
-            if (tokenAccess[key] === undefined) {
-                return false;
-            }
-
-            // Handle different types of access rules
-            if (Array.isArray(value)) {
-                // For array rules (e.g., allowed models)
-                if (!Array.isArray(tokenAccess[key]) ||
-                    !value.every(v => tokenAccess[key].includes(v))) {
-                    return false;
-                }
-            } else if (typeof value === 'object' && value !== null) {
-                // For object rules (e.g., nested access control)
-                if (typeof tokenAccess[key] !== 'object' ||
-                    !this.verifyAccessRules(tokenAccess[key], value)) {
-                    return false;
-                }
-            } else {
-                // For simple value rules (e.g., usage limits)
-                if (tokenAccess[key] !== value) {
-                    return false;
-                }
-            }
-        }
-
-        return true;
-    }
-
-    /**
-     * Helper method to verify nested access rules
-     */
-    private verifyAccessRules(tokenRules: any, requiredRules: any): boolean {
-        for (const [key, value] of Object.entries(requiredRules)) {
-            if (tokenRules[key] === undefined) {
-                return false;
-            }
-
-            if (typeof value === 'object' && value !== null) {
-                if (typeof tokenRules[key] !== 'object' ||
-                    !this.verifyAccessRules(tokenRules[key], value)) {
-                    return false;
-                }
-            } else if (tokenRules[key] !== value) {
-                return false;
-            }
-        }
-        return true;
-    }
 
 
 } 

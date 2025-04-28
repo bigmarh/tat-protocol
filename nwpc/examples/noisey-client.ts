@@ -1,5 +1,4 @@
 import { NWPCPeer } from "../lib";
-import type { NWPCConfig } from '../lib/NWPCResponseTypes';
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
 import readline from 'readline';

@@ -6,42 +6,45 @@ declare global {
     }
 }
 
-const isBrowser = typeof globalThis !== 'undefined' && 
-    globalThis.hasOwnProperty('window') && 
-    typeof (globalThis as any).window.localStorage !== 'undefined';
+const isBrowser = typeof window !== 'undefined' && 'localStorage' in window;
 
 /**
  * Browser-based storage implementation using localStorage
  */
 export class BrowserStore implements StorageInterface {
+    private storage: Storage;
+
+    constructor() {
+        // Check if localStorage is available
+        if (isBrowser) {
+            this.storage = window.localStorage;
+        } else {
+            throw new Error('localStorage is not available');
+        }
+    }
+
     async getItem(key: string): Promise<string | null> {
         if (isBrowser) {
-            return (globalThis as any).window.localStorage.getItem(key);
+            return this.storage.getItem(key);
         }
-        throw new Error('Browser storage is not available in this environment');
+        return null;
     }
 
     async setItem(key: string, value: string): Promise<void> {
         if (isBrowser) {
-            (globalThis as any).window.localStorage.setItem(key, value);
-        } else {
-            throw new Error('Browser storage is not available in this environment');
+            this.storage.setItem(key, value);
         }
     }
 
     async removeItem(key: string): Promise<void> {
         if (isBrowser) {
-            (globalThis as any).window.localStorage.removeItem(key);
-        } else {
-            throw new Error('Browser storage is not available in this environment');
+            this.storage.removeItem(key);
         }
     }
 
     async clear(): Promise<void> {
         if (isBrowser) {
-            (globalThis as any).window.localStorage.clear();
-        } else {
-            throw new Error('Browser storage is not available in this environment');
+            this.storage.clear();
         }
     }
 } 

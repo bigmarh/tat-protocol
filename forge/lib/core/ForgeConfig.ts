@@ -1,5 +1,5 @@
 import { TokenType } from '@tat-protocol/token';
-import { StorageInterface } from '@tat-protocol/store';
+import { StorageInterface } from '@tat-protocol/storage';
 import { KeyPair } from '@tat-protocol/types';
 
 /**

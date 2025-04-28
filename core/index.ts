@@ -6,7 +6,7 @@
 // Core modules
 export * as Forge from '@tat-protocol/forge';
 export * as NWPC from '@tat-protocol/nwpc';
-export * as Store from 'store';
+export * as Storage from '@tat-protocol/storage';
 export * as HDKeys from '@tat-protocol/hdkeys';
 export * as Types from '@tat-protocol/types';
 export * as Utils from '@tat-protocol/utils';

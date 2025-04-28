@@ -1,6 +1,6 @@
 import { NWPCBase } from "./NWPCBase";
 import { NWPCServer } from "./NWPCServer";
-import { NDKEvent } from "@nostr-dev-kit/ndk";
+import { NDKEvent, NDKRelay } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/types";
 import { StorageInterface } from "@tat-protocol/storage";
 
@@ -12,6 +12,7 @@ export interface NWPCConfig {
     storage?: StorageInterface;
     requestHandlers?: Map<string, NWPCHandler>;
     type?: 'client' | 'server';
+    [key: string]: any;
 }
 
 

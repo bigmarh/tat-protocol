@@ -1,4 +1,4 @@
-import { StorageInterface } from 'store';
+import { StorageInterface } from '@tat-protocol/storage';
 import { KeyPair } from '@tat-protocol/types';
 import { DebugLogger } from '@tat-protocol/utils';
 

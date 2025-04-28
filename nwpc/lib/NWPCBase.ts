@@ -5,7 +5,7 @@ import { KeyPair } from "@tat-protocol/types";
 import { NWPCRouter } from "./NWPCRouter";
 import { HandlerEngine } from "./HandlerEngine";
 import { NWPCConfig, NWPCContext, NWPCRequest, NWPCResponse, NWPCRoute, NWPCHandler, MessageHookOptions } from "./NWPCResponseTypes";
-import { Wrap, Unwrap } from '@tat-protocol/utils/Nostr';
+import { Wrap, Unwrap } from '@tat-protocol/utils';
 import { INWPCBase } from './NWPCBaseInterface';
 
 export abstract class NWPCBase implements INWPCBase {
@@ -25,7 +25,7 @@ export abstract class NWPCBase implements INWPCBase {
     constructor(config: NWPCConfig) {
         this.config = config;
         this.keys = config.keys;
-        this.ndk = new NDK({ explicitRelayUrls: config.relays || [] });
+        this.ndk = new NDK({ explicitRelayUrls: config.relays || [] ,netDebug: config.netDebug});
         this.requestHandlers = config.requestHandlers || new Map();
         this.storage = config.storage || new Storage();
         this.hooks = config.hooks || {};

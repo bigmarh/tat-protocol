@@ -20,7 +20,8 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
-        "@noble/hashes": "^1.0.0"
+        "@noble/hashes": "^1.0.0",
+        "bip39": "^3.1.0"
     },
     "devDependencies": {
         "typescript": "^5.0.0",

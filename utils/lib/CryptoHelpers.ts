@@ -1,6 +1,6 @@
 import { sha256 } from '@noble/hashes/sha256';
 import { schnorr } from '@noble/curves/secp256k1';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+import { hexToBytes } from '@noble/hashes/utils';
 import { KeyPair } from '@tat-protocol/types';
 
 export function verifySignature(message: Uint8Array, signature: Uint8Array, pubkey: string): boolean {

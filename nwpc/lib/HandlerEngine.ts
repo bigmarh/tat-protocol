@@ -1,5 +1,4 @@
 import { NWPCRequest, NWPCResponse, NWPCContext, NWPCHandler, NWPCResponseObject } from './NWPCResponseTypes';
-import { NDKEvent } from '@nostr-dev-kit/ndk';
 import { INWPCBase } from './NWPCBaseInterface';
 
 type HandlerFunction = (req: any, ctx: any, res: any, next: () => void) => void;
@@ -21,13 +20,13 @@ export class HandlerEngine {
 
     public async execute(request: NWPCRequest, context: NWPCContext, res: NWPCResponseObject): Promise<NWPCResponse | void> {
         let currentIndex = 0;
-        const next = async (): Promise< void> => {
+        const next = async (): Promise<void> => {
             if (currentIndex >= this.handlers.length) {
                 return;
             }   
 
             const handler = this.handlers[currentIndex++];
-            const result = await handler(request, context, res, next);
+            await handler(request, context, res, next);
         };
 
         return next();
@@ -40,4 +39,6 @@ export class HandlerEngine {
             timestamp: Date.now()
         };
     }
+
+  
 } 

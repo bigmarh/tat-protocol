@@ -10,7 +10,7 @@ export class Storage implements StorageInterface {
 
     constructor(config?: any) {
         this.config = config;
-        this.isBrowser = typeof globalThis !== 'undefined' && globalThis.hasOwnProperty('window');
+        this.isBrowser = typeof globalThis !== 'undefined' && Object.prototype.hasOwnProperty.call(globalThis, 'window');
         this.storage = this.initializeStorage();
     }
 

@@ -1,6 +1,6 @@
 import NDK, { NDKEvent } from '@nostr-dev-kit/ndk';
 import { NWPCRequest, NWPCResponse, NWPCContext, NWPCHandler, NWPCResponseObject, MessageHookOptions, NWPCConfig } from './NWPCResponseTypes';
-import { Wrap, Unwrap } from '@tat-protocol/utils/Nostr';
+import { Wrap, Unwrap } from '@tat-protocol/utils';
 import { NWPCBase } from './NWPCBase';
 import { NWPCRouter } from './NWPCRouter';
 import { NWPCServer } from './NWPCServer';

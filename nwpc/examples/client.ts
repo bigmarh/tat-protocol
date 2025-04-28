@@ -1,5 +1,5 @@
 import NDK, { NDKRelay } from "@nostr-dev-kit/ndk";
-import { NWPCPeer, NWPCServer } from "../lib";
+import { NWPCPeer } from "../lib";
 import readline from 'readline';
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
@@ -35,7 +35,8 @@ class CalculatorClient {
         this.peer = new NWPCPeer({
             keys: CLIENT_KEYS,
             type: 'client',
-            relays: ['ws://localhost:8080']
+            relays: ['ws://localhost:8080'],
+            netDebug: netDebug
         });
 
         this.serverKey = serverKey || DEFAULT_SERVER_KEY;
