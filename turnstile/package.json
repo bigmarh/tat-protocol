@@ -1,0 +1,28 @@
+{
+    "name": "@tat-protocol/turnstile",
+    "version": "1.0.0",
+    "description": "Turnstile module for TAT Protocol",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "prepare": "npm run build"
+    },
+    "keywords": [
+        "turnstile",
+        "access",
+        "control"
+    ],
+    "author": "TAT Protocol",
+    "license": "MIT",
+    "dependencies": {
+        "@tat-protocol/types": "file:../types",
+        "@tat-protocol/nwpc": "file:../nwpc",
+        "@tat-protocol/storage": "file:../storage",
+        "@tat-protocol/utils": "file:../utils"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "@types/node": "^20.0.0"
+    }
+} 

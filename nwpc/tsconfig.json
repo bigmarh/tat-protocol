@@ -1,0 +1,18 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": ".",
+    "baseUrl": ".",
+    "paths": {
+      "@tat-protocol/*": ["../*/src"]
+    },
+    "composite": true
+  },
+  "references": [
+    { "path": "../types" },
+    { "path": "../utils" }
+  ],
+  "include": ["lib/**/*", "index.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+} 

@@ -1,0 +1,32 @@
+{
+    "name": "@tat-protocol/utils",
+    "version": "1.0.0",
+    "description": "Utility functions for TAT Protocol",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc",
+        "test": "jest",
+        "lint": "eslint . --ext .ts",
+        "format": "prettier --write \"**/*.ts\"",
+        "clean": "rm -rf dist",
+        "prepare": "npm run build"
+    },
+    "keywords": [
+        "utils",
+        "tat",
+        "protocol"
+    ],
+    "author": "TAT Protocol",
+    "license": "MIT",
+    "dependencies": {
+        "@noble/hashes": "^1.0.0"
+    },
+    "devDependencies": {
+        "typescript": "^5.0.0",
+        "@types/node": "^20.0.0"
+    },
+    "peerDependencies": {
+        "@tat-protocol/types": "workspace:*"
+    }
+} 

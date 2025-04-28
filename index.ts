@@ -1,0 +1,30 @@
+/**
+ * @tat-protocol/core
+ * Main entry point for the TAT Protocol SDK
+ */
+
+// Core modules
+export * as Forge from '@tat-protocol/forge';
+export * as NWPC from '@tat-protocol/nwpc';
+export * as Store from 'store';
+export * as HDKeys from '@tat-protocol/hdkeys';
+export * as Types from '@tat-protocol/types';
+export * as Utils from '@tat-protocol/utils';
+export * as Token from '@tat-protocol/token';
+export * as Pocket from '@tat-protocol/pocket';
+
+// Re-export commonly used types
+export type {
+  KeyPair
+} from '@tat-protocol/types';
+
+export type {
+  TokenHeader,
+  TokenPayload
+} from '@tat-protocol/types';
+
+// Re-export commonly used utilities
+export {
+  // Add commonly used utilities here
+  
+} from '@tat-protocol/utils'; 

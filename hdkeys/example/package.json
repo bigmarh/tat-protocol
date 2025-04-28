@@ -1,0 +1,8 @@
+{
+    "scripts": {
+        "start": "npx tsx src/index.ts"
+    },
+    "dependencies": {
+        "@tat-protocol/hdkeys": "file:../"
+    }
+}

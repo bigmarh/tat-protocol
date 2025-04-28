@@ -1,0 +1,3 @@
+packages:
+- '@tat-protocol/*'
+- '!**/node_modules/**'

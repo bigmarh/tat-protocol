@@ -1,0 +1,23 @@
+{
+    "extends": "../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "rootDir": ".",
+        "baseUrl": ".",
+        "paths": {
+            "@tat-protocol/*": ["../*/src"]
+        },
+        "types": ["node"],
+        "composite": true
+    },
+    "references": [
+        { "path": "../storage" },
+        { "path": "../hdkeys" },
+        { "path": "../nwpc" },
+        { "path": "../token" },
+        { "path": "../utils" },
+        { "path": "../types" }
+    ],
+    "include": ["lib/**/*", "index.ts"],
+    "exclude": ["node_modules", "**/*.test.ts"]
+} 

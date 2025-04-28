@@ -1,0 +1,30 @@
+{
+  "name": "nwpc-examples",
+  "version": "1.0.0",
+  "description": "Example implementations of the NWPC protocol",
+  "private": true,
+  "scripts": {
+    "build": "tsc",
+    "server": "npx tsx server.ts",
+    "client": "npx tsx client.ts",
+    "noisey-client": "npx tsx noisey-client.ts",
+    "protected-server": "npx tsx protected-server.ts",
+    "lint": "eslint src --ext .ts",
+    "format": "prettier --write \"src/**/*.ts\""
+  },
+  "dependencies": {
+    "@tat-protocol/nwpc": "file:../",
+    "nostr-tools": "^2.1.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.14.0",
+    "@typescript-eslint/eslint-plugin": "^6.21.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.56.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-plugin-prettier": "^5.1.3",
+    "prettier": "^3.2.5",
+    "tsx": "^4.7.1",
+    "typescript": "^5.8.3"
+  }
+}
