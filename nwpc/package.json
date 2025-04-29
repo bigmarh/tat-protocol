@@ -23,7 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "nostr-tools": "^2.12.0",
-    "@nostr-dev-kit/ndk": "^2.14.2"
+    "@nostr-dev-kit/ndk": "^2.14.4"
   },
   "peerDependencies": {
     "@tat-protocol/types": "workspace:*",

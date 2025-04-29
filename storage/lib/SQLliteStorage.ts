@@ -1,10 +1,10 @@
-import { StorageInterface } from "./StorageInterface";
+import { StorageInterface } from './StorageInterface';
 
 export class SQLiteStorage implements StorageInterface {
   private db: any; // Database connection
   private tableName: string;
 
-  constructor(db: any, tableName: string = "key_value_store") {
+  constructor(db: any, tableName: string = 'key_value_store') {
     this.db = db;
     this.tableName = tableName;
     this.initTable();
@@ -25,7 +25,7 @@ export class SQLiteStorage implements StorageInterface {
       const row = stmt.get(key);
       return row ? row.value : null;
     } catch (error) {
-      console.error("Error getting item from SQLite:", error);
+      console.error('Error getting item from SQLite:', error);
       return null;
     }
   }
@@ -38,7 +38,7 @@ export class SQLiteStorage implements StorageInterface {
       `);
       stmt.run(key, value, value);
     } catch (error) {
-      console.error("Error setting item in SQLite:", error);
+      console.error('Error setting item in SQLite:', error);
       throw error;
     }
   }
@@ -48,7 +48,7 @@ export class SQLiteStorage implements StorageInterface {
       const stmt = this.db.prepare(`DELETE FROM ${this.tableName} WHERE key = ?`);
       stmt.run(key);
     } catch (error) {
-      console.error("Error removing item from SQLite:", error);
+      console.error('Error removing item from SQLite:', error);
       throw error;
     }
   }
@@ -57,7 +57,7 @@ export class SQLiteStorage implements StorageInterface {
     try {
       this.db.exec(`DELETE FROM ${this.tableName}`);
     } catch (error) {
-      console.error("Error clearing SQLite table:", error);
+      console.error('Error clearing SQLite table:', error);
       throw error;
     }
   }

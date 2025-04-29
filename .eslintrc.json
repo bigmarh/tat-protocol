@@ -1,0 +1,51 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "env": {
+    "node": true,
+    "es6": true
+  },
+  "parserOptions": {
+    "ecmaVersion": 2020,
+    "sourceType": "module"
+  },
+  "rules": {
+    "@typescript-eslint/no-explicit-any": "off",
+    "@typescript-eslint/explicit-module-boundary-types": "off",
+    "@typescript-eslint/no-unused-vars": ["error", {
+      "argsIgnorePattern": "^_",
+      "varsIgnorePattern": "^_",
+      "ignoreRestSiblings": true
+    }],
+    "no-prototype-builtins": "error"
+  },
+  "overrides": [
+    {
+      "files": ["**/examples/**/*.ts"],
+      "rules": {
+        "@typescript-eslint/no-unused-vars": "off"
+      }
+    },
+    {
+      "files": ["**/*.ts"],
+      "rules": {
+        "@typescript-eslint/no-unused-vars": ["error", {
+          "varsIgnorePattern": "^_|NDK|NWPCHandler|MessageHookOptions|NWPCRouter|NWPCServer|NWPCContext|Unwrap|HandlerFunction|NWPCRoute",
+          "argsIgnorePattern": "^_",
+          "ignoreRestSiblings": true
+        }]
+      }
+    },
+    {
+      "files": ["**/dist/**/*.js"],
+      "rules": {
+        "@typescript-eslint/no-var-requires": "off"
+      }
+    }
+  ]
+} 

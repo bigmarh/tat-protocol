@@ -1,61 +1,88 @@
-import { ForgeConfig } from './ForgeConfig';
-import { ForgeState } from './ForgeState';
-import { Token } from '@tat-protocol/token';
-import { TokenType } from '@tat-protocol/types';
-import { KeyPair } from '@tat-protocol/types';
-import { NWPCServer, NWPCRequest, NWPCContext, NWPCResponseObject } from '@tat-protocol/nwpc';
+import { ForgeConfig } from "./ForgeConfig";
+import { ForgeState } from "./ForgeState";
+import { postToFeed } from "@tat-protocol/utils";
+import { Token } from "@tat-protocol/token";
+import { TokenType } from "@tat-protocol/types";
+import { KeyPair } from "@tat-protocol/types";
+import {
+    NWPCServer,
+    NWPCRequest,
+    NWPCContext,
+    NWPCResponseObject,
+    NWPCHandler,
+    NWPCResponse,
+} from "@tat-protocol/nwpc";
 
-import { signMessage, verifySignature } from '@tat-protocol/utils';
-import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
-import { generateSecretKey, getPublicKey } from 'nostr-tools';
-import { StorageInterface } from '@tat-protocol/storage/lib/StorageInterface';
-import { Storage } from '@tat-protocol/storage/lib/Storage';
-import NDK from '@nostr-dev-kit/ndk';
+import { signMessage, verifySignature } from "@tat-protocol/utils";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { generateSecretKey, getPublicKey } from "nostr-tools";
+import { StorageInterface } from "@tat-protocol/storage/lib/StorageInterface";
+import { Storage } from "@tat-protocol/storage/lib/Storage";
+import NDK from "@nostr-dev-kit/ndk";
 
 /**
  * Main Forge class that handles token minting and management
  */
 export class Forge {
-    private keys!: KeyPair; 
+    private keys!: KeyPair;
     private config: ForgeConfig;
-    private state: ForgeState;
+    private state!: ForgeState;
     private isInitialized: boolean;
     private storage: StorageInterface;
-    private nwpcServer: NWPCServer;
-    private ndk: NDK;
+    private nwpcServer!: NWPCServer;
+    public ndk!: NDK;
+    public owner: string;
     /**
      * Create a new Forge instance
      * @param config - Configuration options for the forge
      */
     constructor(config: ForgeConfig) {
-        this.ndk = new NDK();
+        if (!config.owner) {
+            throw new Error("Forge owner is required");
+        }
+        this.owner = config.owner;
         this.config = config;
         this.isInitialized = false;
 
-
-        this.storage = new Storage(config?.storage || {});
-
-        // Initialize empty state
-        this.state = {
-            owner: config.owner || '',
-            version: 1,
-            spentTokens: new Set(),
-            pendingTxs: new Map(),
-            totalSupply: 0,
-            authorizedForgers: new Set(config.authorizedForgers || []),
-            tokenUsage: new Map()
-        };
-        if (!this.state.owner) {
-            throw new Error('Forge owner is required');
-        }
         // Set keys from config if provided
         if (config.keys) {
             this.keys = config.keys;
         }
 
-        this.nwpcServer = new NWPCServer({ keys: this.keys });
-        // Initialize the forge
-        this.initialize();
+        this.storage = new Storage(config?.storage || {});
+    }
+
+    private onlyAuthorized(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject, next: () => Promise<void>): Promise<NWPCResponse | void> {
+
+        console.log("Forge: onlyAuthorized", context.sender, this.state.owner)
+        if (this.state.authorizedForgers.has(context.sender) || this.state.owner === context.sender) {
+            return next();
+        }
+        return res.error(403, "Forbidden");
+    }
+
+    private onlyOwner(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject, next: () => Promise<void>): Promise<NWPCResponse | void> {
+        if (this.state.owner === context.sender) {
+            return next();
+        }
+        return res.error(403, "Forbidden");
+    }
+
+    /**
+     * Setup default handlers
+     */
+    setupDefaultHandlers() {
+        this.use('ping', (req, context, res) => {
+            return res.send({ message: 'pong' }, context.sender);
+        });
+        // Transfer 
+        this.use("transfer", this.handleTransfer.bind(this));
+        // Forge
+        this.use("forge", this.onlyAuthorized.bind(this), this.handleForge.bind(this));
+        // Burn
+        this.use("burn", this.onlyOwner.bind(this), this.handleBurn.bind(this));
+        // Verify
+        this.use("verify", this.handleVerify.bind(this));
     }
 
     /**
@@ -63,15 +90,77 @@ export class Forge {
      * @param forgeId - Optional ID for the forge
      */
     async initialize(): Promise<void> {
-        //
-        if (this.isInitialized) {
-            return;
-        }
+        if (this.isInitialized) return;
 
-        await this.initializeKeys();
-        await this.loadState();
-        await this.saveState();
-        this.isInitialized = true;
+        try {
+            // Initialize keys first
+            await this.initializeKeys();
+            
+            // Ensure we have valid keys
+            if (!this.keys || !this.keys.publicKey || !this.keys.secretKey) {
+                throw new Error("Keys not properly initialized");
+            }
+            
+            // Initialize NWPC server with the initialized keys
+            this.nwpcServer = new NWPCServer({ 
+                keys: {
+                    publicKey: this.keys.publicKey,
+                    secretKey: this.keys.secretKey
+                },
+                relays: this.config.relays || ["ws://localhost:8080"]
+            });
+            this.ndk = this.nwpcServer.ndk;
+            
+            console.log("Forge: NWPC server initialized with keys:", this.keys.publicKey);
+            
+            // Register default handlers
+            this.setupDefaultHandlers();
+            
+            await this.loadState();
+            await this.saveState();
+            this.isInitialized = true;
+        } catch (error) {
+            console.error("Failed to initialize Forge:", error);
+            throw error;
+        }
+    }
+
+    /**
+     * Initialize the keys for the forge
+     * @returns void
+     */
+    private async initializeKeys(): Promise<void> {
+        let newKeys: KeyPair;
+        try {
+            const forgeKeyId = "forge-keys";
+            const existingKeys = await this.storage.getItem(forgeKeyId);
+
+            if (existingKeys) {
+                const parsedKeys = JSON.parse(existingKeys);
+                this.keys = {
+                    secretKey: parsedKeys.secretKey,
+                    publicKey: parsedKeys.publicKey,
+                };
+            } else {
+                if (this.keys) {
+                    newKeys = this.keys;
+                } else {
+                    const secretKey = bytesToHex(generateSecretKey());
+                    const publicKey = getPublicKey(hexToBytes(secretKey));
+                    newKeys = {
+                        secretKey: secretKey,
+                        publicKey: publicKey,
+                    };
+                }
+                await this.storage.setItem(forgeKeyId, JSON.stringify(newKeys));
+                this.keys = newKeys;
+            }
+
+
+
+        } catch (error: any) {
+            throw new Error(`Key initialization failed: ${error.message}`);
+        }
     }
 
     /**
@@ -92,6 +181,15 @@ export class Forge {
     }
 
     /**
+     * Use a handler for a specific method
+     * @param method - The method to use the handler for
+     * @param handlers - The handlers to use
+     */
+    use(method: string, ...handlers: NWPCHandler[]): void {
+        this.nwpcServer.use(method, ...handlers);
+    }
+
+    /**
      * Verify a token's signature for physical access
      * @param tokenHash - The hash of the token payload
      * @param signature - The signature of the token
@@ -107,34 +205,39 @@ export class Forge {
         publicKey: string,
         readerPubkey?: string,
         timeWindow?: number,
-        currentTime?: number
+        currentTime?: number,
     ): Promise<boolean> {
         // Check if token is already spent (only if connected)
         if (this.state.spentTokens.has(tokenHash)) {
-            throw new Error('Token has already been spent');
+            throw new Error("Token has already been spent");
         }
 
         // Verify the signature
         const dataToSign = new TextEncoder().encode(tokenHash);
-        const isValid = verifySignature(dataToSign, hexToBytes(signature), publicKey);
+        const isValid = verifySignature(
+            dataToSign,
+            hexToBytes(signature),
+            publicKey,
+        );
         if (!isValid) {
-            throw new Error('Invalid token signature');
+            throw new Error("Invalid token signature");
         }
 
         // If time window is provided, verify the time slot
         if (timeWindow && currentTime) {
             const currentSlot = Math.floor(currentTime / (timeWindow * 1000));
-            const tokenSlot = parseInt(tokenHash.split(':')[1]);
-            if (Math.abs(currentSlot - tokenSlot) > 1) { // Allow 1 slot drift
-                throw new Error('Token time window expired');
+            const tokenSlot = parseInt(tokenHash.split(":")[1]);
+            if (Math.abs(currentSlot - tokenSlot) > 1) {
+                // Allow 1 slot drift
+                throw new Error("Token time window expired");
             }
         }
 
         // If reader pubkey is provided, verify it matches
         if (readerPubkey) {
-            const tokenReaderPubkey = tokenHash.split(':')[2];
+            const tokenReaderPubkey = tokenHash.split(":")[2];
             if (tokenReaderPubkey !== readerPubkey) {
-                throw new Error('Token not valid for this reader');
+                throw new Error("Token not valid for this reader");
             }
         }
 
@@ -147,7 +250,7 @@ export class Forge {
      */
     async addAuthorizedForger(pubkey: string): Promise<void> {
         if (!this.isInitialized) {
-            throw new Error('Forge must be initialized');
+            throw new Error("Forge must be initialized");
         }
         this.state.authorizedForgers.add(pubkey);
         await this.saveState();
@@ -159,7 +262,7 @@ export class Forge {
      */
     async removeAuthorizedForger(pubkey: string): Promise<void> {
         if (!this.isInitialized) {
-            throw new Error('Forge must be initialized');
+            throw new Error("Forge must be initialized");
         }
         this.state.authorizedForgers.delete(pubkey);
         await this.saveState();
@@ -172,46 +275,23 @@ export class Forge {
         return Array.from(this.state.authorizedForgers);
     }
 
-    private async initializeKeys(): Promise<void> {
-        try {
-            const forgeKeyId = 'forge-keys';
-            const existingKeys = await this.storage.getItem(forgeKeyId);
-
-            if (existingKeys) {
-                const parsedKeys = JSON.parse(existingKeys);
-                this.keys = {
-                    secretKey: parsedKeys.secretKey,
-                    publicKey: parsedKeys.publicKey
-                };
-            } else {
-                const secretKey = bytesToHex(generateSecretKey());
-                const publicKey = getPublicKey(hexToBytes(secretKey));
-                const newKeys = {
-                    secretKey: secretKey,
-                    publicKey: publicKey
-                };
-                await this.storage.setItem(forgeKeyId, JSON.stringify(newKeys));
-                this.keys = { secretKey, publicKey };
-            }
-        } catch (error: any) {
-            throw new Error(`Key initialization failed: ${error.message}`);
-        }
-    }
-
-
     private async saveState(): Promise<void> {
+        console.log("Forge: saveState", this.state)
         const serializableState = {
             ...this.state,
             spentTokens: Array.from(this.state.spentTokens),
             pendingTxs: Array.from(this.state.pendingTxs.entries()),
             tokenUsage: Array.from(this.state.tokenUsage.entries()),
-            lastSavedAt: Date.now()
+            lastSavedAt: Date.now(),
         };
-        await this.storage.setItem('forge-state', JSON.stringify(serializableState));
+        await this.storage.setItem(
+            "forge-state",
+            JSON.stringify(serializableState),
+        );
     }
 
     private async loadState(): Promise<void> {
-        const savedState = await this.storage.getItem('forge-state');
+        const savedState = await this.storage.getItem("forge-state");
         if (savedState) {
             const parsedState = JSON.parse(savedState);
             this.state = {
@@ -220,12 +300,36 @@ export class Forge {
                 spentTokens: new Set(parsedState.spentTokens || []),
                 pendingTxs: new Map(parsedState.pendingTxs || []),
                 totalSupply: parsedState.totalSupply || 0,
-                lastAssetId: parsedState.lastAssetId,
+                lastAssetId: parsedState.lastAssetId || 0,
                 lastProcessedEvent: parsedState.lastProcessedEvent,
                 lastSavedAt: parsedState.lastSavedAt,
-                authorizedForgers: new Set(Array.isArray(parsedState.authorizedForgers) ? parsedState.authorizedForgers : []),
-                tokenUsage: new Map(parsedState.tokenUsage || [])
+                authorizedForgers: new Set(
+                    Array.isArray(parsedState.authorizedForgers)
+                        ? parsedState.authorizedForgers
+                        : [],
+                ),
+                tokenUsage: new Map(parsedState.tokenUsage || []),
             };
+        }
+        else {
+            this.state = {
+                owner: this.config.owner || "",
+                version: 1,
+                spentTokens: new Set(),
+                pendingTxs: new Map(),
+                totalSupply: this.config.totalSupply || 0,
+                lastAssetId: 0,
+                authorizedForgers: new Set(this.config.authorizedForgers || []),
+                tokenUsage: new Map()
+            };
+        }
+    }
+
+    async publishSpentToken(tokenHash: string) {
+        if (this.keys.publicKey && this.keys.secretKey) {
+            // Publish spent token event to Nostr
+            await postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, [['t', tokenHash], ['p', this.keys.publicKey!]]);
+            await this.publishSpentToken(tokenHash);
         }
     }
 
@@ -238,13 +342,20 @@ export class Forge {
      * @param res - The response object
      * @returns The response object
      */
-    private async handleTransfer(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) {
-        const [tokenJWT, recipient, amount] = req.params;
-        const sender = context.sender;  // Get sender from context
+    private async handleTransfer(
+        req: NWPCRequest,
+        context: NWPCContext,
+        res: NWPCResponseObject,
+    ) {
+        const { tokenJWT, recipient, amount } = JSON.parse(req.params);
+        const sender = context.sender; // Get sender from context
 
         // Basic validation
         if (!tokenJWT || !recipient) {
-            return await res.error(400, 'Missing required parameters: tokenJWT and recipient');
+            return await res.error(
+                400,
+                "Missing required parameters: tokenJWT and recipient",
+            );
         }
 
         try {
@@ -253,13 +364,18 @@ export class Forge {
             // Route to appropriate handler based on token type
             switch (token.getTokenType()) {
                 case TokenType.FUNGIBLE:
-                    return await this.handleFungibleTransfer(token, recipient, amount, res, sender);
-                case TokenType.NON_FUNGIBLE:
+                    return await this.handleFungibleTransfer(
+                        token,
+                        recipient,
+                        amount,
+                        res,
+                        sender,
+                    );
+                case TokenType.TAT:
                     return await this.handleNonFungibleTransfer(token, recipient, res);
-                case TokenType.SEMI_FUNGIBLE:
-                    return await this.handleSemiFungibleTransfer(token, recipient, amount, res, sender);
+
                 default:
-                    return await res.error(400, 'Invalid token type');
+                    return await res.error(400, "Invalid token type");
             }
         } catch (error: any) {
             return await res.error(500, error.message);
@@ -271,32 +387,35 @@ export class Forge {
         recipient: string,
         amount: string | undefined,
         res: NWPCResponseObject,
-        sender: string
+        sender: string,
     ) {
         // Validate amount
         if (amount === undefined) {
-            return await res.error(400, 'Amount required for fungible token transfer');
+            return await res.error(
+                400,
+                "Amount required for fungible token transfer",
+            );
         }
         const transferAmount = Number(amount);
         if (isNaN(transferAmount) || transferAmount <= 0) {
-            return await res.error(400, 'Invalid amount: must be a positive number');
+            return await res.error(400, "Invalid amount: must be a positive number");
         }
 
         // Check token validity
         if (token.isExpired()) {
-            return await res.error(400, 'Token has expired');
+            return await res.error(400, "Token has expired");
         }
 
         // Check if token is already spent
         const tokenHash = await token.create_token_hash();
         if (this.state.spentTokens.has(tokenHash)) {
-            return await res.error(400, 'Token has already been spent');
+            return await res.error(400, "Token has already been spent");
         }
 
         // Verify sufficient funds
         const tokenAmount = token.payload.amount || 0;
         if (transferAmount > tokenAmount) {
-            return await res.error(400, 'Insufficient token amount for transfer');
+            return await res.error(400, "Insufficient token amount for transfer");
         }
 
         // Create new token for recipient
@@ -308,8 +427,8 @@ export class Forge {
                 amount: transferAmount,
                 P2PKlock: recipient,
                 timeLock: token.payload.timeLock,
-                data_uri: token.payload.data_uri
-            })
+                data_uri: token.payload.data_uri,
+            }),
         });
 
         // Handle change if needed
@@ -322,31 +441,36 @@ export class Forge {
                     amount: tokenAmount - transferAmount,
                     P2PKlock: token.payload.P2PKlock,
                     timeLock: token.payload.timeLock,
-                    data_uri: token.payload.data_uri
-                })
+                    data_uri: token.payload.data_uri,
+                }),
             });
 
             const [newTokenJWT, changeTokenJWT] = await Promise.all([
                 this.signAndCreateJWT(newToken),
-                this.signAndCreateJWT(changeToken)
+                this.signAndCreateJWT(changeToken),
             ]);
 
-            this.state.spentTokens.add(tokenHash);
-            await this.saveState();
+            await this.publishSpentToken(tokenHash);
 
-            await res.send({
-                token: newTokenJWT
-            }, recipient);
+            await res.send(
+                {
+                    token: newTokenJWT,
+                },
+                recipient,
+            );
 
-            return await res.send({
-                token: changeTokenJWT,
-            }, sender);
+            return await res.send(
+                {
+                    token: changeTokenJWT,
+                },
+                sender,
+            );
         }
 
         // Full transfer
         const newTokenJWT = await this.signAndCreateJWT(newToken);
-        this.state.spentTokens.add(tokenHash);
-        await this.saveState();
+        await this.publishSpentToken(tokenHash)
+
 
         return await res.send({ token: newTokenJWT }, recipient);
     }
@@ -354,132 +478,40 @@ export class Forge {
     private async handleNonFungibleTransfer(
         token: Token,
         recipient: string,
-        res: NWPCResponseObject
+        res: NWPCResponseObject,
     ) {
         // Validate NFT properties
         if (!token.payload.tokenID) {
-            return await res.error(400, 'Non-fungible token must have a tokenID');
+            return await res.error(400, "Non-fungible token must have a tokenID");
         }
 
         // Check token validity
         if (token.isExpired()) {
-            return await res.error(400, 'Token has expired');
+            return await res.error(400, "Token has expired");
         }
 
         // Check if token is already spent
         const tokenHash = await token.create_token_hash();
         if (this.state.spentTokens.has(tokenHash)) {
-            return await res.error(400, 'Token has already been spent');
+            return await res.error(400, "Token has already been spent");
         }
 
         // Create new token for recipient
         const newToken = new Token();
         await newToken.build({
-            token_type: TokenType.NON_FUNGIBLE,
+            token_type: TokenType.TAT,
             payload: Token.createPayload({
                 iss: this.keys.publicKey!,
                 tokenID: token.payload.tokenID,
                 P2PKlock: recipient,
                 timeLock: token.payload.timeLock,
-                data_uri: token.payload.data_uri
-            })
+                data_uri: token.payload.data_uri,
+            }),
         });
 
         const newTokenJWT = await this.signAndCreateJWT(newToken);
-        this.state.spentTokens.add(tokenHash);
-        await this.saveState();
+        await this.publishSpentToken(tokenHash)
 
-        return await res.send({ token: newTokenJWT }, recipient);
-    }
-
-    private async handleSemiFungibleTransfer(
-        token: Token,
-        recipient: string,
-        amount: string | undefined,
-        res: NWPCResponseObject,
-        sender: string
-    ) {
-        // Validate SFT properties
-        if (!token.payload.tokenID) {
-            return await res.error(400, 'Semi-fungible token must have a tokenID');
-        }
-
-        // Validate amount
-        if (amount === undefined) {
-            return await res.error(400, 'Amount required for semi-fungible token transfer');
-        }
-        const transferAmount = Number(amount);
-        if (isNaN(transferAmount) || transferAmount <= 0) {
-            return await res.error(400, 'Invalid amount: must be a positive number');
-        }
-
-        // Check token validity
-        if (token.isExpired()) {
-            return await res.error(400, 'Token has expired');
-        }
-
-        // Check if token is already spent
-        const tokenHash = await token.create_token_hash();
-        if (this.state.spentTokens.has(tokenHash)) {
-            return await res.error(400, 'Token has already been spent');
-        }
-
-        // Verify sufficient quantity
-        const tokenAmount = token.payload.amount || 0;
-        if (transferAmount > tokenAmount) {
-            return await res.error(400, 'Insufficient token quantity for transfer');
-        }
-
-        // Create new token for recipient
-        const newToken = new Token();
-        await newToken.build({
-            token_type: TokenType.SEMI_FUNGIBLE,
-            payload: Token.createPayload({
-                iss: this.keys.publicKey!,
-                tokenID: token.payload.tokenID,
-                amount: transferAmount,
-                P2PKlock: recipient,
-                timeLock: token.payload.timeLock,
-                data_uri: token.payload.data_uri
-            })
-        });
-
-        // Handle change if needed
-        if (transferAmount < tokenAmount) {
-            const changeToken = new Token();
-            await changeToken.build({
-                token_type: TokenType.SEMI_FUNGIBLE,
-                payload: Token.createPayload({
-                    iss: this.keys.publicKey!,
-                    tokenID: token.payload.tokenID,
-                    amount: tokenAmount - transferAmount,
-                    P2PKlock: token.payload.P2PKlock,
-                    timeLock: token.payload.timeLock,
-                    data_uri: token.payload.data_uri
-                })
-            });
-
-            const [newTokenJWT, changeTokenJWT] = await Promise.all([
-                this.signAndCreateJWT(newToken),
-                this.signAndCreateJWT(changeToken)
-            ]);
-
-            this.state.spentTokens.add(tokenHash);
-            await this.saveState();
-            // Send token to recipient, but send change back to original owner
-            await res.send({
-                token: newTokenJWT
-            }, recipient);
-
-            return await res.send({
-                token: changeTokenJWT,
-            }, sender);
-        }
-
-        // Full transfer
-        const newTokenJWT = await this.signAndCreateJWT(newToken);
-        this.state.spentTokens.add(tokenHash);
-        await this.saveState();
 
         return await res.send({ token: newTokenJWT }, recipient);
     }
@@ -491,7 +523,106 @@ export class Forge {
         return await token.toJWT(bytesToHex(signature));
     }
 
+    /**
+     * Handle token minting request
+     */
+    private async handleForge(
+        req: NWPCRequest,
+        context: NWPCContext,
+        res: NWPCResponseObject,
+    ) {
+        const reqObj = JSON.parse(req.params);
+        console.log("Forge: handleForge", reqObj.recipient)
 
 
 
-} 
+        try {
+            const token = new Token();
+            const tokenType = this.config.tokenType || TokenType.TAT;
+            switch (tokenType) {
+                case TokenType.FUNGIBLE:
+                    if (!reqObj.amount || !reqObj.recipient) {
+                        return await res.error(400, "Missing required parameters");
+                    }
+                    await token.build({
+                        token_type: TokenType.FUNGIBLE,
+                        payload: Token.createPayload({
+                            iss: this.keys.publicKey!,
+                            amount: Number(reqObj.amount),
+                            P2PKlock: reqObj.recipient,
+                        }),
+                    });
+                    break;
+                case TokenType.TAT:
+                    await token.build({
+                        token_type: TokenType.TAT,
+                        payload: Token.createPayload({
+                            iss: this.keys.publicKey!,
+                            tokenID: this.state.lastAssetId,
+                            P2PKlock: reqObj.recipient,
+                        })
+                    });
+                    this.state.lastAssetId += 1;
+                    break;
+            }
+            const tokenJWT = await this.signAndCreateJWT(token);
+            await this.saveState();
+            return await res.send({ token: tokenJWT }, reqObj.recipient);
+
+        } catch (error: any) {
+            return await res.error(500, error.message);
+        }
+    }
+
+    /**
+     * Handle token burning request
+     */
+    private async handleBurn(
+        req: NWPCRequest,
+        context: NWPCContext,
+        res: NWPCResponseObject,
+    ) {
+        const { tokenJWT } = JSON.parse(req.params);
+        if (!tokenJWT) {
+            return await res.error(400, "Missing token JWT");
+        }
+
+        try {
+            const token = await new Token().restore(tokenJWT);
+            const tokenHash = await token.create_token_hash();
+
+            if (this.state.spentTokens.has(tokenHash)) {
+                return await res.error(400, "Token already spent");
+            }
+
+            await this.publishSpentToken(tokenHash);
+            return await res.send({ success: true }, context.sender);
+        } catch (error: any) {
+            return await res.error(500, error.message);
+        }
+    }
+
+    /**
+     * Handle token verification request
+     */
+    private async handleVerify(
+        req: NWPCRequest,
+        context: NWPCContext,
+        res: NWPCResponseObject,
+    ) {
+        const { tokenJWT } = JSON.parse(req.params);
+        if (!tokenJWT) {
+            return await res.error(400, "Missing token JWT");
+        }
+
+        try {
+            const token = await new Token().restore(tokenJWT);
+            const tokenHash = await token.create_token_hash();
+
+            const isValid = !this.state.spentTokens.has(tokenHash);
+            return await res.send({ valid: isValid }, context.sender);
+        } catch (error: any) {
+            return await res.error(500, error.message);
+        }
+    }
+}

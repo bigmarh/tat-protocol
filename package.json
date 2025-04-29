@@ -9,7 +9,11 @@
     "lint": "pnpm -r --filter=!@tat-protocol/forge lint && pnpm --filter=@tat-protocol/forge lint",
     "format": "pnpm -r format",
     "clean": "pnpm -r clean",
-    "prepare": "husky install"
+    "prepare": "husky install",
+    "forge": "npx tsx forge/runForge.ts",
+    "calculator": "npx tsx nwpc/examples/server.ts",
+    "noisey-client": "npx tsx nwpc/examples/noisey-client.ts",
+    "client": "npx tsx nwpc/examples/client.ts"
   },
   "dependencies": {
     "@tat-protocol/forge": "workspace:*",
