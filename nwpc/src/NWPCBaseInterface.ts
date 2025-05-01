@@ -8,5 +8,8 @@ export interface INWPCBase {
     response: NWPCResponse,
     recipients: string[],
   ): Promise<void>;
-  subscribe(pubkey: string, handler: (event: NDKEvent) => Promise<void>): Promise<any>;
+  subscribe(
+    pubkey: string,
+    handler: (event: NDKEvent) => Promise<void>,
+  ): Promise<any>;
 }

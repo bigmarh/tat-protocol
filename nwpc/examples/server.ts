@@ -10,7 +10,6 @@ import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
 import { defaultConfig } from "../../config/defaultConfig";
 
-
 /*   Private Key: 2623a88c18e829794edd8f2fdfd7408f644a3675c706d98173a6cb9ede41515e
   Public Key: 031dd47426e7518119dcca1688cc3c3ae976f8c5690b4e2160e66dab47833f0876 */
 // Server configuration
@@ -27,13 +26,11 @@ const handlers = {
     return await res.send("pong", "sender");
   },
   add: async (req: NWPCRequest, _: NWPCContext, res: NWPCResponseObject) => {
-
-
     function add(a: number, b: number) {
       return a + b;
     }
 
-    const{ a, b} = JSON.parse(req.params);
+    const { a, b } = JSON.parse(req.params);
     if (!a || !b) {
       return await res.error(400, "Invalid parameters");
     }
@@ -83,7 +80,7 @@ class CalculatorServer {
     this.server = new NWPCServer({
       keys: SERVER_KEYS,
       type: "server",
-      relays: defaultConfig.relays
+      relays: defaultConfig.relays,
     });
 
     console.log("Server Connected");

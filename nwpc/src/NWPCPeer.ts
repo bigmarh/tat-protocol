@@ -23,7 +23,6 @@ export class NWPCPeer extends NWPCBase {
     }
   >;
 
-
   constructor(config: NWPCConfig) {
     super(config);
     this.responseHandlers = new Map();
@@ -97,7 +96,10 @@ export class NWPCPeer extends NWPCBase {
           console.log("NWPCPeer: No handler found for method:", request.method);
         }
       } else {
-        console.log("NWPCPeer:handleEvent: Unknown message type:", message.result);
+        console.log(
+          "NWPCPeer:handleEvent: Unknown message type:",
+          message.result,
+        );
       }
     } catch (error) {
       console.error("NWPCPeer: Error in handleEvent:", error);

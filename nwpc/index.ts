@@ -13,5 +13,5 @@ export type {
   MessageHook,
   MessageHookOptions,
   NWPCError,
-  NWPCConfig
+  NWPCConfig,
 } from "./src/NWPCResponseTypes";

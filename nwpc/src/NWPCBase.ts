@@ -32,7 +32,6 @@ export abstract class NWPCBase implements INWPCBase {
   };
 
   constructor(config: NWPCConfig) {
-
     this.config = config;
     this.keys = config.keys || undefined;
     this.ndk = new NDK({
@@ -49,23 +48,20 @@ export abstract class NWPCBase implements INWPCBase {
     this.router = new NWPCRouter(this, this.requestHandlers);
     this.engine = new HandlerEngine(this);
 
-
     if (this.keys) {
-      this.connect().then((o) => {
-        o.subscribe(o.keys.publicKey, o.handleEvent.bind(o));
-      }).catch((err) => {
-        
-        console.error("NWPCBase: Error in connect", err);
-      });
+      this.connect()
+        .then((o) => {
+          o.subscribe(o.keys.publicKey, o.handleEvent.bind(o));
+        })
+        .catch((err) => {
+          console.error("NWPCBase: Error in connect", err);
+        });
     } else {
-     
       console.error("NWPCBase: Keys not initialized");
     }
-  
   }
 
   public async connect(): Promise<NWPCBase> {
-
     if (this.state.connected) {
       return this;
     }
@@ -98,9 +94,6 @@ export abstract class NWPCBase implements INWPCBase {
     pubkey: string,
     handler: (event: NDKEvent) => Promise<void>,
   ): Promise<NDKSubscription> {
-
-
-
     const filter = {
       kinds: [1059],
       "#p": [pubkey],
@@ -110,9 +103,6 @@ export abstract class NWPCBase implements INWPCBase {
     const subscription = this.ndk.subscribe(filter, {
       closeOnEose: false,
     });
-
-
-  
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: any) => {
@@ -191,6 +181,4 @@ export abstract class NWPCBase implements INWPCBase {
   }
 
   protected abstract handleEvent(event: NDKEvent): Promise<void>;
-
-
 }

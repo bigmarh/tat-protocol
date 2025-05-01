@@ -8,9 +8,6 @@ import {
 } from "@tat-protocol/utils";
 import { KeyPair } from "@tat-protocol/hdkeys";
 
-
-
-
 export enum TokenType {
   /**
    * Fungible tokens - interchangeable and identical
@@ -25,8 +22,6 @@ export enum TokenType {
    */
   TAT = "TAT",
 }
-
-
 
 /**
  * JWT header structure for token

@@ -1,4 +1,3 @@
-
 import { Payload, Header } from "./Token";
 
 /**

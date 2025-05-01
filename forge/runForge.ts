@@ -24,7 +24,7 @@ const config: ForgeConfig = {
   authorizedForgers: [publicKey], // Authorize ourselves
   storage: new Storage(), // Use default storage
   tokenType: TokenType.TAT, // Set token type to fungible
-  relays: defaultConfig.relays
+  relays: defaultConfig.relays,
 };
 
 // Create and run the forge
