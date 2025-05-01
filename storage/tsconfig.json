@@ -12,12 +12,11 @@
         "skipLibCheck": true,
         "noImplicitAny": false,
         "noUnusedLocals": false,
-        "noUnusedParameters": false
+        "noUnusedParameters": false,
     },
     "references": [
-        { "path": "../types" },
         { "path": "../utils" }
     ],
-    "include": ["lib/**/*", "index.ts"],
+    "include": ["src/**/*", "index.ts"],
     "exclude": ["node_modules", "**/*.test.ts"]
 } 

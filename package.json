@@ -4,23 +4,26 @@
   "version": "1.0.0",
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
   "scripts": {
-    "build": "pnpm -r build",
+    "build": "find . -type d -name \"dist\" -exec rm -rf {} + && pnpm build:core && pnpm build:token && pnpm build:apps",
+    "build:core": "pnpm --filter hdkeys build && pnpm --filter storage build && pnpm --filter utils build",
+    "build:token": "pnpm --filter token build",
+    "build:apps": "pnpm --filter nwpc build && pnpm --filter forge build && pnpm --filter pocket build",
     "test": "pnpm -r test",
-    "lint": "pnpm -r --filter=!@tat-protocol/forge lint && pnpm --filter=@tat-protocol/forge lint",
+    "lint": "pnpm -r --filter=!forge lint && pnpm --filter=forge lint",
     "format": "pnpm -r format",
     "clean": "pnpm -r clean",
     "prepare": "husky install",
     "forge": "npx tsx forge/runForge.ts",
     "calculator": "npx tsx nwpc/examples/server.ts",
     "noisey-client": "npx tsx nwpc/examples/noisey-client.ts",
-    "client": "npx tsx nwpc/examples/client.ts"
+    "client": "npx tsx nwpc/examples/client.ts",
+    "pocket": "npx tsx pocket/runPocket.ts"
   },
   "dependencies": {
     "@tat-protocol/forge": "workspace:*",
     "@tat-protocol/nwpc": "workspace:*",
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/hdkeys": "workspace:*",
-    "@tat-protocol/types": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/pocket": "workspace:*"
@@ -39,6 +42,12 @@
   },
   "packageManager": "pnpm@8.15.4",
   "workspaces": [
-    "packages/*"
+    "hdkeys",
+    "storage",
+    "utils",
+    "token",
+    "nwpc",
+    "forge",
+    "pocket"
   ]
-} 
+}

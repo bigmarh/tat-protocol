@@ -4,7 +4,7 @@ import type {
   NWPCRequest,
   NWPCContext,
   NWPCResponseObject,
-} from "@tat-protocol/nwpc";
+} from "../lib/NWPCResponseTypes";
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
 

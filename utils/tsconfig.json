@@ -8,15 +8,11 @@
       "@tat-protocol/*": ["../*/src"]
     },
     "composite": true,
-    "typeRoots": ["./node_modules/@types", "../node_modules/@types"],
     "skipLibCheck": true,
     "noUnusedLocals": false,
     "noUnusedParameters": false,
     "noImplicitAny": false
   },
-  "references": [
-    { "path": "../types" }
-  ],
-  "include": ["lib/**/*", "*.ts"],
+  "include": ["src/**/*", "*.ts"],
   "exclude": ["node_modules", "**/*.test.ts"]
 } 

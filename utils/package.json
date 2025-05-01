@@ -5,7 +5,7 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsc",
+        "build": "rm -rf dist && tsc",
         "test": "jest",
         "lint": "eslint . --ext .ts",
         "format": "prettier --write \"**/*.ts\"",
@@ -27,8 +27,5 @@
     "devDependencies": {
         "typescript": "^5.0.0",
         "@types/node": "^20.0.0"
-    },
-    "peerDependencies": {
-        "@tat-protocol/types": "workspace:*"
     }
 } 

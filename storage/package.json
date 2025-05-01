@@ -27,7 +27,6 @@
         "@types/node": "^20.0.0"
     },
     "peerDependencies": {
-        "@tat-protocol/types": "workspace:*",
         "@tat-protocol/utils": "workspace:*"
     }
 }

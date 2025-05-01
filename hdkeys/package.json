@@ -29,7 +29,6 @@
         "@types/bip39": "^3.0.4"
     },
     "peerDependencies": {
-        "@tat-protocol/types": "workspace:*",
         "@tat-protocol/utils": "workspace:*"
     }
 } 

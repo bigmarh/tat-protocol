@@ -8,14 +8,15 @@
       "@tat-protocol/*": ["../*/src"]
     },
     "composite": true,
-    "typeRoots": ["./node_modules/@types", "../node_modules/@types", "./lib"],
+    "typeRoots": ["./node_modules/@types", "../node_modules/@types", "./src"],
     "skipLibCheck": true,
-    "types": ["node", "bip39"]
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "noImplicitAny": false
   },
   "references": [
-    { "path": "../types" },
     { "path": "../utils" }
   ],
-  "include": ["lib/**/*", "index.ts"],
+  "include": ["src/**/*", "index.ts"],
   "exclude": ["node_modules", "**/*.test.ts"]
 } 

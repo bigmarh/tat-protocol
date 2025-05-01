@@ -1,1 +1,1 @@
-export * from './lib/core/Pocket'; 
+export * from "./src/core/Pocket";

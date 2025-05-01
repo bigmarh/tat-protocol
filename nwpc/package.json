@@ -22,12 +22,12 @@
   "author": "TAT Protocol",
   "license": "MIT",
   "dependencies": {
+    "@tat-protocol/config": "file:../config",
+    "@tat-protocol/utils": "workspace:*",
     "nostr-tools": "^2.12.0",
     "@nostr-dev-kit/ndk": "^2.14.4"
   },
   "peerDependencies": {
-    "@tat-protocol/types": "workspace:*",
-    "@tat-protocol/utils": "workspace:*",
     "@tat-protocol/storage": "workspace:*"
   },
   "devDependencies": {

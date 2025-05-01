@@ -22,7 +22,6 @@
     "references": [
         { "path": "../nwpc" },
         { "path": "../storage" },
-        { "path": "../types" },
         { "path": "../utils" }
     ],
     "include": ["**/*.ts"],

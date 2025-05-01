@@ -14,11 +14,11 @@
     "noUnusedParameters": false,
     "noImplicitAny": false
   },
+
   "references": [
-    { "path": "../types" },
     { "path": "../utils" },
     { "path": "../storage" }
   ],
-  "include": ["lib/**/*", "index.ts"],
-  "exclude": ["node_modules", "**/*.test.ts"]
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "**/*.test.ts", "dist"]
 } 

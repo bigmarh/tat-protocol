@@ -3,6 +3,7 @@ import { NWPCPeer } from "../lib";
 import readline from "readline";
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
+import { defaultConfig } from "../../config/defaultConfig";
 
 /*  Private Key: da99fc1f05476cccd2672c9e4141bd33ae684fff4323288251ebb188e95040cf
   Public Key: 04133dbe9039a986f9342ff2c2d287f1b184a6c385b3c72d9b1829b1d6b9bdfc */
@@ -38,7 +39,7 @@ class CalculatorClient {
     this.peer = new NWPCPeer({
       keys: CLIENT_KEYS,
       type: "client",
-      relays: ["ws://localhost:8080"]
+      relays: defaultConfig.relays,
     });
 
     this.serverKey = serverKey || DEFAULT_SERVER_KEY;
@@ -70,7 +71,11 @@ class CalculatorClient {
   private async executeCommand(command: Command, args: number[]) {
     try {
       console.log(`\nCalculating: ${args[0]} ${command} ${args[1]}`);
-      const result = await this.peer.request(command, {a:args[0],b:args[1]}, this.serverKey);
+      const result = await this.peer.request(
+        command,
+        { a: args[0], b: args[1] },
+        this.serverKey,
+      );
       console.log(`Result: ${result.result}\n`);
     } catch (error) {
       console.error(

@@ -24,7 +24,6 @@
         { "path": "../nwpc" },
         { "path": "../storage" },
         { "path": "../hdkeys" },
-        { "path": "../types" },
         { "path": "../utils" }
     ],
     "include": ["**/*.ts"],

@@ -15,7 +15,6 @@
     "@tat-protocol/nwpc": "workspace:*",
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/hdkeys": "workspace:*",
-    "@tat-protocol/types": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/pocket": "workspace:*"

@@ -1,8 +1,8 @@
-export * from "./lib/NWPCBase";
-export * from "./lib/NWPCServer";
-export * from "./lib/NWPCPeer";
-export * from "./lib/NWPCRouter";
-export * from "./lib/HandlerEngine";
+export * from "./src/NWPCBase";
+export * from "./src/NWPCServer";
+export * from "./src/NWPCPeer";
+export * from "./src/NWPCRouter";
+export * from "./src/HandlerEngine";
 export type {
   NWPCRequest,
   NWPCResponse,
@@ -13,4 +13,5 @@ export type {
   MessageHook,
   MessageHookOptions,
   NWPCError,
-} from "./lib/NWPCResponseTypes";
+  NWPCConfig
+} from "./src/NWPCResponseTypes";

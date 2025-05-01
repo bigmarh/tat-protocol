@@ -1,5 +1,5 @@
-export * from './lib/StorageInterface';
-export * from './lib/Storage';
-export * from './lib/NodeStorage';
-export * from './lib/BrowserStorage';
-export * from './lib/PearStorage';
+export * from './src/StorageInterface';
+export * from './src/Storage';
+export * from './src/NodeStorage';
+export * from './src/BrowserStorage';
+/* export * from './src/PearStorage'; */

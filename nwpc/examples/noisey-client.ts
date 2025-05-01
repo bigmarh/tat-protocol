@@ -4,6 +4,7 @@ import readline from "readline";
 import { getPublicKey } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey } from "nostr-tools";
+import { defaultConfig } from "../../config/defaultConfig";
 
 
 //send forge 1000 04133dbe9039a986f9342ff2c2d287f1b184a6c385b3c72d9b1829b1d6b9bdfc
@@ -28,7 +29,7 @@ class NoiseyClient {
         this.servers.set('forge', '5bae0f9ff8aae5670b84e74f64893aa3a51384da1e922634427373415c4b8f90');
 
         this.currentServer = "forge";
-    
+
         const setName = 'admin';
         const secretKey = '7a3b427a07be6719f337c4683bc4b48ca4603e00e1057688e7b73c0c7ad69c78';
         const keyPair = {
@@ -44,7 +45,7 @@ class NoiseyClient {
             output: process.stdout
         });
 
-       
+
     }
 
     private generateKeys(name: string): KeyPair {
@@ -76,7 +77,7 @@ class NoiseyClient {
                 publicKey: keyPair.publicKey
             },
             type: "client",
-            relays: ["ws://localhost:8080"],
+            relays: defaultConfig.relays,
         });
 
         console.log("\n🔑 Current Key Pair:");
@@ -108,7 +109,7 @@ class NoiseyClient {
         const [command, ...args] = input.trim().split(" ");
 
         switch (command.toLowerCase()) {
-            case "add":{
+            case "add": {
                 if (args.length >= 2) {
                     const [name, ...pubkeyParts] = args;
                     const pubkey = pubkeyParts.join(" ");
@@ -122,8 +123,9 @@ class NoiseyClient {
                 } else {
                     console.log("Please specify server name and pubkey");
                 }
-                break;}
-            case "use":{
+                break;
+            }
+            case "use": {
                 if (args.length > 0) {
                     const serverName = args[0];
                     if (!this.servers.has(serverName)) {
@@ -135,8 +137,9 @@ class NoiseyClient {
                 } else {
                     console.log("Please specify a server name");
                 }
-                break;}
-            case "list":{
+                break;
+            }
+            case "list": {
                 console.log("\nAvailable servers:");
                 this.servers.forEach((pubkey, name) => {
                     console.log(`${name}: ${pubkey}`);
@@ -144,8 +147,9 @@ class NoiseyClient {
                 if (this.currentServer) {
                     console.log(`\nCurrent server: ${this.currentServer}`);
                 }
-                break;}
-            case "newkey":{
+                break;
+            }
+            case "newkey": {
                 if (args.length === 0) {
                     console.log("Please specify a name for the new key pair");
                     return;
@@ -160,8 +164,9 @@ class NoiseyClient {
                 this.currentKey = newKeyName;
                 await this.initialize();
                 console.log(`New key pair '${newKeyName}' generated and selected`);
-                break;}
-            case "setkey":{
+                break;
+            }
+            case "setkey": {
                 if (args.length === 0) {
                     console.log("Please specify a name for the key pair");
                     return;
@@ -171,7 +176,7 @@ class NoiseyClient {
                     const secretKey = await new Promise<string>((resolve) => {
                         this.rl.question("Enter your secret key: ", resolve);
                     });
-                    
+
                     if (!/^[0-9a-f]{64}$/.test(secretKey)) {
                         console.log("Invalid secret key format. Must be 64 hex characters.");
                         return;
@@ -189,8 +194,9 @@ class NoiseyClient {
                 } catch (error) {
                     console.error("Error setting key pair:", error);
                 }
-                break;}
-            case "usekey":{
+                break;
+            }
+            case "usekey": {
                 if (args.length === 0) {
                     console.log("Please specify a key pair name");
                     return;
@@ -203,8 +209,9 @@ class NoiseyClient {
                 this.currentKey = useName;
                 await this.initialize();
                 console.log(`Switched to key pair '${useName}'`);
-                break;}
-            case "listkeys":{
+                break;
+            }
+            case "listkeys": {
                 console.log("\nAvailable key pairs:");
                 this.keys.forEach((keyPair, name) => {
                     console.log(`\n${name}:`);
@@ -213,8 +220,9 @@ class NoiseyClient {
                         console.log("  (Currently selected)");
                     }
                 });
-                break;}
-            case "send":{
+                break;
+            }
+            case "send": {
                 if (!this.currentServer) {
                     console.log("No server selected. Use 'use <server>' first.");
                     return;
@@ -229,7 +237,7 @@ class NoiseyClient {
                 }
                 try {
                     const action = args.shift();
-                    const message = args.shift();
+                    const message = args;
                     const serverPubkey = this.servers.get(this.currentServer);
                     if (!serverPubkey) {
                         console.log("Server pubkey not found");
@@ -237,12 +245,13 @@ class NoiseyClient {
                     }
 
                     console.log("MESSAGE:", JSON.stringify(message))
-                    const result = await this.peer.request(String(action), JSON.parse(JSON.stringify(message)), serverPubkey);
+                    const result = await this.peer.request(String(action), args.map((arg) => { try { return JSON.parse(arg) } catch (e) { return arg } }), serverPubkey);
                     console.log("Server response:", result);
                 } catch (error) {
                     console.error("Error sending message:", error);
                 }
-                break;}
+                break;
+            }
             case "exit":
                 console.log("Goodbye! 👋");
                 this.rl.close();

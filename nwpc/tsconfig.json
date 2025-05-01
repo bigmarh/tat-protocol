@@ -15,10 +15,9 @@
     "noImplicitAny": false
   },
   "references": [
-    { "path": "../types" },
     { "path": "../utils" },
     { "path": "../storage" }
   ],
-  "include": ["lib/**/*", "index.ts"],
+  "include": ["src/**/*", "index.ts"],
   "exclude": ["node_modules", "dist", "**/*.test.ts"]
 } 

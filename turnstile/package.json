@@ -16,7 +16,6 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
-        "@tat-protocol/types": "file:../types",
         "@tat-protocol/nwpc": "file:../nwpc",
         "@tat-protocol/storage": "file:../storage",
         "@tat-protocol/utils": "file:../utils"

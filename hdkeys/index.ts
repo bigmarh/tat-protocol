@@ -2,6 +2,9 @@ import { HDKey as HDKeyLib } from "@scure/bip32";
 import { bytesToHex } from "@noble/hashes/utils";
 import { generateMnemonic, mnemonicToSeed } from "bip39";
 
+
+
+
 export class HDKey {
   private hdKey: HDKeyLib;
 
