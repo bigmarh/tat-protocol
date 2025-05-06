@@ -13,10 +13,6 @@ export * as Utils from "@tat-protocol/utils";
 export * as Token from "@tat-protocol/token";
 export * as Pocket from "@tat-protocol/pocket";
 
-// Re-export commonly used types
-export type { KeyPair } from "@tat-protocol/types";
-
-export type { TokenHeader, TokenPayload } from "@tat-protocol/types";
 
 // Re-export commonly used utilities
 export {} from // Add commonly used utilities here
