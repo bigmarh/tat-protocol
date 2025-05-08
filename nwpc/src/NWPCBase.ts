@@ -7,7 +7,6 @@ import { NWPCRouter } from "./NWPCRouter";
 import { HandlerEngine } from "./HandlerEngine";
 import {
   NWPCConfig,
-  NWPCContext,
   NWPCRequest,
   NWPCResponse,
   NWPCRoute,
@@ -45,8 +44,8 @@ export abstract class NWPCBase implements INWPCBase {
       connected: false,
       activeSubscriptions: new Map(),
     };
-    this.router = new NWPCRouter(this, this.requestHandlers);
-    this.engine = new HandlerEngine(this);
+    this.router = new NWPCRouter(this.requestHandlers);
+    this.engine = new HandlerEngine();
 
     if (this.keys) {
       this.connect()

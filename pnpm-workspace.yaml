@@ -6,4 +6,5 @@ packages:
 - 'utils'
 - 'token'
 - 'pocket'
+- 'config'
 - '!**/node_modules/**'

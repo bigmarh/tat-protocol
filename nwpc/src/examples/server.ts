@@ -1,14 +1,13 @@
-import NDK from "@nostr-dev-kit/ndk";
-import { NWPCServer } from "../lib";
+import { NWPCServer } from "@tat-protocol/nwpc";
 import type {
   NWPCHandler,
   NWPCRequest,
   NWPCContext,
   NWPCResponseObject,
-} from "../lib/NWPCResponseTypes";
-import { getPublicKey } from "@tat-protocol/utils";
+} from "@tat-protocol/nwpc";
+import { getPublicKey } from "nostr-tools";
 import { hexToBytes } from "@noble/hashes/utils";
-import { defaultConfig } from "../../config/defaultConfig";
+import { defaultConfig } from "./defaultConfig";
 
 /*   Private Key: 2623a88c18e829794edd8f2fdfd7408f644a3675c706d98173a6cb9ede41515e
   Public Key: 031dd47426e7518119dcca1688cc3c3ae976f8c5690b4e2160e66dab47833f0876 */
@@ -22,54 +21,58 @@ const SERVER_KEYS = {
 console.log(SERVER_KEYS.publicKey);
 // Calculator handlers
 const handlers = {
-  ping: async (req: NWPCRequest, _: NWPCContext, res: NWPCResponseObject) => {
-    return await res.send("pong", "sender");
+  ping: async (_req: NWPCRequest, _: NWPCContext, _res: NWPCResponseObject) => {
+    return await _res.send("pong", "sender");
   },
-  add: async (req: NWPCRequest, _: NWPCContext, res: NWPCResponseObject) => {
+  add: async (_req: NWPCRequest, _: NWPCContext, _res: NWPCResponseObject) => {
     function add(a: number, b: number) {
       return a + b;
     }
 
-    const { a, b } = JSON.parse(req.params);
+    const { a, b } = JSON.parse(_req.params);  
     if (!a || !b) {
-      return await res.error(400, "Invalid parameters");
+      return await _res.error(400, "Invalid parameters");
     }
-    return await res.send(add(a, b), "sender");
+    return await _res.send(add(a, b), "sender");
   },
 
   subtract: async (
     req: NWPCRequest,
     _: NWPCContext,
-    res: NWPCResponseObject,
+    _res: NWPCResponseObject,
   ) => {
     const { a, b } = JSON.parse(req.params);
     if (!a || !b) {
-      return await res.error(400, "Invalid parameters");
+      return await _res.error(400, "Invalid parameters");
     }
-    return await res.send(a - b, "sender");
+    return await _res.send(a - b, "sender");
   },
 
   multiply: async (
     req: NWPCRequest,
     _: NWPCContext,
-    res: NWPCResponseObject,
+    _res: NWPCResponseObject,
   ) => {
     const { a, b } = JSON.parse(req.params);
     if (!a || !b) {
-      return await res.error(400, "Invalid parameters");
+      return await _res.error(400, "Invalid parameters");
     }
-    return await res.send(a * b, "sender");
+    return await _res.send(a * b, "sender");
   },
 
-  divide: async (req: NWPCRequest, _: NWPCContext, res: NWPCResponseObject) => {
+  divide: async (
+    req: NWPCRequest,
+    _: NWPCContext,
+    _res: NWPCResponseObject,
+  ) => {
     const { a, b } = JSON.parse(req.params);
     if (!a || !b) {
-      return await res.error(400, "Invalid parameters");
+      return await _res.error(400, "Invalid parameters");
     }
     if (b === 0) {
-      return await res.error(400, "Division by zero");
+      return await _res.error(400, "Division by zero");
     }
-    return await res.send(a / b, "sender");
+    return await _res.send(a / b, "sender");
   },
 };
 

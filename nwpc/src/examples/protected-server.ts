@@ -1,11 +1,11 @@
-import { NWPCServer } from "../lib";
-import type {
+import { NWPCServer } from "@tat-protocol/nwpc";
+import type { 
   NWPCHandler,
   NWPCRequest,
   NWPCContext,
   NWPCResponseObject,
-} from "../lib/NWPCResponseTypes";
-import { getPublicKey } from "@tat-protocol/utils";
+} from "@tat-protocol/nwpc";
+import { getPublicKey } from "nostr-tools";
 import { hexToBytes } from "@noble/hashes/utils";
 
 // Example keys - DO NOT USE IN PRODUCTION
@@ -34,8 +34,8 @@ class ProtectedServer extends NWPCServer {
   private initializeMiddleware() {
     this.logger = async (
       request: NWPCRequest,
-      context: NWPCContext,
-      res: NWPCResponseObject,
+      _context: NWPCContext,
+      _res: NWPCResponseObject,
       next: () => Promise<void>,
     ) => {
       console.log(
@@ -50,8 +50,8 @@ class ProtectedServer extends NWPCServer {
 
     this.authenticator = async (
       request: NWPCRequest,
-      context: NWPCContext,
-      res: NWPCResponseObject,
+      _context: NWPCContext,
+      _res: NWPCResponseObject,
       next: () => Promise<void>,
     ) => {
       const result = request.params?.[0]
@@ -61,9 +61,9 @@ class ProtectedServer extends NWPCServer {
         "\n++++++++++++++++++++++++++ Authenticator ++++++++++++++++++++++++++",
       );
       console.log(`Authenticating request: 
-                \nSender:${context.sender} 
-                \nRecipient:${context.recipient}
-                 \nPoster:${context.poster} 
+                  \nSender:${_context.sender} 
+                \nRecipient:${_context.recipient}
+                 \nPoster:${_context.poster} 
                  \nMessage:${request.params?.[0]}
                  \nToken: ${result?.token}`);
       console.log(
@@ -71,16 +71,16 @@ class ProtectedServer extends NWPCServer {
       );
 
       if (!result?.token) {
-        res.error(500, "Authentication required");
+        _res.error(500, "Authentication required");
       }
       // In a real implementation, verify the token here
       return next();
     };
 
     this.rateLimiter = async (
-      request: NWPCRequest,
-      context: NWPCContext,
-      res: NWPCResponseObject,
+      _request: NWPCRequest,
+      _context: NWPCContext,
+      _res: NWPCResponseObject,
       next: () => Promise<void>,
     ) => {
       console.log(
@@ -95,33 +95,33 @@ class ProtectedServer extends NWPCServer {
     };
   }
 
-  private adminAction: NWPCHandler = async (request, context, res) => {
+  private adminAction: NWPCHandler = async (_request, _context, _res) => {
     console.log(
       "\n++++++++++++++++++++++++++ Admin Action ++++++++++++++++++++++++++",
     );
-    return await res.send({
+    return await _res.send({
       message: "Admin action executed",
     });
   };
 
-  private userAction: NWPCHandler = async (request, context, res) => {
+  private userAction: NWPCHandler = async (_request, _context, _res) => {
     console.log(
       "\n++++++++++++++++++++++++++ User Action ++++++++++++++++++++++++++",
     );
-    return await res.send({
+    return await _res.send({
       message: "User action executed",
     });
   };
 
-  private publicAction: NWPCHandler = async (request, context, res) => {
+  private publicAction: NWPCHandler = async (_request, _context, _res) => {
     console.log(
       "\n++++++++++++++++++++++++++ Public Action ++++++++++++++++++++++++++",
     );
-    return await res.send(
+    return await _res.send(
       {
         message: "Public action executed",
       },
-      context.sender,
+      _context.sender,
     );
   };
 

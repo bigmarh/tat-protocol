@@ -6,7 +6,6 @@
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "tsc",
-        "prepare": "npm run build",
         "dev": "npx tsx runPocket.ts",
         "dev:watch": "npx tsx watch runPocket.ts"
     },
@@ -18,17 +17,17 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
+        "@nostr-dev-kit/ndk": "^2.14.4",
         "@tat-protocol/config": "file:../config",
-        "@tat-protocol/nwpc": "file:../nwpc",
         "@tat-protocol/hdkeys": "file:../hdkeys",
+        "@tat-protocol/nwpc": "file:../nwpc",
         "@tat-protocol/storage": "file:../storage",
         "@tat-protocol/utils": "file:../utils",
         "nostr-tools": "^2.12.0",
-        "@nostr-dev-kit/ndk": "^2.14.4"
+        "tsx": "^4.19.4"
     },
     "devDependencies": {
-        "typescript": "^5.0.0",
         "@types/node": "^20.0.0",
-        "tsx": "^4.7.1"
+        "typescript": "^5.0.0"
     }
 }

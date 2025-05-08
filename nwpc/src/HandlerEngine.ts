@@ -5,19 +5,15 @@ import {
   NWPCHandler,
   NWPCResponseObject,
 } from "./NWPCResponseTypes";
-import { INWPCBase } from "./NWPCBaseInterface";
 
-type HandlerFunction = (req: any, ctx: any, res: any, next: () => void) => void;
 
 /**
  * Engine for executing middleware chains and handlers
  */
 export class HandlerEngine {
-  private server: INWPCBase;
   private handlers: NWPCHandler[] = [];
 
-  constructor(server: INWPCBase) {
-    this.server = server;
+  constructor() {
   }
 
   public addAll(handlers: NWPCHandler[]): void {

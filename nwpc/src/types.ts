@@ -62,17 +62,17 @@ export type NWPCMiddleware = (
 ) => Promise<NWPCResponse>;
 
 export class NWPCResponseObject {
-  private id: string;
+  private _id: string;
   private response: NWPCResponse;
   private sender: NWPCBase;
   private context: NWPCContext;
 
   constructor(id: string, sender: NWPCBase, context: NWPCContext) {
-    this.id = id;
+    this._id = id;
     this.sender = sender;
     this.context = context;
     this.response = {
-      id,
+      id: this._id,
       timestamp: Date.now(),
     };
   }

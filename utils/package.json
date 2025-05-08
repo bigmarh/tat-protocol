@@ -9,8 +9,7 @@
         "test": "jest",
         "lint": "eslint . --ext .ts",
         "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist",
-        "prepare": "npm run build"
+        "clean": "rm -rf dist"
     },
     "keywords": [
         "utils",
@@ -21,11 +20,12 @@
     "license": "MIT",
     "dependencies": {
         "@noble/hashes": "^1.0.0",
-        "nostr-tools": "^2.12.0",
-        "@nostr-dev-kit/ndk": "^2.14.2"
+        "@nostr-dev-kit/ndk": "2.14.9",
+        "@tat-protocol/hdkeys": "workspace:*",
+        "nostr-tools": "^2.12.0"
     },
     "devDependencies": {
-        "typescript": "^5.0.0",
-        "@types/node": "^20.0.0"
+        "@types/node": "^20.0.0",
+        "typescript": "^5.0.0"
     }
-} 
+}

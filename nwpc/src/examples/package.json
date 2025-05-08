@@ -14,7 +14,8 @@
   },
   "dependencies": {
     "@tat-protocol/nwpc": "file:../",
-    "nostr-tools": "^2.1.5"
+    "nostr-tools": "^2.12.0",
+    "@nostr-dev-kit/ndk": "^2.14.9"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

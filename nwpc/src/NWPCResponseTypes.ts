@@ -1,6 +1,6 @@
 import { NWPCBase } from "./NWPCBase";
 import { NWPCServer } from "./NWPCServer";
-import { NDKEvent, NDKRelay } from "@nostr-dev-kit/ndk";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { StorageInterface } from "@tat-protocol/storage";
 
@@ -68,17 +68,17 @@ export type NWPCHandler = (
 ) => Promise<NWPCResponse | void>;
 
 export class NWPCResponseObject {
-  private id: string;
+  private _id: string;
   private response: NWPCResponse;
   private sender: NWPCBase;
   private context: NWPCContext;
 
   constructor(id: string, sender: NWPCBase, context: NWPCContext) {
-    this.id = id;
+    this._id = id;
     this.sender = sender;
     this.context = context;
     this.response = {
-      id,
+      id: this._id,
       timestamp: Date.now(),
     };
   }

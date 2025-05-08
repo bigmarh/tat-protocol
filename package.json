@@ -4,23 +4,21 @@
   "version": "1.0.0",
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
   "scripts": {
-    "build": "find . -type d -name \"dist\" -exec rm -rf {} + && pnpm build:core && pnpm build:token && pnpm build:apps",
-    "build:core": "pnpm --filter hdkeys build && pnpm --filter storage build && pnpm --filter utils build",
-    "build:token": "pnpm --filter token build",
-    "build:apps": "pnpm --filter nwpc build && pnpm --filter forge build && pnpm --filter pocket build",
+    "build": "find . -type d -name \"dist\" -exec rm -rf {} + && pnpm exec tsc -b ",
     "test": "pnpm -r test",
     "lint": "pnpm -r --filter=!forge lint && pnpm --filter=forge lint",
     "format": "pnpm -r format",
     "clean": "pnpm -r clean",
     "prepare": "husky install",
-    "forge": "npx tsx forge/runForge.ts",
-    "calculator": "npx tsx nwpc/examples/server.ts",
-    "noisey-client": "npx tsx nwpc/examples/noisey-client.ts",
-    "client": "npx tsx nwpc/examples/client.ts",
-    "pocket": "npx tsx pocket/runPocket.ts"
+    "forge": "npx tsx forge/src/examples/runForge.ts",
+    "calculator": "npx tsx nwpc/src/examples/server.ts",
+    "noisey-client": "npx tsx nwpc/src/examples/noisey-client.ts",
+    "client": "npx tsx nwpc/src/examples/client.ts",
+    "pocket": "npx tsx pocket/src/examples/runPocket.ts"
   },
   "dependencies": {
-    "@tat-protocol/core": "workspace:*",
+    "@noble/hashes": "^1.0.0",
+    "@nostr-dev-kit/ndk": "^2.14.9",
     "@tat-protocol/forge": "workspace:*",
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/nwpc": "workspace:*",
@@ -28,10 +26,12 @@
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
-    "@tat-protocol/boxoffice": "workspace:*",
-    "@tat-protocol/turnstile": "workspace:*"
+    "localdrive": "^2",
+    "nostr-tools": "^2.12.0",
+    "tsx": "^4.19.4"
   },
   "devDependencies": {
+    "@types/node": "^20.17.45",
     "@typescript-eslint/eslint-plugin": "^7.0.1",
     "@typescript-eslint/parser": "^7.0.1",
     "eslint": "^8.56.0",

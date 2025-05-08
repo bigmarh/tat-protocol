@@ -1,10 +1,10 @@
-import { Forge } from "./lib/core/Forge";
-import { ForgeConfig } from "./lib/core/ForgeConfig";
+import { Forge } from "@tat-protocol/forge";
+import { ForgeConfig } from "@tat-protocol/forge";
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
 import { Storage } from "@tat-protocol/storage";
-import { TokenType } from "@tat-protocol/types";
-import { defaultConfig } from "../config/defaultConfig";
+import { TokenType } from "@tat-protocol/token";
+import { defaultConfig } from "./defaultConfig";
 
 // Test keys
 const secretKey =

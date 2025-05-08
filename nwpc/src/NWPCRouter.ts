@@ -7,7 +7,6 @@ import {
   NWPCResponseObject,
 } from "./NWPCResponseTypes";
 import { HandlerEngine } from "./HandlerEngine";
-import { INWPCBase } from "./NWPCBaseInterface";
 /**
  * Router class for handling NWPC (Network Protocol Communication) requests
  * with support for middleware and method-based routing
@@ -16,8 +15,8 @@ export class NWPCRouter {
   private readonly routes: Map<string, NWPCRoute> = new Map();
   private readonly handlerEngine: HandlerEngine;
 
-  constructor(server: INWPCBase, routes: Map<string, NWPCRoute>) {
-    this.handlerEngine = new HandlerEngine(server);
+  constructor(routes: Map<string, NWPCRoute>) {
+    this.handlerEngine = new HandlerEngine();
     this.routes = routes;
   }
 

@@ -1,18 +1,14 @@
-import { NWPCBase, NWPCContext, NWPCHandler, NWPCPeer, NWPCRequest, NWPCResponseObject, NWPCConfig } from "../../../nwpc";
+import { NWPCBase, NWPCContext, NWPCHandler, NWPCRequest, NWPCResponseObject, NWPCConfig } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import type { Header } from "@tat-protocol/token";
 import { DebugLogger, Unwrap } from "@tat-protocol/utils";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { SingleUseKey } from "@tat-protocol/hdkeys";
-import { defaultConfig } from "@tat-protocol/config/defaultConfig";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
 
-type pubkey = string;
-type tokenString = string;
 export type token_hash = string;
 export type issuerId = string;
 
@@ -57,7 +53,6 @@ export class Pocket extends NWPCBase {
     private Pocket!: PocketState;
     private isInitialized: boolean;
     private hdKey!: HDKey;
-    private nwpcClient!: NWPCPeer;
 
     private constructor(config: PocketConfig) {
 
@@ -113,7 +108,13 @@ export class Pocket extends NWPCBase {
         if (!pubkey) {
             pubkey = this.idKey.publicKey;
         }
-        return super.subscribe(pubkey, this.handleEvent.bind(this));
+
+        if (handler) {
+            return super.subscribe(pubkey, handler);
+        }
+        else {
+            return super.subscribe(pubkey, this.handleEvent.bind(this));
+        }
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
@@ -248,12 +249,12 @@ export class Pocket extends NWPCBase {
 
 
             const defaultRequestHandlers = {
-                'message': [async (req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) => {
+                'message': [async (_req: NWPCRequest, _context: NWPCContext, res: NWPCResponseObject) => {
                     console.log("message received");
                     //TODO: handle message, store it for later reading
                     return res.send({ success: true });
                 }],
-                'requestSignature': [async (req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) => {
+                'requestSignature': [async (_req: NWPCRequest, _context: NWPCContext, res: NWPCResponseObject) => {
                     console.log("requestSignature received");
                     return res.send({ success: true });
                 }]

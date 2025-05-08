@@ -1,24 +1,13 @@
 {
   "extends": "../tsconfig.base.json",
   "compilerOptions": {
-    "outDir": "./dist",
-    "rootDir": ".",
-    "baseUrl": ".",
-    "paths": {
-      "@tat-protocol/*": ["../*/src"]
-    },
-    "composite": true,
-    "typeRoots": ["./node_modules/@types", "../node_modules/@types"],
-    "skipLibCheck": true,
-    "noUnusedLocals": false,
-    "noUnusedParameters": false,
-    "noImplicitAny": false
+    "outDir": "dist",
+    "rootDir": "src",
+    "composite": true
   },
-
+  "include": ["src"],
   "references": [
     { "path": "../utils" },
     { "path": "../storage" }
-  ],
-  "include": ["src/**/*"],
-  "exclude": ["node_modules", "**/*.test.ts", "dist"]
+  ]
 } 

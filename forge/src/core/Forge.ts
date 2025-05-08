@@ -51,7 +51,7 @@ export class Forge {
   }
 
   private onlyAuthorized(
-    req: NWPCRequest,
+    _req: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
     next: () => Promise<void>,
@@ -67,7 +67,7 @@ export class Forge {
   }
 
   private onlyOwner(
-    req: NWPCRequest,
+    _req: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
     next: () => Promise<void>,
@@ -82,7 +82,7 @@ export class Forge {
    * Setup default handlers
    */
   setupDefaultHandlers() {
-    this.use("ping", (req, context, res) => {
+    this.use("ping", (_req, context, res) => {
       return res.send({ message: "pong" }, context.sender);
     });
     // Transfer
@@ -542,7 +542,7 @@ export class Forge {
    */
   private async handleForge(
     req: NWPCRequest,
-    context: NWPCContext,
+    _context: NWPCContext,
     res: NWPCResponseObject,
   ) {
     const response = JSON.parse(req.params);

@@ -1,16 +1,13 @@
-import NDK, { NDKEvent } from "@nostr-dev-kit/ndk";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { Unwrap, Wrap } from "@tat-protocol/utils";
 import {
   NWPCResponse,
-  NWPCHandler,
-  MessageHookOptions,
+
   NWPCResponseObject,
   NWPCConfig,
-  NWPCRoute,
   NWPCRequest,
   NWPCContext,
 } from "./NWPCResponseTypes";
-import { NWPCRouter } from "./NWPCRouter";
 import { NWPCBase } from "./NWPCBase";
 import { HandlerEngine } from "./HandlerEngine";
 
@@ -19,7 +16,7 @@ export class NWPCServer extends NWPCBase {
 
   constructor(config: NWPCConfig) {
     super(config);
-    this.handlerEngine = new HandlerEngine(this);
+    this.handlerEngine = new HandlerEngine();
     // Bind handleEvent to this instance
     this.handleEvent = this.handleEvent.bind(this);
   }

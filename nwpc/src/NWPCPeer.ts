@@ -1,17 +1,13 @@
-import NDK, { NDKEvent } from "@nostr-dev-kit/ndk";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
 import {
   NWPCRequest,
   NWPCResponse,
   NWPCContext,
-  NWPCHandler,
   NWPCResponseObject,
-  MessageHookOptions,
   NWPCConfig,
 } from "./NWPCResponseTypes";
 import { Wrap, Unwrap } from "@tat-protocol/utils";
 import { NWPCBase } from "./NWPCBase";
-import { NWPCRouter } from "./NWPCRouter";
-import { NWPCServer } from "./NWPCServer";
 
 export class NWPCPeer extends NWPCBase {
   private responseHandlers: Map<
@@ -19,7 +15,7 @@ export class NWPCPeer extends NWPCBase {
     {
       resolve: (response: NWPCResponse) => void;
       reject: (error: Error) => void;
-      timeoutId: NodeJS.Timeout;
+      timeoutId: ReturnType<typeof setTimeout>;
     }
   >;
 

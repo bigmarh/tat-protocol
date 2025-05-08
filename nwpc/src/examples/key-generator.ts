@@ -1,4 +1,4 @@
-import { getPublicKey } from "@tat-protocol/utils";
+import { getPublicKey } from "nostr-tools";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey } from "nostr-tools";
 import readline from "readline";

@@ -26,5 +26,14 @@
       "@tat-protocol/*": ["./*/src"]
     }
   },
-  "exclude": ["node_modules", "dist"]
+  "references": [
+    { "path": "hdkeys" },
+    { "path": "utils" },
+    { "path": "storage" },
+    { "path": "token" },
+    { "path": "pocket" },
+    { "path": "nwpc" },
+    { "path": "forge" },
+  ],
+  "exclude": ["node_modules", "dist",  "**/.svelte2tsx-language-server-files"]
 } 

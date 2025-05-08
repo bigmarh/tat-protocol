@@ -2,16 +2,15 @@
     "name": "@tat-protocol/forge",
     "version": "1.0.0",
     "description": "Forge module for TAT Protocol",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
+    "main": "dist/core/index.js",
+    "types": "dist/core/index.d.ts",
     "scripts": {
         "prebuild": "cd ../token && pnpm build",
         "build": "tsc",
         "test": "jest",
         "lint": "eslint .",
         "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist",
-        "prepare": "npm run build"
+        "clean": "rm -rf dist"
     },
     "keywords": [
         "forge",

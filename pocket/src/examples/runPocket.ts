@@ -1,5 +1,5 @@
 import readline from "readline";
-import { Pocket } from "./src/core/Pocket";
+import { Pocket } from "@tat-protocol/pocket";
 import { Token } from "@tat-protocol/token";
 import { NWPCPeer } from "@tat-protocol/nwpc";
 

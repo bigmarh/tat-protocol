@@ -1,20 +1,19 @@
-import NDK, { NDKRelay } from "@nostr-dev-kit/ndk";
-import { NWPCPeer } from "../lib";
+import { NWPCPeer } from "@tat-protocol/nwpc";
 import readline from "readline";
-import { getPublicKey } from "@tat-protocol/utils";
+import { getPublicKey } from "nostr-tools";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey } from "nostr-tools";
-import { defaultConfig } from "../../config/defaultConfig";
+import { defaultConfig } from "./defaultConfig";
 
 //send forge 1000 04133dbe9039a986f9342ff2c2d287f1b184a6c385b3c72d9b1829b1d6b9bdfc
 interface KeyPair {
   name: string;
   secretKey: string;
   publicKey: string;
-}
+} 
 
 class NoiseyClient {
-  private peer: NWPCPeer;
+  private peer!: NWPCPeer;
   private rl: readline.Interface;
   private servers: Map<string, string> = new Map();
   private currentServer: string | null = null;
@@ -22,6 +21,7 @@ class NoiseyClient {
   private currentKey: string | null = null;
 
   constructor() {
+    
     this.servers.set(
       "default",
       "1dd47426e7518119dcca1688cc3c3ae976f8c5690b4e2160e66dab47833f0876",
