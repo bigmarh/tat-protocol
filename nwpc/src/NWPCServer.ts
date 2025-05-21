@@ -2,7 +2,6 @@ import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { Unwrap, Wrap } from "@tat-protocol/utils";
 import {
   NWPCResponse,
-
   NWPCResponseObject,
   NWPCConfig,
   NWPCRequest,

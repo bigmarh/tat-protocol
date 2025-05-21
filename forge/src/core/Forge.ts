@@ -42,6 +42,7 @@ export class Forge {
     this.config = config;
     this.isInitialized = false;
 
+    console.log("Forge: config\n\n", config);
     // Set keys from config if provided
     if (config.keys) {
       this.keys = config.keys;
@@ -107,9 +108,14 @@ export class Forge {
     if (this.isInitialized) return;
 
     try {
-      // Initialize keys first
-      await this.initializeKeys();
 
+      console.log("Forge: keys\n\n\n\n\n\n\n\n\n\n\n_____________________\n", this.keys);
+      console.log("Forge: keys\n\n\n\n\n\n\n\n\n\n\n_____________________")
+      if (!this.keys.publicKey || !this.keys.secretKey) {
+        console.log("Forge: Initializing keys___________________+++++++++++++++++++++++keys___________________-");
+        // Initialize keys first
+        await this.initializeKeys();
+      }
       // Ensure we have valid keys
       if (!this.keys || !this.keys.publicKey || !this.keys.secretKey) {
         throw new Error("Keys not properly initialized");

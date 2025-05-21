@@ -10,7 +10,7 @@ interface KeyPair {
   name: string;
   secretKey: string;
   publicKey: string;
-} 
+}
 
 class NoiseyClient {
   private peer!: NWPCPeer;
@@ -21,7 +21,6 @@ class NoiseyClient {
   private currentKey: string | null = null;
 
   constructor() {
-    
     this.servers.set(
       "default",
       "1dd47426e7518119dcca1688cc3c3ae976f8c5690b4e2160e66dab47833f0876",

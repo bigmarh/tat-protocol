@@ -29,7 +29,7 @@ const handlers = {
       return a + b;
     }
 
-    const { a, b } = JSON.parse(_req.params);  
+    const { a, b } = JSON.parse(_req.params);
     if (!a || !b) {
       return await _res.error(400, "Invalid parameters");
     }

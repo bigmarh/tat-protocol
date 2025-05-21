@@ -1,5 +1,5 @@
 import { NWPCServer } from "@tat-protocol/nwpc";
-import type { 
+import type {
   NWPCHandler,
   NWPCRequest,
   NWPCContext,

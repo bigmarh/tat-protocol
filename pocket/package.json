@@ -5,9 +5,9 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsc",
-        "dev": "npx tsx runPocket.ts",
-        "dev:watch": "npx tsx watch runPocket.ts"
+        "build": "tsc -b",
+        "dev": "npx tsx src/examples/runPocket.ts",
+        "dev:watch": "npx tsx watch src/examples/runPocket.ts"
     },
     "keywords": [
         "pocket",
@@ -23,8 +23,7 @@
         "@tat-protocol/nwpc": "file:../nwpc",
         "@tat-protocol/storage": "file:../storage",
         "@tat-protocol/utils": "file:../utils",
-        "nostr-tools": "^2.12.0",
-        "tsx": "^4.19.4"
+        "nostr-tools": "^2.12.0"
     },
     "devDependencies": {
         "@types/node": "^20.0.0",

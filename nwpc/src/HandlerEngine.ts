@@ -6,15 +6,13 @@ import {
   NWPCResponseObject,
 } from "./NWPCResponseTypes";
 
-
 /**
  * Engine for executing middleware chains and handlers
  */
 export class HandlerEngine {
   private handlers: NWPCHandler[] = [];
 
-  constructor() {
-  }
+  constructor() {}
 
   public addAll(handlers: NWPCHandler[]): void {
     this.handlers = handlers;

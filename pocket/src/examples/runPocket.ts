@@ -12,7 +12,7 @@ async function main() {
   try {
 
     // Create and initialize the Pocket
-    const pocket = await Pocket.create({keys: {secretKey: '', publicKey: ''}});
+    const pocket = await Pocket.create({keys: {secretKey: '', publicKey: ''}, relays: ['ws://localhost:8080']});
     console.log("Pocket initialized!");
     // @ts-ignore: Accessing private property
     console.log("Public Key:", pocket["idKey"].publicKey);
@@ -28,6 +28,7 @@ async function main() {
           "4. Show single-use keys\n" +
           "5. Generate new single-use key\n" +
           "6. Exit\n" +
+          "7. View Current State\n" +
           "Enter command number: ",
           resolve
         );
@@ -140,6 +141,11 @@ async function main() {
           console.log("Exiting...");
           rl.close();
           process.exit(0);
+          break;
+        case "7":
+          // View Current State
+          console.log("Current State:");
+          console.log(pocket["Pocket"]);
           break;
 
         default:

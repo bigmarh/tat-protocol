@@ -4,5 +4,5 @@ export const defaultConfig = {
     "ws://localhost:8080",
     /*   "wss://relay.nostr.band/all", */
     /*  "wss://relay.snort.net"  */
-  ]
+  ],
 };

@@ -1,4 +1,4 @@
-import { NWPCBase, NWPCContext, NWPCHandler, NWPCRequest, NWPCResponseObject, NWPCConfig } from "@tat-protocol/nwpc";
+import { NWPCContext, NWPCHandler, NWPCRequest, NWPCResponseObject, NWPCConfig, NWPCPeer } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger, Unwrap } from "@tat-protocol/utils";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
@@ -48,11 +48,12 @@ export interface HDKeys {
 
 const Debug = DebugLogger.getInstance();
 
-export class Pocket extends NWPCBase {
+export class Pocket extends NWPCPeer {
     private idKey!: KeyPair;
     private Pocket!: PocketState;
     private isInitialized: boolean;
     private hdKey!: HDKey;
+    protected storage: StorageInterface;
 
     private constructor(config: PocketConfig) {
 
@@ -121,6 +122,7 @@ export class Pocket extends NWPCBase {
         console.log("\n\nPocket: handleEvent", event.tags);
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
+        console.log("Pocket: toKey", toKey);
         if (toKey === this.idKey.publicKey) {
             keys = this.idKey;
         }
@@ -141,10 +143,11 @@ export class Pocket extends NWPCBase {
             }
 
             const message = JSON.parse(unwrapped.content);
+            console.log("Pocket: message", await new Token().restore(message.result.token));
             if (message.result?.token) {
                 return this.storeToken(message.result.token);
             }
-            console.log("\n\nPocket: handleEvent", message);
+            console.log("\n\nPocket: handleEvent 5", message);
             console.log("Pocket: handleEvent called directly");
         }
         catch (error) {
@@ -159,9 +162,18 @@ export class Pocket extends NWPCBase {
         const issuer = token.payload.iss;
         const tokenHash = token.header.token_hash;
         if (token.payload.tokenID) {
-            this.Pocket.tatIndex.set(issuer, new Map([[token.payload.tokenID, tokenHash]]));
+            //TAT Index
+            const tatIndex = this.Pocket.tatIndex.get(issuer);
+            if (tatIndex) {
+                // If it exists, add the new token to the existing map
+                tatIndex.set(token.payload.tokenID, tokenHash);
+            } else {
+                // If it doesn't exist, create a new map
+                this.Pocket.tatIndex.set(issuer, new Map([[token.payload.tokenID, tokenHash]]));
+            }
         }
         else {
+            //
             const denomination = Number(token.payload.amount);
             const setID = token.payload.ext?.setID ? token.payload.ext.setID : "-";
             const tokenIndex = this.Pocket.tokenIndex.get(issuer);
@@ -178,7 +190,15 @@ export class Pocket extends NWPCBase {
             this.updateBalance(issuer, setID, Number(token.payload.amount));
         }
 
-        this.Pocket.tokens.set(issuer, new Map([[tokenHash, tokenJWT]]));
+        // Update the tokens map
+        const issuerTokens = this.Pocket.tokens.get(issuer);
+        if (issuerTokens) {
+            // If it exists, add the new token to the existing map
+            issuerTokens.set(tokenHash, tokenJWT);
+        } else {
+            // If it doesn't exist, create a new map
+            this.Pocket.tokens.set(issuer, new Map([[tokenHash, tokenJWT]]));
+        }
         this.savePocketState();
     }
 

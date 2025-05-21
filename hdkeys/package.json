@@ -5,10 +5,11 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsc",
+        "build": "tsc -b",
         "test": "jest",
         "lint": "eslint . --ext .ts",
         "format": "prettier --write \"**/*.ts\"",
+        "example": "npx tsx example/src/index.ts",
         "clean": "rm -rf dist"
     },
     "keywords": [
@@ -23,11 +24,11 @@
         "bip39": "^3.1.0"
     },
     "devDependencies": {
-        "typescript": "^5.0.0",
+        "@types/bip39": "^3.0.4",
         "@types/node": "^20.0.0",
-        "@types/bip39": "^3.0.4"
+        "typescript": "^5.0.0"
     },
     "peerDependencies": {
         "@tat-protocol/utils": "workspace:*"
     }
-} 
+}

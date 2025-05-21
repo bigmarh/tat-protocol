@@ -11,6 +11,7 @@
     "clean": "pnpm -r clean",
     "prepare": "husky install",
     "forge": "npx tsx forge/src/examples/runForge.ts",
+    "forge-fungible": "npx tsx forge/src/examples/runFungibleForge.ts",
     "calculator": "npx tsx nwpc/src/examples/server.ts",
     "noisey-client": "npx tsx nwpc/src/examples/noisey-client.ts",
     "client": "npx tsx nwpc/src/examples/client.ts",
@@ -27,8 +28,7 @@
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
     "localdrive": "^2",
-    "nostr-tools": "^2.12.0",
-    "tsx": "^4.19.4"
+    "nostr-tools": "^2.12.0"
   },
   "devDependencies": {
     "@types/node": "^20.17.45",
@@ -38,6 +38,7 @@
     "husky": "^9.0.11",
     "lint-staged": "^15.2.2",
     "prettier": "^3.2.5",
+    "tsx": "^4.19.4",
     "typescript": "^5.3.3"
   },
   "engines": {

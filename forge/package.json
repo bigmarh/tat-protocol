@@ -6,7 +6,7 @@
     "types": "dist/core/index.d.ts",
     "scripts": {
         "prebuild": "cd ../token && pnpm build",
-        "build": "tsc",
+        "build": "tsc -b",
         "test": "jest",
         "lint": "eslint .",
         "format": "prettier --write \"**/*.ts\"",
@@ -32,7 +32,8 @@
         "@typescript-eslint/eslint-plugin": "^7.0.1",
         "@typescript-eslint/parser": "^7.0.1",
         "eslint": "^8.56.0",
-        "@eslint/js": "^8.57.0"
+        "@eslint/js": "^8.57.0",
+        "tsx": "^4.19.4"
     },
     "peerDependencies": {
         "@tat-protocol/token": "workspace:*",

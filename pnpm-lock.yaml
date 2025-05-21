@@ -41,9 +41,6 @@ importers:
       nostr-tools:
         specifier: ^2.12.0
         version: 2.12.0(typescript@5.5.4)
-      tsx:
-        specifier: ^4.19.4
-        version: 4.19.4
     devDependencies:
       '@types/node':
         specifier: ^20.17.45
@@ -66,6 +63,9 @@ importers:
       prettier:
         specifier: ^3.2.5
         version: 3.5.3
+      tsx:
+        specifier: ^4.19.4
+        version: 4.19.4
       typescript:
         specifier: ^5.3.3
         version: 5.5.4
@@ -112,6 +112,9 @@ importers:
       globals:
         specifier: ^13.24.0
         version: 13.24.0
+      tsx:
+        specifier: ^4.19.4
+        version: 4.19.4
       typescript:
         specifier: ~5.5.0
         version: 5.5.4
@@ -189,9 +192,6 @@ importers:
       nostr-tools:
         specifier: ^2.12.0
         version: 2.12.0(typescript@5.5.4)
-      tsx:
-        specifier: ^4.19.4
-        version: 4.19.4
     devDependencies:
       '@types/node':
         specifier: ^20.0.0
