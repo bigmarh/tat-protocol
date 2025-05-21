@@ -109,7 +109,6 @@ export class Forge {
 
     try {
       if (!this.keys.publicKey || !this.keys.secretKey) {
-
         // Initialize keys first
         await this.initializeKeys();
       }
@@ -554,8 +553,12 @@ export class Forge {
     try {
       const token = new Token();
       const tokenType = this.config.tokenType || TokenType.TAT;
+      console.log("Type:",tokenType);
+
       switch (tokenType) {
         case TokenType.FUNGIBLE:
+          console.log("Forge: handleForge: FUNGIBLE", reqObj);
+
           if (!reqObj.amount || !reqObj.to) {
             return await res.error(400, "Missing required parameters");
           }

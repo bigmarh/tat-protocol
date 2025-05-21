@@ -18,16 +18,11 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
-        "@nostr-dev-kit/ndk": "^2.14.4",
-        "@tat-protocol/config": "workspace:*",
+        "@tat-protocol/config": "file:../config",
         "@tat-protocol/hdkeys": "workspace:*",
         "@tat-protocol/nwpc": "workspace:*",
         "@tat-protocol/storage": "workspace:*",
         "@tat-protocol/utils": "workspace:*",
         "nostr-tools": "^2.12.0"
-    },
-    "devDependencies": {
-        "@types/node": "^20.0.0",
-        "typescript": "^5.0.0"
     }
 }

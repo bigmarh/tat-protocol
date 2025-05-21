@@ -4,42 +4,43 @@
   "version": "1.0.0",
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
   "scripts": {
-    "build": " pnpm exec tsc -b --clean && pnpm exec tsc -b ",
-    "test": "pnpm -r test",
-    "lint": "pnpm -r --filter=!forge lint && pnpm --filter=forge lint",
-    "format": "pnpm -r format",
-    "clean": "pnpm -r clean",
+    "build": "turbo run build",
+    "test": "turbo run test",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "clean": "turbo run clean",
     "prepare": "husky install",
-    "forge": "pnpm tsx watch forge/src/examples/runForge.ts",
-    "forge-fungible": "pnpm tsx watch forge/src/examples/runFungibleForge.ts",
+    "forge": "pnpm tsx watch --watch-path forge/src forge/src/examples/runForge.ts",
+    "forge-fungible": "pnpm tsx watch --watch-path forge/src forge/src/examples/runFungibleForge.ts",
     "calculator": "pnpm tsx nwpc/src/examples/server.ts",
     "noisey-client": "npx tsx nwpc/src/examples/noisey-client.ts",
-    "client": "npx tsx nwpc/src/examples/client.ts",
-    "pocket": "npx tsx pocket/src/examples/runPocket.ts"
+    "client": "pnpm tsx nwpc/src/examples/client.ts",
+    "pocket": "pnpm tsx pocket/src/examples/runPocket.ts"
   },
   "dependencies": {
     "@noble/hashes": "^1.0.0",
-    "@nostr-dev-kit/ndk": "^2.14.9",
+    "@nostr-dev-kit/ndk": "2.14.15",
+    "localdrive": "^2",
+    "nostr-tools": "^2.12.0",
     "@tat-protocol/forge": "workspace:*",
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/nwpc": "workspace:*",
     "@tat-protocol/pocket": "workspace:*",
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/token": "workspace:*",
-    "@tat-protocol/utils": "workspace:*",
-    "localdrive": "^2",
-    "nostr-tools": "^2.12.0"
+    "@tat-protocol/utils": "workspace:*"
+    
   },
   "devDependencies": {
-    "@types/node": "^20.17.45",
-    "@typescript-eslint/eslint-plugin": "^7.0.1",
-    "@typescript-eslint/parser": "^7.0.1",
-    "eslint": "^8.56.0",
+    "@types/node": "^22.15.21",
+    "@typescript-eslint/eslint-plugin": "^8.32.1",
+    "@typescript-eslint/parser": "^8.32.1",
+    "eslint": "^9.15.0",
     "husky": "^9.0.11",
-    "lint-staged": "^15.2.2",
+    "lint-staged": "^16.0.0",
     "prettier": "^3.2.5",
     "tsx": "^4.19.4",
-    "typescript": "^5.3.3"
+    "typescript": "^5.8.3"
   },
   "engines": {
     "node": ">=16.0.0"

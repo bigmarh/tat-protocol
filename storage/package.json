@@ -19,13 +19,8 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
-        "localdrive": "^1.0.0"
+         "@tat-protocol/utils": "workspace:*"
     },
     "devDependencies": {
-        "typescript": "^5.0.0",
-        "@types/node": "^20.0.0"
-    },
-    "peerDependencies": {
-        "@tat-protocol/utils": "workspace:*"
     }
 }

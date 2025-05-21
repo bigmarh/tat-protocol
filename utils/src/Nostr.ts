@@ -205,11 +205,7 @@ export async function Unwrap(
         unwrapped.pubkey,
       ),
     );
-    console.log("Nostr.ts: Unwrapped envelope:", {
-      pubkey: openEnv.pubkey,
-      kind: openEnv.kind,
-      content: openEnv.content,
-    });
+   
     if (!openEnv.content) return null;
 
     if (openEnv.pubkey == unwrapped.pubkey) {

@@ -119,7 +119,6 @@ export class Pocket extends NWPCPeer {
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
-        console.log("\n\nPocket: handleEvent", event.tags);
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
         console.log("Pocket: toKey", toKey);
@@ -143,11 +142,10 @@ export class Pocket extends NWPCPeer {
             }
 
             const message = JSON.parse(unwrapped.content);
-            console.log("Pocket: message", await new Token().restore(message.result.token));
             if (message.result?.token) {
                 return this.storeToken(message.result.token);
             }
-            console.log("\n\nPocket: handleEvent 5", message);
+            console.log("Pocket: handleEvent::::", message);
             console.log("Pocket: handleEvent called directly");
         }
         catch (error) {
@@ -158,23 +156,29 @@ export class Pocket extends NWPCPeer {
 
     //Token Management
     private async storeToken(tokenJWT: string) {
+        
         const token = await new Token().restore(tokenJWT);
+        
         const issuer = token.payload.iss;
+        console.log("Received from issuer:", `${issuer.substring(0, 3)}...${issuer.substring(issuer.length - 3)}`);
         const tokenHash = token.header.token_hash;
-        if (token.payload.tokenID) {
+        const tokenID = String(token.payload.tokenID);
+        if (tokenID !== "undefined") {
+            console.log("Pocket: tokenID", tokenID);
             //TAT Index
             const tatIndex = this.Pocket.tatIndex.get(issuer);
             if (tatIndex) {
-                // If it exists, add the new token to the existing map
-                tatIndex.set(token.payload.tokenID, tokenHash);
+                // If it exists, add the new token to the existing map`
+                tatIndex.set(tokenID, tokenHash);
             } else {
                 // If it doesn't exist, create a new map
-                this.Pocket.tatIndex.set(issuer, new Map([[token.payload.tokenID, tokenHash]]));
+                this.Pocket.tatIndex.set(issuer, new Map([[tokenID, tokenHash]]));
             }
         }
         else {
-            //
+            console.log("Pocket: Denomination", token.payload.amount);
             const denomination = Number(token.payload.amount);
+            //Set the setID to "-" if it doesn't exist, for collections
             const setID = token.payload.ext?.setID ? token.payload.ext.setID : "-";
             const tokenIndex = this.Pocket.tokenIndex.get(issuer);
             if (tokenIndex) {
@@ -199,7 +203,7 @@ export class Pocket extends NWPCPeer {
             // If it doesn't exist, create a new map
             this.Pocket.tokens.set(issuer, new Map([[tokenHash, tokenJWT]]));
         }
-        this.savePocketState();
+       return  this.savePocketState();
     }
 
     private updateBalance(issuer: string, setID: string, amount: number) {

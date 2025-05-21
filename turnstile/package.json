@@ -15,12 +15,10 @@
     "author": "TAT Protocol",
     "license": "MIT",
     "dependencies": {
-        "@tat-protocol/nwpc": "file:../nwpc",
-        "@tat-protocol/storage": "file:../storage",
-        "@tat-protocol/utils": "file:../utils"
+        "@tat-protocol/nwpc": "workspace:*",
+        "@tat-protocol/storage": "workspace:*",
+        "@tat-protocol/utils": "workspace:*"
     },
     "devDependencies": {
-        "typescript": "^5.0.0",
-        "@types/node": "^20.0.0"
     }
 } 

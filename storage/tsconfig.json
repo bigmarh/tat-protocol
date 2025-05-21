@@ -4,9 +4,9 @@
         "outDir": "./dist",
         "rootDir": "./src",
         "composite": true,
-        "declaration": true,
-        "declarationDir": "./dist"
+        "declaration": true
     },
+    "exclude": ["node_modules", "dist","**/.svelte2tsx-language-server-files","*.svelte"],
     "include": ["src"],
     "references": [
         { "path": "../utils" }

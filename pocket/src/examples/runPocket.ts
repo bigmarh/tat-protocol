@@ -57,12 +57,14 @@ async function main() {
             console.log("\nCurrent tokens:");
             for (const [issuer, issuerTokens] of tokens.entries()) {
               console.log(`\nIssuer: ${issuer}`);
+              console.log(`Total: ${issuerTokens.size}`);
+              console.log("================================================ \n");
               for (const [tokenHash, tokenJWT] of issuerTokens.entries()) {
                 const token = new Token();
                 await token.fromJWT(tokenJWT);
                 const payload = token.getPayload();
                 console.log(`  Token Hash: ${tokenHash}`);
-                console.log(`  Amount: ${payload.amount}`);
+                payload.tokenID !== undefined ? console.log(`  TokenID: ${payload.tokenID}`) : console.log(`  Amount: ${payload.amount}`);
                 console.log(`  Lock: ${payload.P2PKlock}`);
                 console.log("  ---");
               }

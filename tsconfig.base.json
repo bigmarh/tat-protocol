@@ -17,14 +17,16 @@
     "inlineSources": true,
     "experimentalDecorators": true,
     "strictPropertyInitialization": true,
-    "typeRoots": ["./node_modules/@types"],
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@tat-protocol/*": ["./*/src"]
-    }
+      "@tat-protocol/*": ["./*/src"],
+      "*": ["node_modules/*"]
+    },
+    "types": ["node"],
+    "typeRoots": ["./node_modules/@types"],
   },
   "references": [
     { "path": "hdkeys" },
@@ -35,5 +37,5 @@
     { "path": "nwpc" },
     { "path": "forge" },
   ],
-  "exclude": ["node_modules", "dist",  "**/.svelte2tsx-language-server-files"]
+  "exclude": ["node_modules", "dist",  "**/.svelte2tsx-language-server-files", "*.svelte"]
 } 
