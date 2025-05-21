@@ -1,2 +1,2 @@
-import { Pocket } from './core/Pocket';
+import { Pocket } from './Pocket';
 export { Pocket };

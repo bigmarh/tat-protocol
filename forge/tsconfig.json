@@ -4,14 +4,14 @@
         "outDir": "./dist",
         "rootDir": "./src",
         "composite": true,
-        "declaration": true,
-        "declarationDir": "./dist"
+        "declaration": true
     },
     "include": ["src"],
+    "exclude": ["node_modules", "dist","*.svelte"],
     "references": [
         { "path": "../utils" },
         { "path": "../token" },
         { "path": "../nwpc" },
-        { "path": "../storage" }
+        { "path": "../storage" },
     ]
 } 

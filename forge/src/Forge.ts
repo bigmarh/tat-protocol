@@ -108,11 +108,8 @@ export class Forge {
     if (this.isInitialized) return;
 
     try {
-
-      console.log("Forge: keys\n\n\n\n\n\n\n\n\n\n\n_____________________\n", this.keys);
-      console.log("Forge: keys\n\n\n\n\n\n\n\n\n\n\n_____________________")
       if (!this.keys.publicKey || !this.keys.secretKey) {
-        console.log("Forge: Initializing keys___________________+++++++++++++++++++++++keys___________________-");
+
         // Initialize keys first
         await this.initializeKeys();
       }
@@ -296,7 +293,6 @@ export class Forge {
   }
 
   private async saveState(): Promise<void> {
-    console.log("Forge: saveState", this.state);
     const serializableState = {
       ...this.state,
       spentTokens: Array.from(this.state.spentTokens),
