@@ -2,8 +2,8 @@
     "name": "@tat-protocol/forge",
     "version": "1.0.0",
     "description": "Forge module for TAT Protocol",
-    "main": "dist/core/index.js",
-    "types": "dist/core/index.d.ts",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
     "scripts": {
         "prebuild": "cd ../token && pnpm build",
         "build": "tsc -b",

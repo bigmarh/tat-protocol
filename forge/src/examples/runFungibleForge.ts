@@ -6,9 +6,9 @@ import { Storage } from "@tat-protocol/storage";
 import { TokenType } from "@tat-protocol/token";
 import { defaultConfig } from "./defaultConfig";
 
-
 // Test keys
-const secretKey = "051815aa8466771574e94fad8a87c27eaeb0c73da9d0a5b9dea4a4c12e9408ba";
+const secretKey =
+  "051815aa8466771574e94fad8a87c27eaeb0c73da9d0a5b9dea4a4c12e9408ba";
 const publicKey = getPublicKey(hexToBytes(secretKey));
 
 console.log("Secret Key:", secretKey);
@@ -19,7 +19,7 @@ const config: ForgeConfig = {
   owner: "aaa266a87d1c24a11b9509cc74e1eaf2db8ca2a563be0c1a429917acd4d1f37d",
   keys: {
     secretKey,
-    publicKey
+    publicKey,
   },
   totalSupply: 100000000,
   authorizedForgers: [publicKey], // Authorize ourselves

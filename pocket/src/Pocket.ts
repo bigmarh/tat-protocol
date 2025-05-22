@@ -110,6 +110,12 @@ export class Pocket extends NWPCPeer {
             pubkey = this.idKey.publicKey;
         }
 
+        // Prevent duplicate subscriptions: Unsubscribe if already subscribed
+        const existing = this.getSubscription(pubkey);
+        if (existing) {
+            await this.unsubscribe(pubkey);
+        }
+
         if (handler) {
             return super.subscribe(pubkey, handler);
         }
@@ -156,62 +162,70 @@ export class Pocket extends NWPCPeer {
 
     //Token Management
     private async storeToken(tokenJWT: string) {
-        
         const token = await new Token().restore(tokenJWT);
-        
         const issuer = token.payload.iss;
-        console.log("Received from issuer:", `${issuer.substring(0, 3)}...${issuer.substring(issuer.length - 3)}`);
         const tokenHash = token.header.token_hash;
+
+        // === DEDUPLICATION: Check if token already exists ===
+        const issuerTokens = this.Pocket.tokens.get(issuer);
+        if (issuerTokens && issuerTokens.has(tokenHash)) {
+            console.log(`Duplicate token received (hash: ${tokenHash}), ignoring.`);
+            return; // Already stored, skip further processing
+        }
+
         const tokenID = String(token.payload.tokenID);
         if (tokenID !== "undefined") {
-            console.log("Pocket: tokenID", tokenID);
-            //TAT Index
+            // TAT Index: Only set if not already set to this hash
             const tatIndex = this.Pocket.tatIndex.get(issuer);
             if (tatIndex) {
-                // If it exists, add the new token to the existing map`
-                tatIndex.set(tokenID, tokenHash);
+                if (tatIndex.get(tokenID) !== tokenHash) {
+                    tatIndex.set(tokenID, tokenHash);
+                }
             } else {
-                // If it doesn't exist, create a new map
                 this.Pocket.tatIndex.set(issuer, new Map([[tokenID, tokenHash]]));
             }
         }
         else {
-            console.log("Pocket: Denomination", token.payload.amount);
             const denomination = Number(token.payload.amount);
-            //Set the setID to "-" if it doesn't exist, for collections
             const setID = token.payload.ext?.setID ? token.payload.ext.setID : "-";
             const tokenIndex = this.Pocket.tokenIndex.get(issuer);
             if (tokenIndex) {
-                const tokenHashes = tokenIndex.get(denomination);
+                let tokenHashes = tokenIndex.get(denomination);
                 if (tokenHashes) {
-                    tokenHashes.push(String(tokenHash));
+                    // Only add if not already present
+                    if (!tokenHashes.includes(String(tokenHash))) {
+                        tokenHashes.push(String(tokenHash));
+                        tokenIndex.set(denomination, tokenHashes);
+                        // Update balance only if new
+                        this.updateBalance(issuer, setID, Number(token.payload.amount));
+                    }
                 } else {
                     tokenIndex.set(denomination, [String(tokenHash)]);
+                    this.updateBalance(issuer, setID, Number(token.payload.amount));
                 }
             } else {
                 this.Pocket.tokenIndex.set(issuer, new Map([[denomination, [String(tokenHash)]]]));
+                this.updateBalance(issuer, setID, Number(token.payload.amount));
             }
-            this.updateBalance(issuer, setID, Number(token.payload.amount));
         }
 
-        // Update the tokens map
-        const issuerTokens = this.Pocket.tokens.get(issuer);
+        // Update the tokens map (guaranteed not to be duplicate now)
         if (issuerTokens) {
-            // If it exists, add the new token to the existing map
             issuerTokens.set(tokenHash, tokenJWT);
         } else {
-            // If it doesn't exist, create a new map
             this.Pocket.tokens.set(issuer, new Map([[tokenHash, tokenJWT]]));
         }
-       return  this.savePocketState();
+        return this.savePocketState();
     }
 
     private updateBalance(issuer: string, setID: string, amount: number) {
         if (this.Pocket.balances.has(issuer)) {
             const issuerBalances = this.Pocket.balances.get(issuer);
             if (issuerBalances?.has(setID)) {
-                const currentAmount = issuerBalances.get(setID) || 0;
-                issuerBalances?.set(setID, currentAmount + amount);
+                // Do not add if already present (idempotent)
+                // Optionally, you could check if the balance already includes this token
+                // For now, we assume each token is unique per setID
+                // issuerBalances?.set(setID, currentAmount + amount);
             } else {
                 issuerBalances?.set(setID, amount); // Set initial amount if it doesn't exist
             }
@@ -303,11 +317,11 @@ export class Pocket extends NWPCPeer {
         if (!this.idKey) {
             throw new Error('No idKey to save');
         }
-        await this.storage.setItem(`pocket-idkey`, JSON.stringify(this.idKey));
+        await this.storage.setItem(`pocket-idkey-${this.idKey.publicKey}`, JSON.stringify(this.idKey));
     }
 
     private async loadIdKey(): Promise<void> {
-        const idKeyStr = await this.storage.getItem(`pocket-idkey`);
+        const idKeyStr = await this.storage.getItem(`pocket-idkey-${this.idKey.publicKey}`);
         if (idKeyStr) {
             this.idKey = JSON.parse(idKeyStr);
         }
@@ -318,7 +332,7 @@ export class Pocket extends NWPCPeer {
 
     async loadPocketState(): Promise<void> {
         try {
-            const stateStr = await this.storage.getItem(`pocket-state-${this.idKey.publicKey}`);
+            const stateStr = await this.storage.getItem(`pocket-state-${this.idKey.publicKey}`);    
             if (!stateStr) {
                 return; // No saved state exists
             }

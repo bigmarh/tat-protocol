@@ -30,7 +30,12 @@ class NoiseyClient {
       "5bae0f9ff8aae5670b84e74f64893aa3a51384da1e922634427373415c4b8f90",
     );
 
-    this.currentServer = "forge";
+    this.servers.set(
+      "fungi",
+      "249bdbc2d3c94fec4732bbe9df76300ca7ef1d1fe84546752e6ea7770f32bf00",
+    );
+
+    this.currentServer = "fungi";
 
     const setName = "admin";
     const secretKey =

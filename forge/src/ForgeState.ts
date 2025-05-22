@@ -59,4 +59,9 @@ export interface ForgeState {
    * Track token usage for LLM access
    */
   tokenUsage: Map<string, number>;
+
+  /**
+   * Number of tokens forged so far (for supply enforcement)
+   */
+  circulatingSupply?: number;
 }

@@ -18,6 +18,13 @@ import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
 import NDK from "@nostr-dev-kit/ndk";
 
+type Recipient = {
+  to: string;
+  amount: number;
+};
+
+
+
 /**
  * Main Forge class that handles token minting and management
  */
@@ -151,7 +158,7 @@ export class Forge {
   private async initializeKeys(): Promise<void> {
     let newKeys: KeyPair;
     try {
-      const forgeKeyId = "forge-keys";
+      const forgeKeyId = `forge-keys-${this.keys.publicKey}`;
       const existingKeys = await this.storage.getItem(forgeKeyId);
 
       if (existingKeys) {
@@ -160,9 +167,14 @@ export class Forge {
           secretKey: parsedKeys.secretKey,
           publicKey: parsedKeys.publicKey,
         };
+        return;
       } else {
         if (this.keys) {
+          // If keys are provided, use them
           newKeys = this.keys;
+          await this.storage.setItem(forgeKeyId, JSON.stringify(newKeys));
+          return;
+
         } else {
           const secretKey = bytesToHex(generateSecretKey());
           const publicKey = getPublicKey(hexToBytes(secretKey));
@@ -173,6 +185,7 @@ export class Forge {
         }
         await this.storage.setItem(forgeKeyId, JSON.stringify(newKeys));
         this.keys = newKeys;
+        return;
       }
     } catch (error: any) {
       throw new Error(`Key initialization failed: ${error.message}`);
@@ -298,15 +311,16 @@ export class Forge {
       pendingTxs: Array.from(this.state.pendingTxs.entries()),
       tokenUsage: Array.from(this.state.tokenUsage.entries()),
       lastSavedAt: Date.now(),
+      circulatingSupply: this.state.circulatingSupply ?? 0,
     };
     await this.storage.setItem(
-      "forge-state",
+      `forge-state-${this.keys.publicKey}`,
       JSON.stringify(serializableState),
     );
   }
 
   private async loadState(): Promise<void> {
-    const savedState = await this.storage.getItem("forge-state");
+    const savedState = await this.storage.getItem(`forge-state-${this.keys.publicKey}`);
     if (savedState) {
       const parsedState = JSON.parse(savedState);
       this.state = {
@@ -324,6 +338,7 @@ export class Forge {
             : [],
         ),
         tokenUsage: new Map(parsedState.tokenUsage || []),
+        circulatingSupply: parsedState.circulatingSupply ?? 0,
       };
     } else {
       this.state = {
@@ -335,6 +350,7 @@ export class Forge {
         lastAssetId: 0,
         authorizedForgers: new Set(this.config.authorizedForgers || []),
         tokenUsage: new Map(),
+        circulatingSupply: 0,
       };
     }
   }
@@ -346,7 +362,6 @@ export class Forge {
         ["t", tokenHash],
         ["p", this.keys.publicKey!],
       ]);
-      await this.publishSpentToken(tokenHash);
     }
   }
 
@@ -364,7 +379,7 @@ export class Forge {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const { tokenJWT, to, amount } = JSON.parse(req.params);
+    const { tokenJWT, to } = JSON.parse(req.params);
     const sender = context.sender; // Get sender from context
 
     // Basic validation
@@ -381,16 +396,9 @@ export class Forge {
       // Route to appropriate handler based on token type
       switch (token.getTokenType()) {
         case TokenType.FUNGIBLE:
-          return await this.handleFungibleTransfer(
-            token,
-            to,
-            amount,
-            res,
-            sender,
-          );
+          return await this.handleFungibleTransfer([token], to, res, sender);
         case TokenType.TAT:
           return await this.handleNonFungibleTransfer(token, to, res);
-
         default:
           return await res.error(400, "Invalid token type");
       }
@@ -399,96 +407,115 @@ export class Forge {
     }
   }
 
+  /**
+   * Handles a transactional transfer of fungible tokens with multiple inputs and outputs.
+   * Ensures all-or-nothing: no state is mutated and no tokens are sent until all checks and preparations succeed.
+   */
   private async handleFungibleTransfer(
-    token: Token,
-    to: string,
-    amount: string | undefined,
+    tokens: Token[],
+    toArray: Recipient[],
     res: NWPCResponseObject,
     sender: string,
   ) {
-    // Validate amount
-    if (amount === undefined) {
-      return await res.error(
-        400,
-        "Amount required for fungible token transfer",
-      );
-    }
-    const transferAmount = Number(amount);
-    if (isNaN(transferAmount) || transferAmount <= 0) {
-      return await res.error(400, "Invalid amount: must be a positive number");
-    }
+    // 1. Validate
+    const validationError = await this.validateFungibleTransfer(tokens, toArray);
+    if (validationError) return await res.error(400, validationError);
 
-    // Check token validity
-    if (token.isExpired()) {
-      return await res.error(400, "Token has expired");
+    // 2. Prepare
+    const { recipientTokens, changeTokenJWT } = await this.prepareFungibleTransfer(tokens, toArray, sender);
+
+    // 3. Commit (mark all input tokens as spent)
+    await Promise.all(tokens.map(async (token) => await this.publishSpentToken(await token.create_token_hash())));
+
+    // Send output tokens to recipients
+    for (const { to, jwt } of recipientTokens) {
+      await res.send({ token: jwt }, to);
     }
-
-    // Check if token is already spent
-    const tokenHash = await token.create_token_hash();
-    if (this.state.spentTokens.has(tokenHash)) {
-      return await res.error(400, "Token has already been spent");
+    // Send change token to sender, if any
+    if (changeTokenJWT) {
+      return await res.send({ token: changeTokenJWT }, sender);
     }
+    return;
+  }
 
-    // Verify sufficient funds
-    const tokenAmount = token.payload.amount || 0;
-    if (transferAmount > tokenAmount) {
-      return await res.error(400, "Insufficient token amount for transfer");
+  // Helper: Validate fungible transfer with multiple inputs/outputs
+  private async validateFungibleTransfer(tokens: Token[], toArray: Recipient[]): Promise<string | null> {
+    if (!Array.isArray(tokens) || tokens.length === 0) {
+      return "At least one input token is required";
     }
+    let inputTotal = 0;
+    for (const token of tokens) {
+      if (typeof token.payload.amount !== "number" || token.payload.amount <= 0) {
+        return "Each input token must have a valid positive amount";
+      }
+      if (token.isExpired()) {
+        return "One or more input tokens have expired";
+      }
+      const tokenHash = await token.create_token_hash();
+      if (this.state.spentTokens.has(tokenHash)) {
+        return "One or more input tokens have already been spent";
+      }
+      inputTotal += token.payload.amount;
+    }
+    let outputTotal = 0;
+    for (const entry of toArray) {
+      if (
+        typeof entry.amount !== "number" ||
+        isNaN(entry.amount) ||
+        entry.amount <= 0
+      ) {
+        return "Invalid or missing amount for recipient";
+      }
+      if (!entry.to) {
+        return "Recipient 'to' is required";
+      }
+      outputTotal += entry.amount;
+    }
+    if (outputTotal > inputTotal) {
+      return "Insufficient total input token amount for transfer";
+    }
+    return null;
+  }
 
-    // Create new token for to
-    const newToken = new Token();
-    await newToken.build({
-      token_type: TokenType.FUNGIBLE,
-      payload: Token.createPayload({
-        iss: this.keys.publicKey!,
-        amount: transferAmount,
-        P2PKlock: to,
-        timeLock: token.payload.timeLock,
-        data_uri: token.payload.data_uri,
-      }),
-    });
-
-    // Handle change if needed
-    if (transferAmount < tokenAmount) {
+  // Helper: Prepare tokens for recipients and change (multi-input, multi-output)
+  private async prepareFungibleTransfer(tokens: Token[], toArray: Recipient[], sender: string) {
+    // For simplicity, use the first input token's properties for timeLock/data_uri/change lock
+    const baseToken = tokens[0];
+    const recipientTokens: { to: string; jwt: string }[] = [];
+    for (const entry of toArray) {
+      const newToken = new Token();
+      await newToken.build({
+        token_type: TokenType.FUNGIBLE,
+        payload: Token.createPayload({
+          iss: this.keys.publicKey!,
+          amount: entry.amount,
+          P2PKlock: entry.to,
+          timeLock: baseToken.payload.timeLock,
+          data_uri: baseToken.payload.data_uri,
+        }),
+      });
+      const jwt = await this.signAndCreateJWT(newToken);
+      recipientTokens.push({ to: entry.to, jwt });
+    }
+    // Calculate change
+    const inputTotal = tokens.reduce((sum, t) => sum + (t.payload.amount || 0), 0);
+    const outputTotal = toArray.reduce((sum, entry) => sum + entry.amount, 0);
+    let changeTokenJWT: string | undefined = undefined;
+    if (inputTotal > outputTotal) {
       const changeToken = new Token();
       await changeToken.build({
         token_type: TokenType.FUNGIBLE,
         payload: Token.createPayload({
           iss: this.keys.publicKey!,
-          amount: tokenAmount - transferAmount,
-          P2PKlock: token.payload.P2PKlock,
-          timeLock: token.payload.timeLock,
-          data_uri: token.payload.data_uri,
+          amount: inputTotal - outputTotal,
+          P2PKlock: sender,
+          timeLock: baseToken.payload.timeLock,
+          data_uri: baseToken.payload.data_uri,
         }),
       });
-
-      const [newTokenJWT, changeTokenJWT] = await Promise.all([
-        this.signAndCreateJWT(newToken),
-        this.signAndCreateJWT(changeToken),
-      ]);
-
-      await this.publishSpentToken(tokenHash);
-
-      await res.send(
-        {
-          token: newTokenJWT,
-        },
-        to,
-      );
-
-      return await res.send(
-        {
-          token: changeTokenJWT,
-        },
-        sender,
-      );
+      changeTokenJWT = await this.signAndCreateJWT(changeToken);
     }
-
-    // Full transfer
-    const newTokenJWT = await this.signAndCreateJWT(newToken);
-    await this.publishSpentToken(tokenHash);
-
-    return await res.send({ token: newTokenJWT }, to);
+    return { recipientTokens, changeTokenJWT };
   }
 
   private async handleNonFungibleTransfer(
@@ -553,7 +580,7 @@ export class Forge {
     try {
       const token = new Token();
       const tokenType = this.config.tokenType || TokenType.TAT;
-      console.log("Type:",tokenType);
+      console.log("Type:", tokenType);
 
       switch (tokenType) {
         case TokenType.FUNGIBLE:
@@ -562,18 +589,47 @@ export class Forge {
           if (!reqObj.amount || !reqObj.to) {
             return await res.error(400, "Missing required parameters");
           }
+          // --- SUPPLY CHECK ---
+          const amountToForge = Number(reqObj.amount);
+          if (amountToForge <= 0) {
+            return await res.error(400, "Amount must be positive");
+          }
+          // Only enforce cap if totalSupply is set and > 0
+          if (
+            this.state.totalSupply > 0 &&
+            ((this.state.circulatingSupply ?? 0) + amountToForge > this.state.totalSupply)
+          ) {
+            return await res.error(
+              400,
+              `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
+            );
+          }
+
           await token.build({
             token_type: TokenType.FUNGIBLE,
             payload: Token.createPayload({
               iss: this.keys.publicKey!,
-              amount: Number(reqObj.amount),
+              amount: amountToForge,
               P2PKlock: reqObj.to,
             }),
           });
+
+          // Update circulating supply
+          this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + amountToForge;
           break;
         case TokenType.TAT:
           if (!reqObj.to) {
             return await res.error(400, "Missing required parameters");
+          }
+          // --- SUPPLY CHECK FOR NON-FUNGIBLE ---
+          if (
+            this.state.totalSupply > 0 &&
+            ((this.state.circulatingSupply ?? 0) + 1 > this.state.totalSupply)
+          ) {
+            return await res.error(
+              400,
+              `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
+            );
           }
           await token.build({
             token_type: TokenType.TAT,
@@ -584,6 +640,8 @@ export class Forge {
             }),
           });
           this.state.lastAssetId += 1;
+          // Update circulating supply for TAT
+          this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + 1;
           break;
       }
       const tokenJWT = await this.signAndCreateJWT(token);

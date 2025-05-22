@@ -93,6 +93,12 @@ export abstract class NWPCBase implements INWPCBase {
     pubkey: string,
     handler: (event: NDKEvent) => Promise<void>,
   ): Promise<NDKSubscription> {
+    // Prevent duplicate subscriptions: Unsubscribe if already subscribed
+    const existing = this.getSubscription(pubkey);
+    if (existing) {
+      await this.unsubscribe(pubkey);
+    }
+
     const filter = {
       kinds: [1059],
       "#p": [pubkey],
@@ -130,6 +136,7 @@ export abstract class NWPCBase implements INWPCBase {
   }
 
   public async saveState(): Promise<void> {
+    console.log("Current state: \n", this.state);
     await this.storage.setItem("nwpcState", JSON.stringify(this.state));
   }
 

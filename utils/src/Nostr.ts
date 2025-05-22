@@ -205,7 +205,7 @@ export async function Unwrap(
         unwrapped.pubkey,
       ),
     );
-   
+
     if (!openEnv.content) return null;
 
     if (openEnv.pubkey == unwrapped.pubkey) {
