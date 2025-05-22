@@ -37,7 +37,8 @@ export class HandlerEngine {
     res.error = async (...args: any[]) => {
       responseSent = true;
       // Ensure at least two arguments (code, message)
-      const [code, message, recipient] = args.length < 2 ? [500, 'Unknown error'] : args;
+      const [code, message, recipient] =
+        args.length < 2 ? [500, "Unknown error"] : args;
       return originalError(code, message, recipient);
     };
 
@@ -53,7 +54,7 @@ export class HandlerEngine {
     await next();
     // After all handlers, if no response was sent, send a default ok
     if (!responseSent) {
-      await res.send({ status: 'ok' }, context.sender);
+      await res.send({ status: "ok" }, context.sender);
     }
   }
 

@@ -68,5 +68,5 @@ export interface ForgeState {
   /**
    * Set of processed event IDs for replay protection
    */
-  processedEventIds: Set<string>;
+  processedEventIds?: string[];
 }

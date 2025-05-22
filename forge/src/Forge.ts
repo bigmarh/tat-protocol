@@ -36,6 +36,7 @@ export class Forge {
   private nwpcServer!: NWPCServer;
   public ndk!: NDK;
   public owner: string;
+  private processedEventIds: Set<string> = new Set();
   /**
    * Create a new Forge instance
    * @param config - Configuration options for the forge
@@ -303,14 +304,15 @@ export class Forge {
   }
 
   private async saveState(): Promise<void> {
+    this.state.processedEventIds = Array.from(this.processedEventIds);
     const serializableState = {
       ...this.state,
       spentTokens: Array.from(this.state.spentTokens),
       pendingTxs: Array.from(this.state.pendingTxs.entries()),
       tokenUsage: Array.from(this.state.tokenUsage.entries()),
-      processedEventIds: Array.from(this.state.processedEventIds),
       lastSavedAt: Date.now(),
       circulatingSupply: this.state.circulatingSupply ?? 0,
+      processedEventIds: this.state.processedEventIds,
     };
     await this.storage.setItem(
       `forge-state-${this.keys.publicKey}`,
@@ -340,8 +342,9 @@ export class Forge {
         ),
         tokenUsage: new Map(parsedState.tokenUsage || []),
         circulatingSupply: parsedState.circulatingSupply ?? 0,
-        processedEventIds: new Set(parsedState.processedEventIds || []),
+        processedEventIds: parsedState.processedEventIds || [],
       };
+      this.processedEventIds = new Set(this.state.processedEventIds);
     } else {
       this.state = {
         owner: this.config.owner || "",
@@ -353,8 +356,9 @@ export class Forge {
         authorizedForgers: new Set(this.config.authorizedForgers || []),
         tokenUsage: new Map(),
         circulatingSupply: 0,
-        processedEventIds: new Set(),
+        processedEventIds: [],
       };
+      this.processedEventIds = new Set();
     }
   }
 
@@ -733,12 +737,13 @@ export class Forge {
   }
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
-    if (this.state.processedEventIds.has(event.id)) {
+    if (this.processedEventIds.has(event.id)) {
       console.log(`Skipping already processed event: ${event.id}`);
       return;
     }
     // ... process event as normal ...
-    this.state.processedEventIds.add(event.id);
+    this.processedEventIds.add(event.id);
+    this.state.processedEventIds = Array.from(this.processedEventIds);
     await this.saveState();
   }
 }

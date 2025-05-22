@@ -110,7 +110,7 @@ export class NWPCResponseObject {
       }
       // If the recipient is not the sender, send a success response to the sender
       if (targetRecipient !== this.context.sender) {
-       await this.sender.sendResponse(
+        await this.sender.sendResponse(
           {
             id: this.response.id,
             timestamp: Date.now(),

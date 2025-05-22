@@ -41,6 +41,7 @@ export interface PocketState {
     balances: Map<string, Map<string, number>>;         //[issuerPubkey,setID, balance]. Hold the balance for each issuer
     tokenIndex: Map<string, Map<number, string[] | undefined>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
     tatIndex: Map<string, Map<string, string | undefined>>; //[issuerPubkey, identifier(tokenID, tokenID:derivative-tokenId), tokenhash], Hold the tokenhash for each tokenID
+    processedEventIds?: string[];
 }
 
 export interface HDKeys {
@@ -78,7 +79,8 @@ export class Pocket extends NWPCPeer {
             tokens: new Map<string, Map<string | undefined, string>>(),  //[issuerPubkey, tokenHash, tokenJWT]
             tokenIndex: new Map<string, Map<number, string[] | undefined>>(),  //[issuerPubkey, identifier(denomination), [tokenhash]]
             tatIndex: new Map<string, Map<string, string>>(),  //[issuerPubkey, identifier(tokenID, tokenID:derivative-tokenId), tokenhash]
-            balances: new Map<string, Map<string, number>>() //[issuerPubkey, setID, balance]
+            balances: new Map<string, Map<string, number>>(), //[issuerPubkey, setID, balance]
+            processedEventIds: []
         };
 
         // Initialize storage based on config
@@ -177,6 +179,7 @@ export class Pocket extends NWPCPeer {
             console.error("Pocket: handleEvent error", error);
         }
         this.processedEventIds.add(event.id);
+        this.Pocket.processedEventIds = Array.from(this.processedEventIds);
         await this.savePocketState();
     }
 
@@ -386,13 +389,14 @@ export class Pocket extends NWPCPeer {
                         ])
                         : []
                 ),
-                balances: new Map(Array.isArray(state.balances) ? state.balances : [])
+                balances: new Map(Array.isArray(state.balances) ? state.balances : []),
+                processedEventIds: state.processedEventIds || []
             };
 
             const seed = await HDKey.mnemonicToSeed(this.Pocket.hdMasterKey.mnemonic);
             this.hdKey = HDKey.fromMasterSeed(seed);
 
-            this.processedEventIds = new Set(state.processedEventIds || []);
+            this.processedEventIds = new Set(this.Pocket.processedEventIds);
 
         } catch (error) {
             throw new Error(`Failed to load pocket state: ${error}`);
@@ -400,10 +404,8 @@ export class Pocket extends NWPCPeer {
     }
 
     private async savePocketState(): Promise<void> {
-        const stateStr = JSON.stringify({
-            ...this.Pocket,
-            processedEventIds: Array.from(this.processedEventIds),
-        });
+        this.Pocket.processedEventIds = Array.from(this.processedEventIds);
+        const stateStr = JSON.stringify(this.Pocket);
         await this.storage.setItem(`pocket-state-${this.idKey.publicKey}`, stateStr);
     }
 
