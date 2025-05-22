@@ -6,7 +6,8 @@ import { StorageInterface } from "@tat-protocol/storage";
 
 export interface NWPCConfig {
   relays?: string[];
-  keys: KeyPair;
+  keys?: KeyPair;
+  keyID?: string;
   hooks?: MessageHookOptions;
   storage?: StorageInterface;
   requestHandlers?: Map<string, NWPCHandler>;
@@ -106,6 +107,17 @@ export class NWPCResponseObject {
         }
       } else {
         await this.sender.sendResponse(this.response, targetRecipient);
+      }
+      // If the recipient is not the sender, send a success response to the sender
+      if (targetRecipient !== this.context.sender) {
+       await this.sender.sendResponse(
+          {
+            id: this.response.id,
+            timestamp: Date.now(),
+            result: { success: "ok" },
+          },
+          this.context.sender,
+        );
       }
     }
 

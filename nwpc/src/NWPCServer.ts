@@ -76,7 +76,7 @@ export class NWPCServer extends NWPCBase {
       recipientPubkey,
     );
 
-    console.log("NWPCServer: Send response:", response);
+    console.log("NWPCServer: Send response:", response, ` - ${recipientPubkey.slice(0, 3)}...${recipientPubkey.slice(-3)}`);
     await wrappedEvent.publish();
   }
 

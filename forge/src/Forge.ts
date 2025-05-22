@@ -17,13 +17,12 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
 import NDK from "@nostr-dev-kit/ndk";
+import { NDKEvent } from "@nostr-dev-kit/ndk";
 
 type Recipient = {
   to: string;
   amount: number;
 };
-
-
 
 /**
  * Main Forge class that handles token minting and management
@@ -174,7 +173,6 @@ export class Forge {
           newKeys = this.keys;
           await this.storage.setItem(forgeKeyId, JSON.stringify(newKeys));
           return;
-
         } else {
           const secretKey = bytesToHex(generateSecretKey());
           const publicKey = getPublicKey(hexToBytes(secretKey));
@@ -310,6 +308,7 @@ export class Forge {
       spentTokens: Array.from(this.state.spentTokens),
       pendingTxs: Array.from(this.state.pendingTxs.entries()),
       tokenUsage: Array.from(this.state.tokenUsage.entries()),
+      processedEventIds: Array.from(this.state.processedEventIds),
       lastSavedAt: Date.now(),
       circulatingSupply: this.state.circulatingSupply ?? 0,
     };
@@ -320,7 +319,9 @@ export class Forge {
   }
 
   private async loadState(): Promise<void> {
-    const savedState = await this.storage.getItem(`forge-state-${this.keys.publicKey}`);
+    const savedState = await this.storage.getItem(
+      `forge-state-${this.keys.publicKey}`,
+    );
     if (savedState) {
       const parsedState = JSON.parse(savedState);
       this.state = {
@@ -339,6 +340,7 @@ export class Forge {
         ),
         tokenUsage: new Map(parsedState.tokenUsage || []),
         circulatingSupply: parsedState.circulatingSupply ?? 0,
+        processedEventIds: new Set(parsedState.processedEventIds || []),
       };
     } else {
       this.state = {
@@ -351,6 +353,7 @@ export class Forge {
         authorizedForgers: new Set(this.config.authorizedForgers || []),
         tokenUsage: new Map(),
         circulatingSupply: 0,
+        processedEventIds: new Set(),
       };
     }
   }
@@ -418,14 +421,23 @@ export class Forge {
     sender: string,
   ) {
     // 1. Validate
-    const validationError = await this.validateFungibleTransfer(tokens, toArray);
+    const validationError = await this.validateFungibleTransfer(
+      tokens,
+      toArray,
+    );
     if (validationError) return await res.error(400, validationError);
 
     // 2. Prepare
-    const { recipientTokens, changeTokenJWT } = await this.prepareFungibleTransfer(tokens, toArray, sender);
+    const { recipientTokens, changeTokenJWT } =
+      await this.prepareFungibleTransfer(tokens, toArray, sender);
 
     // 3. Commit (mark all input tokens as spent)
-    await Promise.all(tokens.map(async (token) => await this.publishSpentToken(await token.create_token_hash())));
+    await Promise.all(
+      tokens.map(
+        async (token) =>
+          await this.publishSpentToken(await token.create_token_hash()),
+      ),
+    );
 
     // Send output tokens to recipients
     for (const { to, jwt } of recipientTokens) {
@@ -439,13 +451,19 @@ export class Forge {
   }
 
   // Helper: Validate fungible transfer with multiple inputs/outputs
-  private async validateFungibleTransfer(tokens: Token[], toArray: Recipient[]): Promise<string | null> {
+  private async validateFungibleTransfer(
+    tokens: Token[],
+    toArray: Recipient[],
+  ): Promise<string | null> {
     if (!Array.isArray(tokens) || tokens.length === 0) {
       return "At least one input token is required";
     }
     let inputTotal = 0;
     for (const token of tokens) {
-      if (typeof token.payload.amount !== "number" || token.payload.amount <= 0) {
+      if (
+        typeof token.payload.amount !== "number" ||
+        token.payload.amount <= 0
+      ) {
         return "Each input token must have a valid positive amount";
       }
       if (token.isExpired()) {
@@ -478,7 +496,11 @@ export class Forge {
   }
 
   // Helper: Prepare tokens for recipients and change (multi-input, multi-output)
-  private async prepareFungibleTransfer(tokens: Token[], toArray: Recipient[], sender: string) {
+  private async prepareFungibleTransfer(
+    tokens: Token[],
+    toArray: Recipient[],
+    sender: string,
+  ) {
     // For simplicity, use the first input token's properties for timeLock/data_uri/change lock
     const baseToken = tokens[0];
     const recipientTokens: { to: string; jwt: string }[] = [];
@@ -498,7 +520,10 @@ export class Forge {
       recipientTokens.push({ to: entry.to, jwt });
     }
     // Calculate change
-    const inputTotal = tokens.reduce((sum, t) => sum + (t.payload.amount || 0), 0);
+    const inputTotal = tokens.reduce(
+      (sum, t) => sum + (t.payload.amount || 0),
+      0,
+    );
     const outputTotal = toArray.reduce((sum, entry) => sum + entry.amount, 0);
     let changeTokenJWT: string | undefined = undefined;
     if (inputTotal > outputTotal) {
@@ -597,7 +622,8 @@ export class Forge {
           // Only enforce cap if totalSupply is set and > 0
           if (
             this.state.totalSupply > 0 &&
-            ((this.state.circulatingSupply ?? 0) + amountToForge > this.state.totalSupply)
+            (this.state.circulatingSupply ?? 0) + amountToForge >
+              this.state.totalSupply
           ) {
             return await res.error(
               400,
@@ -615,7 +641,8 @@ export class Forge {
           });
 
           // Update circulating supply
-          this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + amountToForge;
+          this.state.circulatingSupply =
+            (this.state.circulatingSupply ?? 0) + amountToForge;
           break;
         case TokenType.TAT:
           if (!reqObj.to) {
@@ -624,7 +651,7 @@ export class Forge {
           // --- SUPPLY CHECK FOR NON-FUNGIBLE ---
           if (
             this.state.totalSupply > 0 &&
-            ((this.state.circulatingSupply ?? 0) + 1 > this.state.totalSupply)
+            (this.state.circulatingSupply ?? 0) + 1 > this.state.totalSupply
           ) {
             return await res.error(
               400,
@@ -641,7 +668,8 @@ export class Forge {
           });
           this.state.lastAssetId += 1;
           // Update circulating supply for TAT
-          this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + 1;
+          this.state.circulatingSupply =
+            (this.state.circulatingSupply ?? 0) + 1;
           break;
       }
       const tokenJWT = await this.signAndCreateJWT(token);
@@ -702,5 +730,15 @@ export class Forge {
     } catch (error: any) {
       return await res.error(500, error.message);
     }
+  }
+
+  protected async handleEvent(event: NDKEvent): Promise<void> {
+    if (this.state.processedEventIds.has(event.id)) {
+      console.log(`Skipping already processed event: ${event.id}`);
+      return;
+    }
+    // ... process event as normal ...
+    this.state.processedEventIds.add(event.id);
+    await this.saveState();
   }
 }

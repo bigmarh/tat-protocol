@@ -12,7 +12,7 @@ async function main() {
   try {
 
     // Create and initialize the Pocket
-    const pocket = await Pocket.create({keys: {secretKey: '', publicKey: ''}, relays: ['ws://localhost:8080']});
+    const pocket = await Pocket.create({keys: {secretKey: '', publicKey: ''}, keyID:"4dcbdcca9df14def031b5c56bef07b58e6ed94d29a2d4c08b7ec38860a9b5861", relays: ['ws://localhost:8080']});
     console.log("Pocket initialized!");
     // @ts-ignore: Accessing private property
     console.log("Public Key:", pocket["idKey"].publicKey);

@@ -32,7 +32,7 @@ export abstract class NWPCBase implements INWPCBase {
 
   constructor(config: NWPCConfig) {
     this.config = config;
-    this.keys = config.keys || undefined;
+    this.keys = config.keys || { secretKey: "", publicKey: "" };
     this.ndk = new NDK({
       explicitRelayUrls: config.relays || defaultConfig.relays,
     });
@@ -50,7 +50,7 @@ export abstract class NWPCBase implements INWPCBase {
     if (this.keys) {
       this.connect()
         .then((o) => {
-          o.subscribe(o.keys.publicKey, o.handleEvent.bind(o));
+          o.subscribe(o.keys?.publicKey || "", o.handleEvent.bind(o));
         })
         .catch((err) => {
           console.error("NWPCBase: Error in connect", err);

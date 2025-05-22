@@ -3,6 +3,9 @@ node_modules/
 .pnp/
 .pnp.js
 
+.turbo/
+.storage/
+
 # Testing
 coverage/
 .nyc_output/

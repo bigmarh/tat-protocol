@@ -244,25 +244,26 @@ class NoiseyClient {
         }
         try {
           const action = args.shift();
-          const message = args;
           const serverPubkey = this.servers.get(this.currentServer);
           if (!serverPubkey) {
             console.log("Server pubkey not found");
             return;
           }
-
-          console.log("MESSAGE:", JSON.stringify(message));
-          const result = await this.peer.request(
-            String(action),
-            args.map((arg) => {
-              try {
-                return JSON.parse(arg);
-              } catch (e) {
-                return arg;
-              }
-            }),
-            serverPubkey,
-          );
+      
+          // Join remaining args back into a single string for JSON parsing
+          const jsonString = args.join(" ");
+          console.log("JSON string:", jsonString);
+          
+          let parsedParam;
+          try {
+            parsedParam = JSON.parse(jsonString);
+          } catch (e) {
+            console.log("Invalid JSON format. Please provide valid JSON after the action.");
+            return;
+          }
+      
+          console.log("Parsed param:", parsedParam);
+          const result = await this.peer.request(String(action), [parsedParam], serverPubkey);
           console.log("Server response:", result);
         } catch (error) {
           console.error("Error sending message:", error);

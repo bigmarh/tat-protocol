@@ -29,6 +29,7 @@ export interface PocketConfig extends NWPCConfig {
     storage?: StorageInterface;
     storageType?: 'node' | 'browser';
     keys: KeyPair;
+    keyID?: string;
     requestHandlers?: Map<string, NWPCHandler>;
 }
 
@@ -54,6 +55,7 @@ export class Pocket extends NWPCPeer {
     private isInitialized: boolean;
     private hdKey!: HDKey;
     protected storage: StorageInterface;
+    private processedEventIds: Set<string> = new Set();
 
     private constructor(config: PocketConfig) {
 
@@ -61,6 +63,8 @@ export class Pocket extends NWPCPeer {
 
         this.config = config || {};
         this.isInitialized = false;
+
+      
         this.idKey = config?.keys || { secretKey: '', publicKey: '' };
 
 
@@ -79,9 +83,11 @@ export class Pocket extends NWPCPeer {
 
         // Initialize storage based on config
         this.storage = new Storage(config?.storage || {});
-
+    
         // Bind handleEvent to this instance
         this.handleEvent = this.handleEvent.bind(this);
+
+        this.processedEventIds = new Set();
     }
 
     /**
@@ -93,10 +99,19 @@ export class Pocket extends NWPCPeer {
     static async create(config: PocketConfig): Promise<Pocket> {
         const pocket = new Pocket(config);
 
-        if (config.keys) {
-            pocket.keys = config.keys;
+        if (config?.keyID) {
+            const idKeyStr = await pocket.storage.getItem(`pocket-idkey-${config.keyID}`);
+            if (idKeyStr) {
+                pocket.idKey = JSON.parse(idKeyStr);
+            }
+            else {
+                throw new Error('No idKey to load');
+            }
         }
-
+        else { 
+            pocket.idKey = config?.keys || { secretKey: '', publicKey: '' };
+        }
+      
         // Initialize NWPC client
         await pocket.initialize();
         return pocket;
@@ -125,6 +140,10 @@ export class Pocket extends NWPCPeer {
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
+        if (this.processedEventIds.has(event.id)) {
+            console.log(`Skipping already processed event: ${event.id}`);
+            return;
+        }
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
         console.log("Pocket: toKey", toKey);
@@ -157,6 +176,8 @@ export class Pocket extends NWPCPeer {
         catch (error) {
             console.error("Pocket: handleEvent error", error);
         }
+        this.processedEventIds.add(event.id);
+        await this.savePocketState();
     }
 
 
@@ -218,20 +239,20 @@ export class Pocket extends NWPCPeer {
         return this.savePocketState();
     }
 
-    private updateBalance(issuer: string, setID: string, amount: number) {
+    private async updateBalance(issuer: string, setID: string, amount: number) {
         if (this.Pocket.balances.has(issuer)) {
             const issuerBalances = this.Pocket.balances.get(issuer);
-            if (issuerBalances?.has(setID)) {
-                // Do not add if already present (idempotent)
-                // Optionally, you could check if the balance already includes this token
-                // For now, we assume each token is unique per setID
-                // issuerBalances?.set(setID, currentAmount + amount);
-            } else {
-                issuerBalances?.set(setID, amount); // Set initial amount if it doesn't exist
-            }
+                if (issuerBalances?.has(setID)) {
+                    const currentAmount = issuerBalances?.get(setID) || 0;
+                    issuerBalances?.set(setID, currentAmount + amount);
+                } else {
+                    issuerBalances?.set(setID, amount); // Set initial amount if it doesn't exist
+                }
+                await this.savePocketState();
         } else {
             // If the issuer doesn't exist, create a new inner Map
             this.Pocket.balances.set(issuer, new Map([[setID, amount]]));
+            await this.savePocketState();
         }
     }
 
@@ -371,13 +392,18 @@ export class Pocket extends NWPCPeer {
             const seed = await HDKey.mnemonicToSeed(this.Pocket.hdMasterKey.mnemonic);
             this.hdKey = HDKey.fromMasterSeed(seed);
 
+            this.processedEventIds = new Set(state.processedEventIds || []);
+
         } catch (error) {
             throw new Error(`Failed to load pocket state: ${error}`);
         }
     }
 
     private async savePocketState(): Promise<void> {
-        const stateStr = JSON.stringify(this.Pocket);
+        const stateStr = JSON.stringify({
+            ...this.Pocket,
+            processedEventIds: Array.from(this.processedEventIds),
+        });
         await this.storage.setItem(`pocket-state-${this.idKey.publicKey}`, stateStr);
     }
 

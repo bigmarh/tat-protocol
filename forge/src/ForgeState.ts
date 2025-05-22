@@ -64,4 +64,9 @@ export interface ForgeState {
    * Number of tokens forged so far (for supply enforcement)
    */
   circulatingSupply?: number;
+
+  /**
+   * Set of processed event IDs for replay protection
+   */
+  processedEventIds: Set<string>;
 }
