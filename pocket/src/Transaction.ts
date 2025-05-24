@@ -21,7 +21,6 @@ export class Transaction {
         this.tatIndex = this.PocketState.tatIndex;
         this.tokenIndex = this.PocketState.tokenIndex;
         this.tokens = this.PocketState.tokens;
-        this.build();
     }
 
 
@@ -42,9 +41,10 @@ export class Transaction {
         if (!jwt) {
             throw new Error(`JWT not found: ${issuer}:${tokenID}:${to}`);
         }
+        const outs = [{ to, tokenID: tokenID }];
 
         //return the method,  issuer, tx
-        return ['transfer', issuer, { ins: [jwt], outs: [{ to }] }];
+        return ['transfer', issuer, { ins: [jwt], outs }];
     }
 
     private greedy(denominations: Array<{ d: number, c: number }>, target: number): [number, Array<{ d: number, used: number }>] {

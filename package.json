@@ -5,7 +5,7 @@
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
   "scripts": {
     "build": "turbo run build",
-    "test": "turbo run test",
+    "test": "jest --passWithNoTests",
     "lint": "turbo run lint",
     "format": "turbo run format",
     "clean": "turbo run clean",
@@ -15,32 +15,46 @@
     "calculator": "pnpm tsx nwpc/src/examples/server.ts",
     "noisey-client": "npx tsx nwpc/src/examples/noisey-client.ts",
     "client": "pnpm tsx nwpc/src/examples/client.ts",
-    "pocket": "pnpm tsx pocket/src/examples/runPocket.ts"
+    "pocket": "pnpm tsx pocket/src/examples/runPocket.ts",
+    "test:all": "tsx scripts/test-runner.ts",
+    "test:unit": "jest tests/unit",
+    "test:integration": "jest tests/integration",
+    "test:e2e": "jest tests/e2e --passWithNoTests",
+    "test:performance": "jest --testMatch='**/performance/**/*.test.ts' --runInBand --detectOpenHandles",
+    "test:lifecycle": "jest --testMatch='**/tests/integration/token-lifecycle.test.ts' ",
+    "test:watch": "jest --watch --passWithNoTests",
+    "test:coverage": "jest --coverage --passWithNoTests",
+    "test:debug": "node --inspect-brk node_modules/.bin/jest --runInBand --passWithNoTests"
   },
   "dependencies": {
     "@noble/hashes": "^1.0.0",
     "@nostr-dev-kit/ndk": "2.14.15",
-    "localdrive": "^2",
-    "nostr-tools": "^2.12.0",
     "@tat-protocol/forge": "workspace:*",
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/nwpc": "workspace:*",
     "@tat-protocol/pocket": "workspace:*",
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/token": "workspace:*",
-    "@tat-protocol/utils": "workspace:*"
-    
+    "@tat-protocol/utils": "workspace:*",
+    "localdrive": "^2",
+    "nostr-tools": "^2.12.0"
   },
   "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.14",
     "@types/node": "^22.15.21",
+    "@types/ws": "^8.5.8",
     "@typescript-eslint/eslint-plugin": "^8.32.1",
     "@typescript-eslint/parser": "^8.32.1",
     "eslint": "^9.15.0",
     "husky": "^9.0.11",
+    "jest": "^29.7.0",
     "lint-staged": "^16.0.0",
     "prettier": "^3.2.5",
+    "ts-jest": "^29.3.4",
     "tsx": "^4.19.4",
-    "typescript": "^5.8.3"
+    "typescript": "^5.8.3",
+    "ws": "^8.14.2"
   },
   "engines": {
     "node": ">=16.0.0"

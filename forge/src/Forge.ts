@@ -47,7 +47,6 @@ export class Forge extends NWPCServer {
     this.config = config;
     this.isInitialized = false;
 
-    console.log("Forge: config\n\n", config);
     // Set keys from config if provided
     if (config.keys) {
       this.keys = config.keys;
@@ -141,10 +140,6 @@ export class Forge extends NWPCServer {
 
       // NWPCServer is already initialized via super(config)
       this.ndk = this.ndk;
-      console.log(
-        "Forge: NWPC server initialized with keys:",
-        this.keys.publicKey,
-      );
       this.stateKey = `forge-state-${this.keys.publicKey}`;
       await this._loadState();
       this.isInitialized = true;

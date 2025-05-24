@@ -41,7 +41,6 @@ export abstract class NWPCBase implements INWPCBase {
    */
   public async init(): Promise<void> {
     // Load state from storage if available
-    console.log("NWPCBase: init");
     // Connect and subscribe after state is loaded
     await this.connect();
     if (this.keys) {
@@ -75,7 +74,6 @@ export abstract class NWPCBase implements INWPCBase {
   }
 
   public async connect(): Promise<NWPCBase> {
-    console.log("NWPCBase: connect");
     if (this.connected) {
       console.log("NWPCBase: already connected", this.state.relays);
       return this;
@@ -144,12 +142,6 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      console.log(
-        "NWPCBase: processed",
-        this.state.processedEventIds,
-        event.id,
-        this.state.processedEventIds.has(event.id),
-      );
       if (this.state.processedEventIds.has(event.id)) {
         console.log(`\nSkipping already processed event: ${event.id}`);
         return;
@@ -157,10 +149,8 @@ export abstract class NWPCBase implements INWPCBase {
       console.log(
         `\n=========================== NWPCBase: Received event on subscription : ${event.id} ============\n\n`,
       );
-      console.log(this.stateKey, this.state.processedEventIds);
       await handler(event);
       this.state.processedEventIds.add(event.id);
-      console.log(this.state.processedEventIds);
       // Use the save queue to serialize state saves
       await this.queueSaveState(this.stateKey, this.state);
     };
@@ -189,11 +179,6 @@ export abstract class NWPCBase implements INWPCBase {
     const serializedState = serializeData(state);
     key = key || "nwpc-bbb-love";
     await this.storage.setItem(key, serializedState);
-    console.log(
-      "Current state saved:",
-      new Date().toISOString(),
-      serializedState,
-    );
     return;
   }
 

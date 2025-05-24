@@ -1,7 +1,7 @@
 import readline from "readline";
 import { Pocket } from "@tat-protocol/pocket";
 import { Token } from "@tat-protocol/token";
-import { NWPCPeer } from "@tat-protocol/nwpc";
+
 
 const rl = readline.createInterface({
   input: process.stdin,
@@ -23,9 +23,20 @@ async function main() {
 
     // Create and initialize the Pocket
     const pocket = await Pocket.create(pStart);
+    // Check idKey format
+    // @ts-ignore: Accessing private property
+    const idKey = pocket["keys"];
+    function isValidHexKey(key: any) {
+      return typeof key === "string" && /^[0-9a-fA-F]{64}$/.test(key);
+    }
+    if (!isValidHexKey(idKey?.secretKey) || !isValidHexKey(idKey?.publicKey)) {
+      console.error("Error: idKey.secretKey and idKey.publicKey must be 32-byte hex strings.");
+      rl.close();
+      process.exit(1);
+    }
     console.log("Pocket initialized!");
     // @ts-ignore: Accessing private property
-    console.log("Public Key:", pocket["idKey"].publicKey);
+    console.log("Public Key:", idKey.publicKey);
 
     // Main command loop
     while (true) {
@@ -83,32 +94,105 @@ async function main() {
           break;
 
         case "3":
-          const tokenJWT = await new Promise<string>((resolve) => {
-            rl.question("Enter token JWT to transfer: ", resolve);
+          // Gather all unique issuers from tokens
+          // @ts-ignore: Accessing private property
+          const tokensMap = pocket.getState().tokens;
+          const allIssuers = Array.from(tokensMap.keys());
+          if (allIssuers.length === 0) {
+            console.log("No issuers available for transfer.");
+            break;
+          }
+          console.log("Available issuers:");
+          allIssuers.forEach((issuer, idx) => {
+            console.log(`${idx + 1}. ${issuer}`);
           });
+          const issuerIdx = parseInt(await new Promise<string>((resolve) => {
+            rl.question("Select issuer number: ", resolve);
+          }));
+          if (isNaN(issuerIdx) || issuerIdx < 1 || issuerIdx > allIssuers.length) {
+            console.log("Invalid selection.");
+            break;
+          }
+          const issuer: string = allIssuers[issuerIdx - 1];
+          if (!issuer) {
+            console.log("Invalid issuer selection.");
+            break;
+          }
+
+          // @ts-ignore: Accessing private property
+          const tatIndex = pocket.getState().tatIndex;
+          const availableTokenIDs = Array.from(tatIndex.get(issuer)?.keys() || []);
+          if (availableTokenIDs.length === 0) {
+            console.log("No TAT tokenIDs available for this issuer.");
+            break;
+          }
+          console.log("Available tokenIDs:");
+          availableTokenIDs.forEach((tid, idx) => {
+            console.log(`${idx + 1}. ${tid}`);
+          });
+          const tokenIDIdx = parseInt(await new Promise<string>((resolve) => {
+            rl.question("Select tokenID number: ", resolve);
+          }));
+          if (isNaN(tokenIDIdx) || tokenIDIdx < 1 || tokenIDIdx > availableTokenIDs.length) {
+            console.log("Invalid selection.");
+            break;
+          }
+          const tokenID: string = availableTokenIDs[tokenIDIdx - 1];
+
+          const type = await new Promise<string>((resolve) => {
+            rl.question("Transfer type (fungible/tat): ", resolve);
+          });
+
           const recipient = await new Promise<string>((resolve) => {
             rl.question("Enter recipient public key: ", resolve);
           });
+          if (!recipient) {
+            console.log("Invalid recipient.");
+            break;
+          }
+
+          // @ts-ignore: Accessing private property
+          const tokenHash = tatIndex.get(issuer)?.get(tokenID);
+          console.log("tokenHash", tokenHash);
+          if (!tokenHash) {
+            console.log("Selected tokenID does not have a valid token hash in your wallet. It may have been spent or is missing.");
+            break;
+          }
+          const tokenJWT = tokensMap.get(issuer)?.get(tokenHash);
+
+          if (type.trim().toLowerCase() === "tat") {
+            if (!tokenJWT || !tokenID) {
+              console.log("Selected tokenID does not have a valid token in your wallet. It may have been spent or is missing.");
+              break;
+            }
+          }
 
           try {
-            // @ts-ignore: Accessing private property
-            const nwpcClient = pocket["nwpcClient"] as NWPCPeer;
-
-            // Parse the token to get the issuer
-            const token = new Token();
-            await token.fromJWT(tokenJWT);
-            const issuer = token.getIssuer();
-
-            // Send transfer request to the forge
-            const response = await nwpcClient.request(
-              "transfer",
-              {
-                tokenJWT,
-                to: recipient,
-              },
-              issuer, // Send to the forge's public key
-              30000 // 30 second timeout
-            );
+            let response;
+            if (type.trim().toLowerCase() === "fungible") {
+              const amount = parseInt(await new Promise<string>((resolve) => {
+                rl.question("Enter amount to transfer: ", resolve);
+              }));
+              if (isNaN(amount) || amount <= 0) {
+                console.log("Invalid amount.");
+                break;
+              }
+              response = await pocket.transfer(issuer, recipient, amount);
+            } else if (type.trim().toLowerCase() === "tat") {
+              // Use the selected tokenID from the list, only if tokenJWT and tokenID exist
+              if (typeof pocket.sendTAT === 'function') {
+                response = await pocket.sendTAT(issuer, recipient, tokenID);
+              } else if (typeof pocket["createTATTransferTx"] === 'function' && typeof pocket["sendTx"] === 'function') {
+                // fallback if sendTAT is not available
+                const tx = pocket["createTATTransferTx"](issuer, recipient, tokenID);
+                response = await pocket["sendTx"]('transfer', issuer, tx);
+              } else {
+                throw new Error("sendTAT method not available on Pocket instance");
+              }
+            } else {
+              console.log("Unknown transfer type.");
+              break;
+            }
 
             if (response.result) {
               console.log("Transfer successful!");

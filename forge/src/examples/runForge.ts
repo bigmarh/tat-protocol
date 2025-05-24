@@ -11,8 +11,10 @@ const secretKey =
   "f4c438fe22a763b9f9d70eaa4f91ef6e5806e3ac6f1afa79da6ce258649f4f2c";
 const publicKey = getPublicKey(hexToBytes(secretKey));
 
+console.log("\n-------------KEYS-------------------");
 console.log("Secret Key:", secretKey);
 console.log("Public Key:", publicKey);
+console.log("-------------KEYS-------------------\n");
 
 // Create forge config
 const config: ForgeConfig = {
@@ -33,10 +35,12 @@ async function runForge() {
     const forge = new Forge(config);
     await forge.initialize(); // Wait for initialization to complete
 
-    console.log("Forge initialized successfully!");
+    console.log("\n-------------FORGE-------------------");
     console.log("Owner:", forge.owner);
     console.log("Authorized forgers:", forge.getAuthorizedForgers());
-    console.log("\nForge is running. Press Ctrl+C to exit.");
+    console.log("-------------FORGE-------------------\n");
+
+    console.log("\nForge is running. Press Ctrl+C to exit.\n");
 
     // Keep the process running
     process.on("SIGINT", () => {

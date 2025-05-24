@@ -53,7 +53,7 @@ export interface HDKeys {
 const Debug = DebugLogger.getInstance();
 
 export class Pocket extends NWPCPeer {
-    private idKey!: KeyPair;
+    protected keys!: KeyPair;
     protected state!: PocketState;
     protected isInitialized!: boolean;
     private hdKey!: HDKey;
@@ -66,7 +66,7 @@ export class Pocket extends NWPCPeer {
         super(config);
         this.config = config || {};
         this.isInitialized = false;
-        this.idKey = config?.keys || { secretKey: '', publicKey: '' };
+        this.keys = config?.keys || { secretKey: '', publicKey: '' };
         this.storage = new Storage(config?.storage);
         this.handleEvent = this.handleEvent.bind(this);
     }
@@ -78,16 +78,16 @@ export class Pocket extends NWPCPeer {
         if (this.config?.keyID) {
             await this.loadIdKey(this.config.keyID);
         } else if (this.config?.keys && this.config.keys.secretKey && this.config.keys.publicKey) {
-            this.idKey = this.config.keys;
+            this.keys = this.config.keys;
         } else {
             // Generate new keypair
             const secretKey = bytesToHex(generateSecretKey());
             const publicKey = getPublicKey(hexToBytes(secretKey));
-            this.idKey = { secretKey, publicKey };
+            this.keys = { secretKey, publicKey };
             this.saveIdKey();
         }
         await super.init();
-        this.stateKey = `pocket-state-${this.idKey.publicKey}`;
+        this.stateKey = `pocket-state-${this.keys.publicKey}`;
         await this.loadPocketState();
         this.isInitialized = true;
     }
@@ -99,16 +99,16 @@ export class Pocket extends NWPCPeer {
     }
 
     private async saveIdKey(): Promise<void> {
-        if (!this.idKey) {
+        if (!this.keys) {
             throw new Error('No idKey to save');
         }
-        await this.storage.setItem(`pocket-idkey-${this.idKey.publicKey}`, JSON.stringify(this.idKey));
+        await this.storage.setItem(`pocket-idkey-${this.keys.publicKey}`, JSON.stringify(this.keys));
     }
 
     private async loadIdKey(pubkey: string): Promise<void> {
         const idKeyStr = await this.storage.getItem(`pocket-idkey-${pubkey}`);
         if (idKeyStr) {
-            this.idKey = JSON.parse(idKeyStr);
+            this.keys = JSON.parse(idKeyStr);
         } else {
             throw new Error('No idKey to load');
         }
@@ -122,7 +122,6 @@ export class Pocket extends NWPCPeer {
 
         try {
             const state = await this.loadState(this.stateKey);
-            console.log("Pocket: loadPocketState", this.stateKey, state);
             if (state === null) {
                 const mnemonic = HDKey.generateMnemonic();
                 this.state = {
@@ -272,7 +271,7 @@ export class Pocket extends NWPCPeer {
         handler?: (event: NDKEvent) => Promise<void>
     ): Promise<any> {
         if (!pubkey) {
-            pubkey = this.idKey.publicKey;
+            pubkey = this.keys.publicKey;
         }
         const existing = this.getSubscription(pubkey);
         if (existing) {
@@ -290,8 +289,8 @@ export class Pocket extends NWPCPeer {
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
         console.log("Pocket: toKey", toKey);
-        if (toKey === this.idKey.publicKey) {
-            keys = this.idKey;
+        if (toKey === this.keys.publicKey) {
+            keys = this.keys;
         }
         else if (toKey) {
             const singleUseKey = this.state.singleUseKeys.get(toKey);
@@ -359,7 +358,7 @@ export class Pocket extends NWPCPeer {
             'transfer',
             this.state,
             [],
-            changeKey || this.idKey.publicKey
+            changeKey || this.keys.publicKey
         );
         tx.to(issuer, to, amount);
         return tx['build']();
@@ -373,6 +372,7 @@ export class Pocket extends NWPCPeer {
      * @returns The built transaction structure
      */
     private createTATTransferTx(issuer: string, to: string, tokenID: string) {
+        console.log("createTATTransferTx", issuer, to, tokenID);
         const tx = new Transaction(
             'transfer',
             this.state
@@ -381,9 +381,16 @@ export class Pocket extends NWPCPeer {
     }
 
 
-
+    /**
+     * Send a TAT transfer transaction to the network.
+     * @param issuer The issuer of the TAT
+     * @param to Recipient address
+     * @param tokenID The TAT token ID
+     * @returns The response from the network
+     */
     public async sendTAT(issuer: string, to: string, tokenID: string) {
         const tx = this.createTATTransferTx(issuer, to, tokenID);
+        console.log("tx", tx);
         return this.sendTx('transfer', issuer, tx);
     }
 

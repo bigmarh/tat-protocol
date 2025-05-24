@@ -11,8 +11,11 @@ const secretKey =
   "051815aa8466771574e94fad8a87c27eaeb0c73da9d0a5b9dea4a4c12e9408ba";
 const publicKey = getPublicKey(hexToBytes(secretKey));
 
+console.log("\n\n-------------KEYS-------------------");
 console.log("Secret Key:", secretKey);
 console.log("Public Key:", publicKey);
+console.log("-------------KEYS-------------------\n");
+
 
 // Create forge config for TATUSD fungible token
 const config: ForgeConfig = {
@@ -33,13 +36,14 @@ async function runFungibleForge() {
   try {
     const forge = new Forge(config);
     await forge.initialize(); // Wait for initialization to complete
-    console.log("Forge public key", forge.getPublicKey());
 
-    console.log("TATUSD Fungible Token Forge initialized successfully!");
+    console.log("\n-------------FORGE-------------------");
     console.log("Asset Name: TATUSD");
     console.log("Owner:", forge.owner);
     console.log("Authorized forgers:", forge.getAuthorizedForgers());
-    console.log("\nForge is running. Press Ctrl+C to exit.");
+    console.log("-------------FORGE-------------------\n");
+
+    console.log("\nForge is running. Press Ctrl+C to exit.\n");
 
     // Keep the process running
     process.on("SIGINT", () => {

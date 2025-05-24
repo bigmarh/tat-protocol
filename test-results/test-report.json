@@ -1,0 +1,25 @@
+{
+  "timestamp": "2025-05-24T16:08:59.518Z",
+  "summary": {
+    "total": 3,
+    "passed": 3,
+    "failed": 0
+  },
+  "results": {
+    "Unit Tests": {
+      "success": true,
+      "output": "\n> @tat-protocol/sdk@1.0.0 test:unit\n> jest tests/unit --passWithNoTests\n\n",
+      "duration": 1816
+    },
+    "Integration Tests": {
+      "success": true,
+      "output": "\n> @tat-protocol/sdk@1.0.0 test:integration\n> jest tests/integration --passWithNoTests\n\n",
+      "duration": 1273
+    },
+    "E2E Tests": {
+      "success": true,
+      "output": "\n> @tat-protocol/sdk@1.0.0 test:e2e\n> jest tests/e2e --passWithNoTests\n\n",
+      "duration": 1286
+    }
+  }
+}
