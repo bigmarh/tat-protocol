@@ -8,7 +8,7 @@ import {
   NWPCRequest,
   NWPCContext,
   NWPCResponseObject,
-  NWPCResponse
+  NWPCResponse,
 } from "@tat-protocol/nwpc";
 
 import { signMessage, verifySignature, postToFeed } from "@tat-protocol/utils";
@@ -98,10 +98,13 @@ export class Forge extends NWPCServer {
     // Transfer
     this.use("transfer", this.handleTransfer.bind(this));
     // Forge
-    this.use("forge", this.onlyAuthorized.bind(this), this.handleForge.bind(this));
-    // Burn
     this.use(
-      "burn", this.onlyOwner.bind(this), this.handleBurn.bind(this));
+      "forge",
+      this.onlyAuthorized.bind(this),
+      this.handleForge.bind(this),
+    );
+    // Burn
+    this.use("burn", this.onlyOwner.bind(this), this.handleBurn.bind(this));
     // Verify
     this.use("verify", this.handleVerify.bind(this));
   }
@@ -116,13 +119,17 @@ export class Forge extends NWPCServer {
 
     try {
       // check if keys are in storage
-      const storedKeys = await this.storage.getItem(`forge-keys-${this.keys.publicKey}`);
+      const storedKeys = await this.storage.getItem(
+        `forge-keys-${this.keys.publicKey}`,
+      );
       //save passed in keys if they are not in storage
       if (this.keys.publicKey && !storedKeys) {
         //store keys in storage
-        await this.storage.setItem(`forge-keys-${this.keys.publicKey}`, JSON.stringify(this.keys));
-      }
-      else if (!this.keys.publicKey || !this.keys.secretKey) {
+        await this.storage.setItem(
+          `forge-keys-${this.keys.publicKey}`,
+          JSON.stringify(this.keys),
+        );
+      } else if (!this.keys.publicKey || !this.keys.secretKey) {
         // Initialize keys first
         await this.initializeKeys();
       }
@@ -131,7 +138,6 @@ export class Forge extends NWPCServer {
       if (!this.keys || !this.keys.publicKey || !this.keys.secretKey) {
         throw new Error("Keys not properly initialized");
       }
-
 
       // NWPCServer is already initialized via super(config)
       this.ndk = this.ndk;
@@ -308,7 +314,7 @@ export class Forge extends NWPCServer {
         tokenUsage: new Map(savedState.tokenUsage || []),
         processedEventIds: new Set(savedState.processedEventIds || []),
       };
-    } else {  
+    } else {
       this.state = {
         ...this.state,
         owner: this.config.owner || "",
@@ -320,7 +326,7 @@ export class Forge extends NWPCServer {
         authorizedForgers: new Set(this.config.authorizedForgers || []),
         tokenUsage: new Map(),
         circulatingSupply: 0,
-        processedEventIds: new Set()
+        processedEventIds: new Set(),
       };
       await this._saveState();
     }
@@ -591,7 +597,7 @@ export class Forge extends NWPCServer {
           if (
             this.state.totalSupply > 0 &&
             (this.state.circulatingSupply ?? 0) + amountToForge >
-            this.state.totalSupply
+              this.state.totalSupply
           ) {
             return await res.error(
               400,
@@ -699,5 +705,4 @@ export class Forge extends NWPCServer {
       return await res.error(500, error.message);
     }
   }
-
 }

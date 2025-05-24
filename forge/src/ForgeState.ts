@@ -66,6 +66,4 @@ export interface ForgeState extends NWPCState {
    * Number of tokens forged so far (for supply enforcement)
    */
   circulatingSupply?: number;
-
-
 }

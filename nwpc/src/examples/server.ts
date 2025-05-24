@@ -85,7 +85,6 @@ class CalculatorServer {
       type: "server",
       relays: defaultConfig.relays,
     });
-   
 
     console.log("Server Connected");
     this.registerHandlers();
@@ -121,4 +120,3 @@ async function main() {
 }
 
 main();
-

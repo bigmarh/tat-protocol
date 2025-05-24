@@ -45,7 +45,10 @@ export abstract class NWPCBase implements INWPCBase {
     // Connect and subscribe after state is loaded
     await this.connect();
     if (this.keys) {
-      await this.subscribe(this.keys.publicKey || "", this.handleEvent.bind(this));
+      await this.subscribe(
+        this.keys.publicKey || "",
+        this.handleEvent.bind(this),
+      );
     }
   }
 
@@ -80,8 +83,11 @@ export abstract class NWPCBase implements INWPCBase {
     await this.ndk.connect();
 
     this.connected = true;
-    console.log("NWPCBase: connected", this.ndk.pool.connectedRelays().map(relay => relay.url));
-    const relays = this.ndk.pool.connectedRelays().map(relay => relay.url);
+    console.log(
+      "NWPCBase: connected",
+      this.ndk.pool.connectedRelays().map((relay) => relay.url),
+    );
+    const relays = this.ndk.pool.connectedRelays().map((relay) => relay.url);
     this.state.relays = new Set([...this.state.relays, ...relays]);
     return this;
   }
@@ -138,7 +144,12 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      console.log("NWPCBase: processed", this.state.processedEventIds, event.id, this.state.processedEventIds.has(event.id));
+      console.log(
+        "NWPCBase: processed",
+        this.state.processedEventIds,
+        event.id,
+        this.state.processedEventIds.has(event.id),
+      );
       if (this.state.processedEventIds.has(event.id)) {
         console.log(`\nSkipping already processed event: ${event.id}`);
         return;
@@ -178,7 +189,11 @@ export abstract class NWPCBase implements INWPCBase {
     const serializedState = serializeData(state);
     key = key || "nwpc-bbb-love";
     await this.storage.setItem(key, serializedState);
-    console.log("Current state saved:", new Date().toISOString(), serializedState);
+    console.log(
+      "Current state saved:",
+      new Date().toISOString(),
+      serializedState,
+    );
     return;
   }
 
