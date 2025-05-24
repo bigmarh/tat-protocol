@@ -90,6 +90,7 @@ export default class Token {
     this.header = {
       alg: "Schnorr",
       typ: opts.token_type,
+      token_hash: ""
     };
     this.payload = opts.payload;
     await this.create_token_hash();
