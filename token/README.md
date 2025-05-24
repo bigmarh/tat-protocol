@@ -1,84 +1,43 @@
 # @tat-protocol/token
 
-The Token module provides token-specific functionality and operations for the TAT Protocol.
+The **Token** package provides token logic and utilities for the TAT Protocol. It enables creation, parsing, and validation of both fungible and non-fungible (TAT) tokens, and is used throughout the SDK.
 
 ## Features
 
-- Token operations and management
-- Token metadata handling
-- Token state management
-- Token transfer operations
-- Token validation
+- Create and parse fungible and non-fungible tokens
+- Validate token structure and signatures
+- Integrates with Pocket, Forge, and NWPC
+- Utility functions for token management
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/token
+# or
 npm install @tat-protocol/token
 # or
 yarn add @tat-protocol/token
-# or
-pnpm add @tat-protocol/token
 ```
 
-## Usage
+## Usage Example
 
 ```typescript
-import { TokenManager } from '@tat-protocol/token';
+import { Token } from '@tat-protocol/token';
 
-// Initialize the token manager
-const tokenManager = new TokenManager({
-  // configuration options
-});
+// Create a new token instance
+const token = new Token();
 
-// Create a new token
-const token = await tokenManager.create({
-  // token configuration
-});
+// Parse a JWT token string
+await token.fromJWT('tokenJWTstring');
 
-// Transfer a token
-await tokenManager.transfer(token.id, {
-  to: 'recipient-address',
-  amount: 100
-});
-
-// Get token balance
-const balance = await tokenManager.getBalance(token.id);
-
-// Update token metadata
-await tokenManager.updateMetadata(token.id, {
-  // new metadata
-});
+// Access token payload
+const payload = token.getPayload();
 ```
-
-## API Reference
-
-### TokenManager Class
-
-#### Methods
-
-- `create(config: TokenConfig): Promise<Token>`
-- `transfer(tokenId: string, transferConfig: TransferConfig): Promise<void>`
-- `getBalance(tokenId: string): Promise<number>`
-- `updateMetadata(tokenId: string, metadata: TokenMetadata): Promise<void>`
-- `validate(tokenId: string): Promise<boolean>`
-
-## Dependencies
-
-- `@tat-protocol/types`: Shared type definitions
-- `@tat-protocol/utils`: Utility functions
-- `@tat-protocol/storage`: Data persistence
-- `@tat-protocol/hdkeys`: Key management
 
 ## Development
 
-```bash
-# Build the module
-npm run build
+This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
 
-# Run tests
-npm test
-```
+## License
 
-## Contributing
-
-Please refer to the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines. 
+MIT License. See [LICENSE](../LICENSE) for details. 

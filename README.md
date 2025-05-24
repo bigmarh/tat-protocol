@@ -1,97 +1,108 @@
 # TAT Protocol SDK
 
-A comprehensive TypeScript SDK for the TAT Protocol, providing tools and utilities for token management and transactions.
+**TAT Protocol SDK** is a modular TypeScript framework for building secure, decentralized applications with tokenized asset management.  
+It provides robust support for both fungible and non-fungible (TAT) tokens, advanced Pocket (client) features, and peer-to-peer network communication via the Forge and other protocol modules.
+
+---
+
+## Key Features
+
+- **Pocket**: Manage balances, tokens, and transaction history in a secure, extensible client.
+- **Forge**: Create and issue fungible and non-fungible tokens.
+- **Token Transfers**: Easily construct and send token and TAT transfers.
+- **HD Key Management**: Generate and manage hierarchical deterministic keys.
+- **Decentralized Networking**: Communicate and transact with peers using the NWPC protocol.
+- **Modular Design**: Use only the packages you need.
+
+---
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/core
+# or
 npm install @tat-protocol/core
 # or
 yarn add @tat-protocol/core
-# or
-pnpm add @tat-protocol/core
 ```
 
-## Modules
+---
 
-The SDK is split into several modular packages:
+## Packages Overview
 
-- `@tat-protocol/forge`: Core token forging functionality
-- `@tat-protocol/nwpc`: Network protocol components
-- `@tat-protocol/storage`: Data persistence layer
-- `@tat-protocol/hdkeys`: Hierarchical deterministic key management
-- `@tat-protocol/types`: Shared TypeScript type definitions
-- `@tat-protocol/utils`: Common utility functions
-- `@tat-protocol/token`: Token-specific functionality
-- `@tat-protocol/pocket`: Pocket network integration
+- **@tat-protocol/pocket** – Pocket client for managing tokens, balances, and transactions
+- **@tat-protocol/forge** – Token creation, issuance, and management
+- **@tat-protocol/nwpc** – Network protocol and peer communication
+- **@tat-protocol/storage** – Persistent storage solutions
+- **@tat-protocol/hdkeys** – Hierarchical deterministic key management
+- **@tat-protocol/types** – Shared TypeScript types
+- **@tat-protocol/utils** – Utility functions
+- **@tat-protocol/token** – Token logic and utilities
 
-## Usage
+---
+
+## Example Usage
 
 ```typescript
-import { 
-  // Import specific modules as needed
-  Forge,
-  NWPC,
-  Storage,
-  HDKeys,
-  // ... other imports
-} from '@tat-protocol/core';
+import { Pocket } from '@tat-protocol/pocket';
 
-// Example usage
-const forge = new Forge();
-const nwpc = new NWPC();
-// ... implementation
+// Create a Pocket instance (asynchronously)
+const pocket = await Pocket.create({
+  keys: { secretKey: '...', publicKey: '...' },
+  relays: ['wss://relay.example.com'],
+});
+
+// Send a fungible token transfer
+await pocket.transfer('issuerPubKey', 'recipientPubKey', 100);
+
+// Send a TAT (non-fungible token) transfer
+await pocket.sendTAT('issuerPubKey', 'recipientPubKey', 'tokenID');
+
+// Query balances and tokens
+const balance = pocket.getBalance('issuerPubKey', '-');
+const token = pocket.getToken('issuerPubKey', 'tokenHash');
+const tat = pocket.getTAT('issuerPubKey', 'tokenID');
 ```
+
+---
 
 ## Development
 
-This is a monorepo managed with pnpm workspaces. To get started:
+This monorepo uses pnpm workspaces for efficient dependency management.
 
-1. Install dependencies:
-```bash
-pnpm install
-```
+1. **Install dependencies**
+    ```bash
+    pnpm install
+    ```
+2. **Build all packages**
+    ```bash
+    pnpm build
+    ```
+3. **Run tests**
+    ```bash
+    pnpm test
+    ```
 
-2. Build all packages:
-```bash
-pnpm build
-```
+---
 
-3. Run tests:
-```bash
-pnpm test
-```
+## Documentation
 
-## Module Documentation
+Each package contains its own README for detailed documentation:
 
-### Forge
-The Forge module handles token creation and management. [Read more](./forge/README.md)
+- [Pocket](./pocket/README.md) – Pocket client usage and API
+- [Forge](./forge/README.md) – Token creation and management
+- [NWPC](./nwpc/README.md) – Network protocol
+- [Storage](./storage/README.md) – Persistence
+- [HDKeys](./hdkeys/README.md) – Key management
+- [Utils](./utils/README.md) – Utilities
+- [Token](./token/README.md) – Token logic
 
-### NWPC
-Network Protocol Components for handling network communications. [Read more](./nwpc/README.md)
-
-### Storage
-Persistent storage layer for the protocol. [Read more](./storage/README.md)
-
-### HDKeys
-Hierarchical deterministic key management system. [Read more](./hdkeys/README.md)
-
-### Types
-Shared TypeScript type definitions. [Read more](./types/README.md)
-
-### Utils
-Common utility functions. [Read more](./utils/README.md)
-
-### Token
-Token-specific functionality. [Read more](./token/README.md)
-
-### Pocket
-Pocket network integration. [Read more](./pocket/README.md)
+---
 
 ## Contributing
 
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details. 
+MIT License. See [LICENSE](LICENSE) for details. 

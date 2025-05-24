@@ -354,7 +354,7 @@ export class Pocket extends NWPCPeer {
      * @param changeKey Address to send change to (optional)
      * @returns The built transaction structure
      */
-    public createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+    private createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
         const tx = new Transaction(
             'transfer',
             this.state,
@@ -372,7 +372,7 @@ export class Pocket extends NWPCPeer {
      * @param tokenID The TAT token ID
      * @returns The built transaction structure
      */
-    public createTATTransferTx(issuer: string, to: string, tokenID: string) {
+    private createTATTransferTx(issuer: string, to: string, tokenID: string) {
         const tx = new Transaction(
             'transfer',
             this.state
@@ -382,7 +382,7 @@ export class Pocket extends NWPCPeer {
 
 
 
-    public async sendTATTransferTx(issuer: string, to: string, tokenID: string) {
+    public async sendTAT(issuer: string, to: string, tokenID: string) {
         const tx = this.createTATTransferTx(issuer, to, tokenID);
         return this.sendTx('transfer', issuer, tx);
     }
@@ -395,7 +395,7 @@ export class Pocket extends NWPCPeer {
      * @param changeKey Address to send change to (optional)
      * @returns The response from the network
      */
-    public async sendFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+    public async transfer(issuer: string, to: string, amount: number, changeKey?: string) {
         const tx = this.createFungibleTransferTx(issuer, to, amount, changeKey);
         return this.sendTx('transfer', issuer, tx);
     }

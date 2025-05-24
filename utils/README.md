@@ -1,89 +1,36 @@
 # @tat-protocol/utils
 
-The Utils module provides common utility functions and helpers used across the TAT Protocol SDK.
+The **Utils** package provides utility functions for the TAT Protocol. It includes helpers for cryptography, encoding, and other common tasks used throughout the SDK.
 
 ## Features
 
-- Common utility functions
-- Data validation
-- Format conversion
-- Cryptographic helpers
-- Error handling utilities
+- Utility functions for cryptography, encoding, and more
+- Used by Pocket, Forge, NWPC, and other modules
+- Lightweight and easy to use
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/utils
+# or
 npm install @tat-protocol/utils
 # or
 yarn add @tat-protocol/utils
-# or
-pnpm add @tat-protocol/utils
 ```
 
-## Usage
+## Usage Example
 
 ```typescript
-import { 
-  validateToken,
-  formatAddress,
-  encryptData,
-  decryptData,
-  // ... other utilities
-} from '@tat-protocol/utils';
+import { DebugLogger } from '@tat-protocol/utils';
 
-// Validate token data
-const isValid = validateToken(tokenData);
-
-// Format an address
-const formattedAddress = formatAddress(rawAddress);
-
-// Encrypt sensitive data
-const encrypted = await encryptData(data, key);
-
-// Decrypt data
-const decrypted = await decryptData(encrypted, key);
+const logger = DebugLogger.getInstance();
+logger.log('Hello from TAT Protocol Utils!');
 ```
-
-## API Reference
-
-### Validation Functions
-
-- `validateToken(data: any): boolean`
-- `validateAddress(address: string): boolean`
-- `validateKey(key: string): boolean`
-
-### Format Functions
-
-- `formatAddress(address: string): string`
-- `formatKey(key: string): string`
-- `formatTokenId(id: string): string`
-
-### Cryptographic Functions
-
-- `encryptData(data: any, key: string): Promise<string>`
-- `decryptData(encrypted: string, key: string): Promise<any>`
-- `hashData(data: any): string`
-
-### Error Handling
-
-- `createError(message: string, code: number): Error`
-- `isProtocolError(error: any): boolean`
-- `handleError(error: any): void`
-
-## Dependencies
-
-- `@tat-protocol/types`: Shared type definitions
 
 ## Development
 
-```bash
-# Build the module
-npm run build
+This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
 
-# Run tests
-npm test
-```
+## License
 
-## Contributing
-
-Please refer to the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines. 
+MIT License. See [LICENSE](../LICENSE) for details. 

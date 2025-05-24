@@ -1,78 +1,44 @@
 # @tat-protocol/hdkeys
 
-The HDKeys module provides hierarchical deterministic key management for the TAT Protocol, enabling secure key generation and management.
+The **HDKeys** package provides hierarchical deterministic (HD) key management for the TAT Protocol. It enables secure generation, derivation, and management of cryptographic keys for use across the protocol.
 
 ## Features
 
-- Hierarchical deterministic key generation
-- Key derivation paths
-- Secure key storage
-- Key recovery support
-- Multi-account management
+- Generate and manage HD key pairs
+- Derive child keys for different protocol uses
+- Integrates with Pocket and Forge
+- Secure, standards-based cryptography
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/hdkeys
+# or
 npm install @tat-protocol/hdkeys
 # or
 yarn add @tat-protocol/hdkeys
-# or
-pnpm add @tat-protocol/hdkeys
 ```
 
-## Usage
+## Usage Example
 
 ```typescript
-import { HDKeys } from '@tat-protocol/hdkeys';
+import { HDKey } from '@tat-protocol/hdkeys';
 
-// Initialize the HDKeys manager
-const hdkeys = new HDKeys({
-  // configuration options
-});
+// Generate a new mnemonic
+const mnemonic = HDKey.generateMnemonic();
 
-// Generate a master key
-const masterKey = await hdkeys.generateMasterKey();
+// Derive a master key from the mnemonic
+const seed = await HDKey.mnemonicToSeed(mnemonic);
+const masterKey = HDKey.fromMasterSeed(seed);
 
 // Derive a child key
-const childKey = await hdkeys.deriveKey(masterKey, {
-  path: "m/44'/0'/0'/0/0"
-});
-
-// Export a key
-const exportedKey = await hdkeys.exportKey(childKey);
-
-// Import a key
-const importedKey = await hdkeys.importKey(exportedKey);
+const childKey = masterKey.derive("m/44'/0'/0'/0/0");
 ```
-
-## API Reference
-
-### HDKeys Class
-
-#### Methods
-
-- `generateMasterKey(): Promise<HDKey>`
-- `deriveKey(parentKey: HDKey, options: DeriveOptions): Promise<HDKey>`
-- `exportKey(key: HDKey): Promise<string>`
-- `importKey(exportedKey: string): Promise<HDKey>`
-- `sign(data: Buffer, key: HDKey): Promise<Buffer>`
-- `verify(data: Buffer, signature: Buffer, key: HDKey): Promise<boolean>`
-
-## Dependencies
-
-- `@tat-protocol/types`: Shared type definitions
-- `@tat-protocol/utils`: Utility functions
 
 ## Development
 
-```bash
-# Build the module
-npm run build
+This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
 
-# Run tests
-npm test
-```
+## License
 
-## Contributing
-
-Please refer to the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines. 
+MIT License. See [LICENSE](../LICENSE) for details. 

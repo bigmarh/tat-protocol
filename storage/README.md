@@ -1,88 +1,43 @@
 # @tat-protocol/storage
 
-The Storage module provides a persistent data storage layer for the TAT Protocol, handling data persistence and retrieval operations.
+The **Storage** package provides persistent storage solutions for the TAT Protocol. It enables secure, reliable storage of protocol state, tokens, and other data, supporting both browser and Node.js environments.
 
 ## Features
 
-- Persistent data storage
-- Data encryption and security
-- Efficient data retrieval
-- Transaction support
-- Data versioning
+- Persistent storage for protocol state and tokens
+- Supports browser and Node.js environments
+- Integrates with Pocket and Forge
+- Pluggable storage backends
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/storage
+# or
 npm install @tat-protocol/storage
 # or
 yarn add @tat-protocol/storage
-# or
-pnpm add @tat-protocol/storage
 ```
 
-## Usage
+## Usage Example
 
 ```typescript
 import { Storage } from '@tat-protocol/storage';
 
-// Initialize the storage
-const storage = new Storage({
-  // storage configuration
-});
+// Initialize storage
+const storage = new Storage();
 
-// Store data
-await storage.set('key', {
-  // data to store
-});
+// Store an item
+await storage.setItem('key', 'value');
 
-// Retrieve data
-const data = await storage.get('key');
-
-// Delete data
-await storage.delete('key');
-
-// Transaction support
-await storage.transaction(async (tx) => {
-  await tx.set('key1', 'value1');
-  await tx.set('key2', 'value2');
-});
+// Retrieve an item
+const value = await storage.getItem('key');
 ```
-
-## API Reference
-
-### Storage Class
-
-#### Methods
-
-- `set(key: string, value: any): Promise<void>`
-- `get(key: string): Promise<any>`
-- `delete(key: string): Promise<void>`
-- `transaction(callback: (tx: Transaction) => Promise<void>): Promise<void>`
-- `clear(): Promise<void>`
-
-### Transaction Class
-
-#### Methods
-
-- `set(key: string, value: any): Promise<void>`
-- `get(key: string): Promise<any>`
-- `delete(key: string): Promise<void>`
-
-## Dependencies
-
-- `@tat-protocol/types`: Shared type definitions
-- `@tat-protocol/utils`: Utility functions
 
 ## Development
 
-```bash
-# Build the module
-npm run build
+This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
 
-# Run tests
-npm test
-```
+## License
 
-## Contributing
-
-Please refer to the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines. 
+MIT License. See [LICENSE](../LICENSE) for details. 

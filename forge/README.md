@@ -1,111 +1,51 @@
 # @tat-protocol/forge
 
-The Forge module is the core component of the TAT Protocol SDK responsible for token creation, management, and lifecycle operations.
+The **Forge** package is responsible for token creation, issuance, and management in the TAT Protocol ecosystem. It provides the core logic for minting both fungible and non-fungible (TAT) tokens, and integrates seamlessly with other protocol modules such as Pocket and NWPC.
 
 ## Features
 
-- Token creation and initialization
-- Token verification and access control
-- Authorized forger management
-- Token transfer handling
-- State management and persistence
+- Create and issue fungible tokens
+- Mint and manage non-fungible TAT tokens
+- Integrate with Pocket for asset management
+- Secure, standards-based token logic
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/forge
+# or
 npm install @tat-protocol/forge
 # or
 yarn add @tat-protocol/forge
-# or
-pnpm add @tat-protocol/forge
 ```
 
-## Usage
+## Usage Example
 
 ```typescript
 import { Forge } from '@tat-protocol/forge';
-import { KeyPair } from '@tat-protocol/types';
 
-// Initialize the forge with configuration
-const forge = new Forge({
-  owner: 'owner-public-key',
-  keys: {
-    publicKey: 'your-public-key',
-    privateKey: 'your-private-key'
-  },
-  authorizedForgers: ['authorized-forger-public-key']
+// Initialize Forge
+const forge = new Forge();
+
+// Create a new fungible token
+const token = await forge.createToken({
+  issuer: 'issuerPubKey',
+  amount: 1000,
+  metadata: { name: 'MyToken', symbol: 'MTK' }
 });
 
-// Initialize the forge
-await forge.initialize();
-
-// Get the forge's public key
-const publicKey = forge.getPublicKey();
-
-// Sign data
-const signature = await forge.sign(data);
-
-// Verify a token
-const isValid = await forge.verifyToken(
-  tokenHash,
-  signature,
-  publicKey,
-  readerPubkey,
-  timeWindow
-);
-
-// Manage authorized forgers
-await forge.addAuthorizedForger('new-forger-public-key');
-await forge.removeAuthorizedForger('forger-public-key');
-const authorizedForgers = forge.getAuthorizedForgers();
-
-// Verify access to a token
-const hasAccess = await forge.verifyAccess(
-  tokenJWT,
-  requiredAccess,
-  ownerPubkey
-);
+// Issue a TAT (non-fungible token)
+const tat = await forge.createTAT({
+  issuer: 'issuerPubKey',
+  tokenID: 'unique-id',
+  metadata: { description: 'Special asset' }
+});
 ```
-
-## API Reference
-
-### Forge Class
-
-#### Constructor
-```typescript
-constructor(config: ForgeConfig)
-```
-
-#### Methods
-
-- `initialize(forgeId?: number): Promise<void>`
-- `getPublicKey(): string | undefined`
-- `sign(data: Uint8Array): Promise<Uint8Array>`
-- `verifyToken(tokenHash: string, signature: string, publicKey: string, readerPubkey?: string, timeWindow?: number, currentTime?: number): Promise<boolean>`
-- `addAuthorizedForger(pubkey: string): Promise<void>`
-- `removeAuthorizedForger(pubkey: string): Promise<void>`
-- `getAuthorizedForgers(): string[]`
-- `verifyAccess(tokenJWT: string, requiredAccess: { [key: string]: any }, ownerPubkey?: string): Promise<boolean>`
-
-## Dependencies
-
-- `@tat-protocol/types`: Shared type definitions
-- `@tat-protocol/utils`: Utility functions
-- `@tat-protocol/storage`: Data persistence
-- `@tat-protocol/nwpc`: Network protocol components
-- `@nostr-dev-kit/ndk`: Nostr development kit
-- `nostr-tools`: Nostr tools library
 
 ## Development
 
-```bash
-# Build the module
-npm run build
+This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
 
-# Run tests
-npm test
-```
+## License
 
-## Contributing
-
-Please refer to the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines. 
+MIT License. See [LICENSE](../LICENSE) for details. 

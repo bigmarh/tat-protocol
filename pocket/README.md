@@ -1,80 +1,51 @@
 # @tat-protocol/pocket
 
-The Pocket module provides integration with the Pocket Network for the TAT Protocol.
+The **Pocket** package is the client for managing tokens, balances, and transactions in the TAT Protocol. It provides a secure, extensible interface for interacting with the protocol, including sending and receiving both fungible and non-fungible (TAT) tokens.
 
 ## Features
 
-- Pocket Network integration
-- Node management
-- Network status monitoring
-- Transaction handling
-- Pocket-specific utilities
+- Manage balances and tokens
+- Send and receive fungible and non-fungible (TAT) tokens
+- Query transaction history and state
+- Integrate with Forge and NWPC for full protocol support
 
 ## Installation
 
 ```bash
+pnpm add @tat-protocol/pocket
+# or
 npm install @tat-protocol/pocket
 # or
 yarn add @tat-protocol/pocket
-# or
-pnpm add @tat-protocol/pocket
 ```
 
-## Usage
+## Usage Example
 
 ```typescript
-import { PocketManager } from '@tat-protocol/pocket';
+import { Pocket } from '@tat-protocol/pocket';
 
-// Initialize the pocket manager
-const pocketManager = new PocketManager({
-  // configuration options
+// Create a Pocket instance (asynchronously)
+const pocket = await Pocket.create({
+  keys: { secretKey: '...', publicKey: '...' },
+  relays: ['wss://relay.example.com'],
 });
 
-// Connect to Pocket Network
-await pocketManager.connect();
+// Send a fungible token transfer
+await pocket.transfer('issuerPubKey', 'recipientPubKey', 100);
 
-// Get node status
-const status = await pocketManager.getNodeStatus();
+// Send a TAT (non-fungible token) transfer
+await pocket.sendTAT('issuerPubKey', 'recipientPubKey', 'tokenID');
 
-// Send a transaction
-const result = await pocketManager.sendTransaction({
-  // transaction data
-});
-
-// Monitor network status
-pocketManager.onStatusChange((status) => {
-  // handle status changes
-});
+// Query balances and tokens
+const balance = pocket.getBalance('issuerPubKey', '-');
+const token = pocket.getToken('issuerPubKey', 'tokenHash');
+const tat = pocket.getTAT('issuerPubKey', 'tokenID');
 ```
-
-## API Reference
-
-### PocketManager Class
-
-#### Methods
-
-- `connect(): Promise<void>`
-- `disconnect(): Promise<void>`
-- `getNodeStatus(): Promise<NodeStatus>`
-- `sendTransaction(data: TransactionData): Promise<TransactionResult>`
-- `onStatusChange(callback: (status: NetworkStatus) => void): void`
-
-## Dependencies
-
-- `@tat-protocol/types`: Shared type definitions
-- `@tat-protocol/utils`: Utility functions
-- `@tat-protocol/nwpc`: Network protocol components
 
 ## Development
 
-```bash
-# Build the module
-npm run build
+This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
 
-# Run tests
-npm test
-```
+## License
 
-## Contributing
-
-Please refer to the main [CONTRIBUTING.md](../../CONTRIBUTING.md) for contribution guidelines. 
+MIT License. See [LICENSE](../LICENSE) for details. 
