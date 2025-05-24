@@ -85,6 +85,7 @@ class CalculatorServer {
       type: "server",
       relays: defaultConfig.relays,
     });
+   
 
     console.log("Server Connected");
     this.registerHandlers();
@@ -97,6 +98,7 @@ class CalculatorServer {
   }
 
   async start() {
+    await this.server.init();
     try {
       console.log("\n🔢 NWPC Calculator Server");
       console.log("------------------------");
@@ -112,5 +114,11 @@ class CalculatorServer {
   }
 }
 
-// Start the server
-new CalculatorServer().start().catch(console.error);
+async function main() {
+  // Start the server
+  const server = new CalculatorServer();
+  server.start();
+}
+
+main();
+

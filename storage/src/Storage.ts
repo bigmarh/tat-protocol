@@ -1,23 +1,21 @@
 import { StorageInterface } from './StorageInterface';
 import { BrowserStore } from './BrowserStorage';
-import { NodeStore } from './NodeStorage';
+import { NodeStore } from './DiskStorage';
 
 export class Storage implements StorageInterface {
-  private config: any;
   private isBrowser: boolean;
   private storage: StorageInterface;
 
-  constructor(config?: any) {
-    this.config = config;
+  constructor(storage?: StorageInterface) {
     this.isBrowser =
       typeof globalThis !== 'undefined' &&
       Object.prototype.hasOwnProperty.call(globalThis, 'window');
-    this.storage = this.initializeStorage();
+    this.storage = this.initializeStorage(storage);
   }
 
-  private initializeStorage(): StorageInterface {
-    if (this.config?.storage) {
-      return this.config.storage;
+  private initializeStorage(storage?: StorageInterface): StorageInterface {
+    if (storage) {
+      return storage;
     }
     // Default to browser storage in browser environments
     if (this.isBrowser) {

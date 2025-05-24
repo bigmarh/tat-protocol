@@ -1,7 +1,9 @@
+import { NWPCState } from "@tat-protocol/nwpc";
+
 /**
  * Represents the current state of a Forge
  */
-export interface ForgeState {
+export interface ForgeState extends NWPCState {
   /**
    * The owner of the forge's public key
    */
@@ -65,8 +67,5 @@ export interface ForgeState {
    */
   circulatingSupply?: number;
 
-  /**
-   * Set of processed event IDs for replay protection
-   */
-  processedEventIds?: string[];
+
 }

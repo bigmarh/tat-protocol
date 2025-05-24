@@ -84,6 +84,7 @@ class NoiseyClient {
       type: "client",
       relays: defaultConfig.relays,
     });
+    await this.peer.init();
 
     console.log("\n🔑 Current Key Pair:");
     console.log("Name:", keyPair.name);

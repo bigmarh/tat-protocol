@@ -2,7 +2,6 @@ import NDK, { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { Storage, StorageInterface } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { defaultConfig } from "@tat-protocol/config/defaultConfig";
-
 import { NWPCRouter } from "./NWPCRouter";
 import { HandlerEngine } from "./HandlerEngine";
 import {
@@ -13,8 +12,9 @@ import {
   NWPCHandler,
   MessageHookOptions,
 } from "./NWPCResponseTypes";
-import { Wrap } from "@tat-protocol/utils";
+import { deserializeData, serializeData, Wrap } from "@tat-protocol/utils";
 import { INWPCBase } from "./NWPCBaseInterface";
+import { NWPCState } from "./NWPCState";
 
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
@@ -25,10 +25,34 @@ export abstract class NWPCBase implements INWPCBase {
   protected config: NWPCConfig;
   protected requestHandlers: Map<string, NWPCRoute>;
   protected hooks: MessageHookOptions;
-  protected state: {
-    connected: boolean;
-    activeSubscriptions: Map<string, any>;
-  };
+  protected state: NWPCState;
+  protected stateKey!: string;
+  protected connected: boolean = false;
+  protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
+
+  // Save queue lock to serialize state saves
+  private saveLock: Promise<void> = Promise.resolve();
+
+  /**
+   * Call this after construction and before using the instance.
+   * Example:
+   *   const obj = new NWPCBase(config);
+   *   await obj.init();
+   */
+  public async init(): Promise<void> {
+    // Load state from storage if available
+    console.log("NWPCBase: init");
+    // Connect and subscribe after state is loaded
+    await this.connect();
+    if (this.keys) {
+      await this.subscribe(this.keys.publicKey || "", this.handleEvent.bind(this));
+    }
+  }
+
+  private async queueSaveState(key: string, state: NWPCState): Promise<void> {
+    this.saveLock = this.saveLock.then(() => this.saveState(key, state));
+    return this.saveLock;
+  }
 
   constructor(config: NWPCConfig) {
     this.config = config;
@@ -36,45 +60,39 @@ export abstract class NWPCBase implements INWPCBase {
     this.ndk = new NDK({
       explicitRelayUrls: config.relays || defaultConfig.relays,
     });
-
     this.requestHandlers = config.requestHandlers || new Map();
-    this.storage = config.storage || new Storage();
+    this.storage = new Storage(config.storage);
     this.hooks = config.hooks || {};
     this.state = {
-      connected: false,
-      activeSubscriptions: new Map(),
+      relays: new Set(),
+      processedEventIds: new Set(),
     };
     this.router = new NWPCRouter(this.requestHandlers);
     this.engine = new HandlerEngine();
-
-    if (this.keys) {
-      this.connect()
-        .then((o) => {
-          o.subscribe(o.keys?.publicKey || "", o.handleEvent.bind(o));
-        })
-        .catch((err) => {
-          console.error("NWPCBase: Error in connect", err);
-        });
-    } else {
-      console.error("NWPCBase: Keys not initialized");
-    }
   }
 
   public async connect(): Promise<NWPCBase> {
-    if (this.state.connected) {
+    console.log("NWPCBase: connect");
+    if (this.connected) {
+      console.log("NWPCBase: already connected", this.state.relays);
       return this;
     }
     await this.ndk.connect();
-    this.state.connected = true;
+
+    this.connected = true;
+    console.log("NWPCBase: connected", this.ndk.pool.connectedRelays().map(relay => relay.url));
+    const relays = this.ndk.pool.connectedRelays().map(relay => relay.url);
+    this.state.relays = new Set([...this.state.relays, ...relays]);
     return this;
   }
 
   public async disconnect(): Promise<void> {
-    if (!this.state.connected) {
+    console.log("NWPCBase: disconnect");
+    if (!this.connected) {
       return;
     }
 
-    this.state.connected = false;
+    this.connected = false;
   }
 
   public use(method: string, ...handlers: NWPCHandler[]): void {
@@ -82,11 +100,20 @@ export abstract class NWPCBase implements INWPCBase {
   }
 
   public getActiveSubscriptions(): Map<string, any> {
-    return this.state.activeSubscriptions;
+    return this.activeSubscriptions ?? new Map();
   }
 
-  public getSubscription(pubkey: string): any {
-    return this.state.activeSubscriptions.get(pubkey);
+  public getSubscription(pubkey: string): NDKSubscription | undefined {
+    return this.activeSubscriptions?.get(pubkey);
+  }
+
+  // Helper to serialize NWPCState safely
+  protected serializeState(state: NWPCState): any {
+    return {
+      ...state,
+      relays: Array.from(state.relays || []),
+      processedEventIds: Array.from(state.processedEventIds || []),
+    };
   }
 
   public async subscribe(
@@ -110,41 +137,54 @@ export abstract class NWPCBase implements INWPCBase {
     });
 
     // Set up event handlers before creating subscription
-    const eventHandler = async (event: any) => {
+    const eventHandler = async (event: NDKEvent) => {
+      console.log("NWPCBase: processed", this.state.processedEventIds, event.id, this.state.processedEventIds.has(event.id));
+      if (this.state.processedEventIds.has(event.id)) {
+        console.log(`\nSkipping already processed event: ${event.id}`);
+        return;
+      }
       console.log(
-        `\n=========================== NWPCBase: Received event on subscription : ============\n\n`,
+        `\n=========================== NWPCBase: Received event on subscription : ${event.id} ============\n\n`,
       );
+      console.log(this.stateKey, this.state.processedEventIds);
       await handler(event);
+      this.state.processedEventIds.add(event.id);
+      console.log(this.state.processedEventIds);
+      // Use the save queue to serialize state saves
+      await this.queueSaveState(this.stateKey, this.state);
     };
 
-    const eoseHandler = () => {
+    const eoseHandler = async () => {
       console.log(
         "\n=========================== NWPCBase: EOSE received ===========================\n",
       );
+      // Use the save queue to serialize state saves
+      await this.queueSaveState(this.stateKey, this.state);
     };
 
     subscription.on("event", eventHandler);
     subscription.on("eose", eoseHandler);
-    this.state.activeSubscriptions.set(pubkey, subscription);
+    this.activeSubscriptions?.set(pubkey, subscription);
     return subscription;
   }
 
   public async unsubscribe(pubkey: string): Promise<boolean> {
-    const subscription = this.getSubscription(pubkey);
-    subscription.close();
-    return this.state.activeSubscriptions.delete(pubkey);
+    const sub = this.getSubscription(pubkey);
+    sub?.stop();
+    return this.activeSubscriptions?.delete(pubkey) ?? false;
   }
 
-  public async saveState(): Promise<void> {
-    console.log("Current state: \n", this.state);
-    await this.storage.setItem("nwpcState", JSON.stringify(this.state));
+  public async saveState(key: string, state: NWPCState): Promise<void> {
+    const serializedState = serializeData(state);
+    key = key || "nwpc-bbb-love";
+    await this.storage.setItem(key, serializedState);
+    console.log("Current state saved:", new Date().toISOString(), serializedState);
+    return;
   }
 
-  public async loadState(): Promise<void> {
-    const state = await this.storage.getItem("nwpcState");
-    if (state) {
-      this.state = JSON.parse(state);
-    }
+  public async loadState(key: string): Promise<any> {
+    const stateString = await this.storage.getItem(key);
+    return stateString ? deserializeData(stateString) : null;
   }
 
   public async sendResponse(

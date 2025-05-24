@@ -163,4 +163,5 @@ class ProtectedServer extends NWPCServer {
 
 // Start the server
 const server = new ProtectedServer();
+server.init();
 server.start();

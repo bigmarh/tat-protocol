@@ -4,3 +4,4 @@ export * from "./NWPCPeer";
 export * from "./NWPCRouter";
 export * from "./HandlerEngine";
 export * from "./NWPCResponseTypes";
+export * from "./NWPCState";

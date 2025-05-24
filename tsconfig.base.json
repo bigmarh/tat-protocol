@@ -37,5 +37,5 @@
     { "path": "nwpc" },
     { "path": "forge" },
   ],
-  "exclude": ["node_modules", "dist",  "**/.svelte2tsx-language-server-files", "*.svelte"]
+  "exclude": ["node_modules", "dist",  "**/.svelte2tsx-language-server-files", "*.svelte", "**/*copy*.ts"]
 } 

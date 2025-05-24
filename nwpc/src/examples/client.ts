@@ -115,6 +115,7 @@ class CalculatorClient {
   }
 
   async start() {
+    await this.peer.init();
     try {
       this.printWelcome();
       console.log("Enter a command:");

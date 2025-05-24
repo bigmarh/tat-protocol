@@ -8,8 +8,7 @@ import {
   NWPCRequest,
   NWPCContext,
   NWPCResponseObject,
-  NWPCHandler,
-  NWPCResponse,
+  NWPCResponse
 } from "@tat-protocol/nwpc";
 
 import { signMessage, verifySignature, postToFeed } from "@tat-protocol/utils";
@@ -17,7 +16,6 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
 import NDK from "@nostr-dev-kit/ndk";
-import { NDKEvent } from "@nostr-dev-kit/ndk";
 
 type Recipient = {
   to: string;
@@ -27,21 +25,21 @@ type Recipient = {
 /**
  * Main Forge class that handles token minting and management
  */
-export class Forge {
-  private keys!: KeyPair;
-  private config: ForgeConfig;
-  private state!: ForgeState;
+export class Forge extends NWPCServer {
+  protected keys!: KeyPair;
+  protected config: ForgeConfig;
+  protected state!: ForgeState;
   private isInitialized: boolean;
-  private storage: StorageInterface;
-  private nwpcServer!: NWPCServer;
+  protected storage: StorageInterface;
   public ndk!: NDK;
   public owner: string;
-  private processedEventIds: Set<string> = new Set();
+
   /**
    * Create a new Forge instance
    * @param config - Configuration options for the forge
    */
   constructor(config: ForgeConfig) {
+    super(config);
     if (!config.owner) {
       throw new Error("Forge owner is required");
     }
@@ -55,7 +53,11 @@ export class Forge {
       this.keys = config.keys;
     }
 
-    this.storage = new Storage(config?.storage || {});
+    this.storage = new Storage(config?.storage);
+    this.ndk = this.ndk; // inherited from NWPCServer
+
+    // Register default handlers
+    this.setupDefaultHandlers();
   }
 
   private onlyAuthorized(
@@ -96,13 +98,10 @@ export class Forge {
     // Transfer
     this.use("transfer", this.handleTransfer.bind(this));
     // Forge
-    this.use(
-      "forge",
-      this.onlyAuthorized.bind(this),
-      this.handleForge.bind(this),
-    );
+    this.use("forge", this.onlyAuthorized.bind(this), this.handleForge.bind(this));
     // Burn
-    this.use("burn", this.onlyOwner.bind(this), this.handleBurn.bind(this));
+    this.use(
+      "burn", this.onlyOwner.bind(this), this.handleBurn.bind(this));
     // Verify
     this.use("verify", this.handleVerify.bind(this));
   }
@@ -112,38 +111,36 @@ export class Forge {
    * @param forgeId - Optional ID for the forge
    */
   async initialize(): Promise<void> {
+    await super.init();
     if (this.isInitialized) return;
 
     try {
-      if (!this.keys.publicKey || !this.keys.secretKey) {
+      // check if keys are in storage
+      const storedKeys = await this.storage.getItem(`forge-keys-${this.keys.publicKey}`);
+      //save passed in keys if they are not in storage
+      if (this.keys.publicKey && !storedKeys) {
+        //store keys in storage
+        await this.storage.setItem(`forge-keys-${this.keys.publicKey}`, JSON.stringify(this.keys));
+      }
+      else if (!this.keys.publicKey || !this.keys.secretKey) {
         // Initialize keys first
         await this.initializeKeys();
       }
+
       // Ensure we have valid keys
       if (!this.keys || !this.keys.publicKey || !this.keys.secretKey) {
         throw new Error("Keys not properly initialized");
       }
 
-      // Initialize NWPC server with the initialized keys
-      this.nwpcServer = new NWPCServer({
-        keys: {
-          publicKey: this.keys.publicKey,
-          secretKey: this.keys.secretKey,
-        },
-        relays: this.config.relays || ["ws://localhost:8080"],
-      });
-      this.ndk = this.nwpcServer.ndk;
 
+      // NWPCServer is already initialized via super(config)
+      this.ndk = this.ndk;
       console.log(
         "Forge: NWPC server initialized with keys:",
         this.keys.publicKey,
       );
-
-      // Register default handlers
-      this.setupDefaultHandlers();
-
-      await this.loadState();
-      await this.saveState();
+      this.stateKey = `forge-state-${this.keys.publicKey}`;
+      await this._loadState();
       this.isInitialized = true;
     } catch (error) {
       console.error("Failed to initialize Forge:", error);
@@ -206,15 +203,6 @@ export class Forge {
    */
   async sign(data: Uint8Array): Promise<Uint8Array> {
     return signMessage(data, this.keys);
-  }
-
-  /**
-   * Use a handler for a specific method
-   * @param method - The method to use the handler for
-   * @param handlers - The handlers to use
-   */
-  use(method: string, ...handlers: NWPCHandler[]): void {
-    this.nwpcServer.use(method, ...handlers);
   }
 
   /**
@@ -281,7 +269,7 @@ export class Forge {
       throw new Error("Forge must be initialized");
     }
     this.state.authorizedForgers.add(pubkey);
-    await this.saveState();
+    await this._saveState();
   }
 
   /**
@@ -293,60 +281,36 @@ export class Forge {
       throw new Error("Forge must be initialized");
     }
     this.state.authorizedForgers.delete(pubkey);
-    await this.saveState();
+    await this._saveState();
   }
 
   /**
    * Get list of authorized forgers
    */
   getAuthorizedForgers(): string[] {
-    return Array.from(this.state.authorizedForgers);
+    return Array.from(this.state.authorizedForgers ?? []);
   }
 
-  private async saveState(): Promise<void> {
-    this.state.processedEventIds = Array.from(this.processedEventIds);
-    const serializableState = {
-      ...this.state,
-      spentTokens: Array.from(this.state.spentTokens),
-      pendingTxs: Array.from(this.state.pendingTxs.entries()),
-      tokenUsage: Array.from(this.state.tokenUsage.entries()),
-      lastSavedAt: Date.now(),
-      circulatingSupply: this.state.circulatingSupply ?? 0,
-      processedEventIds: this.state.processedEventIds,
-    };
-    await this.storage.setItem(
-      `forge-state-${this.keys.publicKey}`,
-      JSON.stringify(serializableState),
-    );
+  public async _saveState(): Promise<void> {
+    this.saveState(this.stateKey, this.state);
   }
 
-  private async loadState(): Promise<void> {
-    const savedState = await this.storage.getItem(
-      `forge-state-${this.keys.publicKey}`,
-    );
-    if (savedState) {
-      const parsedState = JSON.parse(savedState);
+  public async _loadState(): Promise<void> {
+    const savedState = await this.loadState(this.stateKey);
+    if (savedState !== null) {
+      // Restore from saved state, but ensure Set/Map fields are properly restored
       this.state = {
-        owner: parsedState.owner,
-        version: parsedState.version || 1,
-        spentTokens: new Set(parsedState.spentTokens || []),
-        pendingTxs: new Map(parsedState.pendingTxs || []),
-        totalSupply: parsedState.totalSupply || 0,
-        lastAssetId: parsedState.lastAssetId || 0,
-        lastProcessedEvent: parsedState.lastProcessedEvent,
-        lastSavedAt: parsedState.lastSavedAt,
-        authorizedForgers: new Set(
-          Array.isArray(parsedState.authorizedForgers)
-            ? parsedState.authorizedForgers
-            : [],
-        ),
-        tokenUsage: new Map(parsedState.tokenUsage || []),
-        circulatingSupply: parsedState.circulatingSupply ?? 0,
-        processedEventIds: parsedState.processedEventIds || [],
+        ...this.state,
+        ...savedState,
+        spentTokens: new Set(savedState.spentTokens || []),
+        pendingTxs: new Map(savedState.pendingTxs || []),
+        authorizedForgers: new Set(savedState.authorizedForgers || []),
+        tokenUsage: new Map(savedState.tokenUsage || []),
+        processedEventIds: new Set(savedState.processedEventIds || []),
       };
-      this.processedEventIds = new Set(this.state.processedEventIds);
-    } else {
+    } else {  
       this.state = {
+        ...this.state,
         owner: this.config.owner || "",
         version: 1,
         spentTokens: new Set(),
@@ -356,9 +320,9 @@ export class Forge {
         authorizedForgers: new Set(this.config.authorizedForgers || []),
         tokenUsage: new Map(),
         circulatingSupply: 0,
-        processedEventIds: [],
+        processedEventIds: new Set()
       };
-      this.processedEventIds = new Set();
+      await this._saveState();
     }
   }
 
@@ -627,7 +591,7 @@ export class Forge {
           if (
             this.state.totalSupply > 0 &&
             (this.state.circulatingSupply ?? 0) + amountToForge >
-              this.state.totalSupply
+            this.state.totalSupply
           ) {
             return await res.error(
               400,
@@ -677,7 +641,7 @@ export class Forge {
           break;
       }
       const tokenJWT = await this.signAndCreateJWT(token);
-      await this.saveState();
+      await this._saveState();
       return await res.send({ token: tokenJWT }, reqObj.to);
     } catch (error: any) {
       return await res.error(500, error.message);
@@ -736,14 +700,4 @@ export class Forge {
     }
   }
 
-  protected async handleEvent(event: NDKEvent): Promise<void> {
-    if (this.processedEventIds.has(event.id)) {
-      console.log(`Skipping already processed event: ${event.id}`);
-      return;
-    }
-    // ... process event as normal ...
-    this.processedEventIds.add(event.id);
-    this.state.processedEventIds = Array.from(this.processedEventIds);
-    await this.saveState();
-  }
 }

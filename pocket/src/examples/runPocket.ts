@@ -11,8 +11,18 @@ const rl = readline.createInterface({
 async function main() {
   try {
 
+    let pStart: any = {
+      keys: { secretKey: '', publicKey: '' },
+      relays: ['ws://localhost:8080']
+    }
+
+    // Pass in KeyID form process.argv
+    if (process.argv.length > 2) {
+      pStart.keyID = process.argv[2];
+    }
+
     // Create and initialize the Pocket
-    const pocket = await Pocket.create({keys: {secretKey: '', publicKey: ''}, keyID:"4dcbdcca9df14def031b5c56bef07b58e6ed94d29a2d4c08b7ec38860a9b5861", relays: ['ws://localhost:8080']});
+    const pocket = await Pocket.create(pStart);
     console.log("Pocket initialized!");
     // @ts-ignore: Accessing private property
     console.log("Public Key:", pocket["idKey"].publicKey);
@@ -29,7 +39,7 @@ async function main() {
           "5. Generate new single-use key\n" +
           "6. Exit\n" +
           "7. View Current State\n" +
-          "Enter command number: ",
+          "Enter command number: \n",
           resolve
         );
       });
@@ -37,20 +47,20 @@ async function main() {
       switch (answer.trim()) {
         case "1":
           // @ts-ignore: Accessing private property
-          const balances = pocket["Pocket"].balances;
+          const balances = pocket.getState().balances;
           if (balances.size === 0) {
             console.log("No balances found");
           } else {
             console.log("\nCurrent balances:");
             for (const [issuer, balance] of balances.entries()) {
-              console.log(`Issuer: ${issuer}, Balance: ${balance}`);
+              console.log(`Issuer: ${issuer}, Balance: ${balance.get('-')}`);
             }
           }
           break;
 
         case "2":
           // @ts-ignore: Accessing private property
-          const tokens = pocket["Pocket"].tokens;
+          const tokens = pocket.getState().tokens;
           if (tokens.size === 0) {
             console.log("No tokens found");
           } else {
@@ -79,11 +89,11 @@ async function main() {
           const recipient = await new Promise<string>((resolve) => {
             rl.question("Enter recipient public key: ", resolve);
           });
-          
+
           try {
             // @ts-ignore: Accessing private property
             const nwpcClient = pocket["nwpcClient"] as NWPCPeer;
-            
+
             // Parse the token to get the issuer
             const token = new Token();
             await token.fromJWT(tokenJWT);
@@ -113,7 +123,7 @@ async function main() {
 
         case "4":
           // @ts-ignore: Accessing private property
-          const singleUseKeys = pocket["Pocket"].singleUseKeys;
+          const singleUseKeys = pocket.getState().singleUseKeys;
           if (singleUseKeys.size === 0) {
             console.log("No single-use keys found");
           } else {
@@ -147,7 +157,7 @@ async function main() {
         case "7":
           // View Current State
           console.log("Current State:");
-          console.log(pocket["Pocket"]);
+          console.log(pocket.getState());
           break;
 
         default:
@@ -162,5 +172,5 @@ async function main() {
 
 // Only run main if this file is being run directly
 if (require.main === module) {
-    main();
+  main();
 }
