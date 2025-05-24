@@ -29,7 +29,7 @@ export enum TokenType {
 export interface Header {
   alg: string; // Signature algorithm (e.g., "Schnorr")
   typ: TokenType; // Token type identifier
-  token_hash?: string; // Hash of the token payload
+  token_hash: string; // Hash of the token payload
 }
 
 /**
@@ -70,7 +70,7 @@ export interface TokenBuildParams {
  * Token class for handling token operations
  */
 export default class Token {
-  public hash: string | undefined;
+  public hash!: string;
   public signature!: string;
   public header!: Header;
   public payload!: Payload;

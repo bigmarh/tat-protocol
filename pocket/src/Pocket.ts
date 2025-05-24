@@ -4,6 +4,7 @@ import { DebugLogger, Unwrap } from "@tat-protocol/utils";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
+import { Transaction } from "./Transaction";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { SingleUseKey } from "@tat-protocol/hdkeys";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
@@ -37,10 +38,10 @@ export interface PocketState extends NWPCState {
     favorites: string[];
     hdMasterKey: HDKeys;
     singleUseKeys: Map<string, SingleUseKey>; //[pubkey, singleUseKey], Hold the singleUseKey for each pubkey
-    tokens: Map<string, Map<string | undefined, string>>; //[issuerPubkey, tokenHash, tokenJWT], Hold the tokenJWT for each tokenHash
+    tokens: Map<string, Map<string, string>>; //[issuerPubkey, tokenHash, tokenJWT], Hold the tokenJWT for each tokenHash
     balances: Map<string, Map<string, number>>;         //[issuerPubkey,setID, balance]. Hold the balance for each issuer
-    tokenIndex: Map<string, Map<number, string[] | undefined>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
-    tatIndex: Map<string, Map<string, string | undefined>>; //[issuerPubkey, identifier(tokenID, tokenID:derivative-tokenId), tokenhash], Hold the tokenhash for each tokenID
+    tokenIndex: Map<string, Map<number, string[]>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
+    tatIndex: Map<string, Map<string, string>>; //[issuerPubkey, identifier(tokenID, tokenID:derivative-tokenId), tokenhash], Hold the tokenhash for each tokenID
     connected: boolean;
     activeSubscriptions: Map<string, any>;
 }
@@ -322,5 +323,92 @@ export class Pocket extends NWPCPeer {
     // =============================
     public getState(): PocketState {
         return this.state;
+    }
+
+    public getToken(issuer: string, tokenHash: string) {
+        return this.state.tokens.get(issuer)?.get(tokenHash);
+    }
+
+    public getTokenIndex(issuer: string, denomination: number) {
+        return this.state.tokenIndex.get(issuer)?.get(denomination);
+    }
+
+    public getTAT(issuer: string, tokenID: string) {
+        return this.state.tatIndex.get(issuer)?.get(tokenID);
+    }
+
+    public getBalance(issuer: string, setID: string) {
+        setID = setID || "-";
+        return this.state.balances.get(issuer)?.get(setID);
+    }
+
+    // =============================
+    // 6. Transfer Transaction Functions
+    // =============================
+
+    /**
+     * Create and build a fungible token transfer transaction.
+     * @param issuer The issuer of the token
+     * @param to Recipient address
+     * @param amount Amount to transfer
+     * @param changeKey Address to send change to (optional)
+     * @returns The built transaction structure
+     */
+    public createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+        const tx = new Transaction(
+            'transfer',
+            this.state,
+            [],
+            changeKey || this.idKey.publicKey
+        );
+        tx.to(issuer, to, amount);
+        return tx['build']();
+    }
+
+    /**
+     * Create and build a TAT transfer transaction.
+     * @param issuer The issuer of the TAT
+     * @param to Recipient address
+     * @param tokenID The TAT token ID
+     * @returns The built transaction structure
+     */
+    public createTATTransferTx(issuer: string, to: string, tokenID: string) {
+        const tx = new Transaction(
+            'transfer',
+            this.state
+        );
+        return tx.transferTAT(issuer, to, tokenID);
+    }
+
+
+
+    public async sendTATTransferTx(issuer: string, to: string, tokenID: string) {
+        const tx = this.createTATTransferTx(issuer, to, tokenID);
+        return this.sendTx('transfer', issuer, tx);
+    }
+
+    /**
+     * Send a fungible transfer transaction to the network.
+     * @param issuer The issuer of the token
+     * @param to Recipient address
+     * @param amount Amount to transfer
+     * @param changeKey Address to send change to (optional)
+     * @returns The response from the network
+     */
+    public async sendFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+        const tx = this.createFungibleTransferTx(issuer, to, amount, changeKey);
+        return this.sendTx('transfer', issuer, tx);
+    }
+
+
+    /**
+     * Send a transaction to the network.
+     * @param method The method to send
+     * @param issuer The issuer of the transaction
+     * @param tx The transaction to send
+     * @returns The response from the network
+     */
+    public async sendTx(method: string, issuer: string, tx: any) {
+        return this.request(method, tx, issuer);
     }
 }
