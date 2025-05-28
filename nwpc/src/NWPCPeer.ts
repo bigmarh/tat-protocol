@@ -8,6 +8,7 @@ import {
 } from "./NWPCResponseTypes";
 import { Wrap, Unwrap } from "@tat-protocol/utils";
 import { NWPCBase } from "./NWPCBase";
+import { KeyPair } from "@tat-protocol/hdkeys";
 
 export class NWPCPeer extends NWPCBase {
   private responseHandlers: Map<
@@ -27,6 +28,7 @@ export class NWPCPeer extends NWPCBase {
   }
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
+      console.log("NWPCPeer: handleEvent:+++++++++++++++++++++++++++++++++++++++++*(\n\n");
     try {
       const unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
       if (!unwrapped) {
@@ -35,12 +37,16 @@ export class NWPCPeer extends NWPCBase {
       }
 
       const message = JSON.parse(unwrapped.content);
+  
       const context: NWPCContext = {
         event,
         poster: event.pubkey,
         sender: unwrapped.sender,
         recipient: this.keys.publicKey as string,
       };
+
+      console.log("NWPCPeer: handleEvent:", message);
+      console.log("NWPCPeer: handleEvent: response handlers", this.responseHandlers, "has", this.responseHandlers.has(message.id));
 
       // Check if it's a response to our request
       if (this.responseHandlers.has(message.id)) {
@@ -106,13 +112,15 @@ export class NWPCPeer extends NWPCBase {
     method: string,
     params: Record<string, any>,
     recipientPubkey: string,
+    senderKeys?: KeyPair,
     timeout: number = 30000,
+    
   ): Promise<NWPCResponse> {
     const request = this.createRequest(method, params);
     const wrappedEvent = await Wrap(
       this.ndk,
       JSON.stringify(request),
-      this.keys,
+      senderKeys || this.keys,
       recipientPubkey,
     );
     console.log("NWPCPeer: request:");

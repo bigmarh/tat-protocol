@@ -34,6 +34,15 @@ export class NWPCServer extends NWPCBase {
       }
 
       const request = JSON.parse(unwrapped.content);
+      if (!unwrapped.verifiedSender) {
+        console.log("NWPCServer:Original Event is not valid:", event.id);
+        return;
+      }
+
+      else{
+        console.log("NWPCServer: Event is valid from sender:", event.id);
+      }
+      //Event is valid from sender
       const context = {
         event,
         poster: event.pubkey,
@@ -48,6 +57,7 @@ export class NWPCServer extends NWPCBase {
       }
 
       const res = new NWPCResponseObject(request.id, this, context);
+      console.log("NWPCServer:ROUTER:+++++++++++++++++++++++++++++++++++++++++*(\n\n");
       await this.router.handle(request, context, res);
 
       // Apply afterRequest hook if it exists

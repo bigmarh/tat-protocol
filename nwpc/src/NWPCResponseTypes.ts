@@ -144,6 +144,7 @@ export class NWPCResponseObject {
           );
         }
       } else {
+        console.log("sending error response to", targetRecipient);
         await this.sender.sendResponse(this.response, targetRecipient);
       }
     }

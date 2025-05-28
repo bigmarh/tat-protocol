@@ -46,7 +46,7 @@ export abstract class NWPCBase implements INWPCBase {
     if (this.keys) {
       await this.subscribe(
         this.keys.publicKey || "",
-        this.handleEvent.bind(this),
+        this.handleEvent.bind(this)
       );
     }
   }
@@ -191,6 +191,7 @@ export abstract class NWPCBase implements INWPCBase {
     response: NWPCResponse,
     recipientPubkey: string,
   ): Promise<void> {
+
     if (!this.keys) {
       throw new Error("Keys not initialized");
     }
@@ -201,6 +202,7 @@ export abstract class NWPCBase implements INWPCBase {
       this.keys,
       recipientPubkey,
     );
+  
 
     await wrappedEvent.publish();
   }

@@ -206,10 +206,16 @@ export async function Unwrap(
       ),
     );
 
+    const ndk = new NDK();
+    //unwrap the event
+    const unW = new NDKEvent(ndk,unwrapped);
+
     if (!openEnv.content) return null;
 
     if (openEnv.pubkey == unwrapped.pubkey) {
+      //verify Event is valid
       return {
+        verifiedSender:unW.verifySignature(true),
         sender: openEnv.pubkey,
         kind: openEnv.kind,
         content: openEnv.content,

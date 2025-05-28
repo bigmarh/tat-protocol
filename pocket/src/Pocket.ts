@@ -137,7 +137,7 @@ export class Pocket extends NWPCPeer {
                     balances: new Map(),
                 };
                 const seed = await HDKey.mnemonicToSeed(this.state.hdMasterKey.mnemonic);
-                this.hdKey = HDKey.fromMasterSeed(seed);    
+                this.hdKey = HDKey.fromMasterSeed(seed);
                 this.savePocketState();
                 return; // No saved state exists
             }
@@ -303,12 +303,22 @@ export class Pocket extends NWPCPeer {
         try {
             const unwrapped = await Unwrap(event.content, keys, event.pubkey);
             if (!unwrapped) {
-                console.log("NWPCPeer: Failed to unwrap event:", event.id);
+                console.log("Pocket: Failed to unwrap event:", event.id);
                 return;
             }
+
+            if (!unwrapped.verifiedSender) {
+                console.log("Pocket:Original Event is not valid:", event.id);
+                return;
+            }
+
+
             const message = JSON.parse(unwrapped.content);
             if (message.result?.token) {
                 await this.storeToken(message.result.token);
+            }
+            else {
+                console.log("Pocket: handleEvent message", message);
             }
         }
         catch (error) {
@@ -342,8 +352,41 @@ export class Pocket extends NWPCPeer {
     }
 
     // =============================
-    // 6. Transfer Transaction Functions
+    // 6. Transaction Functions
     // =============================
+
+    /**
+     * Helper to build witness data for P2PK tokens
+     */
+    private async buildWitnessData(inputs: Token[]): Promise<string[]> {
+        const witnessData: string[] = [];
+        for (const token of inputs) {
+            if (token.payload.P2PKlock) {
+                let keyPair: KeyPair | undefined;
+                // Use main key if matches, else look up in singleUseKeys
+                if (token.payload.P2PKlock === this.keys.publicKey) {
+                    keyPair = this.keys;
+                } else {
+                    const singleUseKey = this.state.singleUseKeys.get(token.payload.P2PKlock);
+                    if (singleUseKey) {
+                        keyPair = singleUseKey;
+                    }
+                }
+                if (!keyPair) {
+                    // Cannot sign, push empty string or throw error as needed
+                    witnessData.push("");
+                    continue;
+                }
+                const dataToSign = hexToBytes(token.header.token_hash);
+                // Use the instance sign method
+                const signature = await token.sign(dataToSign, keyPair);
+                witnessData.push(bytesToHex(signature));
+            } else {
+                witnessData.push("");
+            }
+        }
+        return witnessData;
+    }
 
     /**
      * Create and build a fungible token transfer transaction.
@@ -353,12 +396,15 @@ export class Pocket extends NWPCPeer {
      * @param changeKey Address to send change to (optional)
      * @returns The built transaction structure
      */
-    private createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+    private async createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+        // Always use a new single-use key for change outputs
+        const singleUseKey = await this.deriveSingleUseKey();
+        // Save the new key to state (deriveSingleUseKey already does this)
         const tx = new Transaction(
             'transfer',
             this.state,
             [],
-            changeKey || this.keys.publicKey
+            changeKey || singleUseKey.publicKey // Use the new single-use key for change
         );
         tx.to(issuer, to, amount);
         return tx['build']();
@@ -416,6 +462,88 @@ export class Pocket extends NWPCPeer {
      * @returns The response from the network
      */
     public async sendTx(method: string, issuer: string, tx: any) {
-        return this.request(method, tx, issuer);
+        // Restore tokens from tx.inputs
+        const inputs: Token[] = [];
+        if (tx.inputs) {
+            for (const input of tx.inputs) {
+                const token = await new Token().restore(input.token);
+                inputs.push(token);
+            }
+        }
+        // Build witness data if needed
+        const witnessData = await this.buildWitnessData(inputs);
+        // Attach witnessData to tx if any are present
+        if (witnessData.some(w => w)) {
+            tx.witnessData = witnessData;
+        }
+        // Use a new single-use key for the sender  
+        return this.sendRequestWithSingleUseKey(method, tx, issuer);
+    }
+
+    /**
+     * Generate a new single-use key and return its public key.
+     * The key is saved to state so you can later spend tokens sent to it.
+     */
+    public async getNewReceiveAddress(): Promise<string> {
+        const singleUseKey = await this.deriveSingleUseKey();
+        // The key is already saved to state in deriveSingleUseKey
+        return singleUseKey.publicKey;
+    }
+
+   
+    /**
+     * Send a request to the forge using a new single-use key as the sender,
+     * subscribe for the response, and clean up after.
+     * @param method - The method to call on the forge
+     * @param tx - The transaction or payload to send
+     * @param forgePubkey - The forge's public key
+     * @param responseTimeoutMs - How long to wait for a response (default 10s)
+     * @returns The parsed response from the forge
+     */
+    public async sendRequestWithSingleUseKey(
+        method: string,
+        tx: any,
+        forgePubkey: string,
+        responseTimeoutMs: number = 10000
+    ): Promise<any> {
+        // 1. Generate a new single-use key
+        const senderKeys = await this.deriveSingleUseKey();
+
+        // 2. Subscribe for the response
+        let response: any = null;
+        let responseReceived = false;
+        const handler = async (event: NDKEvent) => {
+            if (event.pubkey === forgePubkey) {
+                try {
+                    // Unwrap/decrypt/verify as needed
+                    const unwrapped = await Unwrap(event.content, senderKeys, forgePubkey);
+                    if (unwrapped) {
+                        response = JSON.parse(unwrapped.content);
+                        responseReceived = true;
+                    }
+                } catch (e) {
+                    // Ignore invalid responses
+                }
+            }
+        };
+        await this.subscribe(senderKeys.publicKey, handler);
+
+        // 3. Send the request using the single-use key as sender
+        await this.request(method, tx, forgePubkey, senderKeys);
+
+        // 4. Wait for response or timeout
+        const start = Date.now();
+        while (!responseReceived && Date.now() - start < responseTimeoutMs) {
+            await new Promise(res => setTimeout(res, 100));
+        }
+
+        // 5. Unsubscribe and clean up
+        await this.unsubscribe(senderKeys.publicKey);
+        // Optionally: await this.markKeyAsUsed(senderKeys.publicKey);
+
+        if (!responseReceived) {
+            throw new Error('No response received from forge (timeout)');
+        }
+        return response;
     }
 }

@@ -1,2 +1,4 @@
 import Token, { Header, Payload, TokenType } from "./Token";
-export { Token, Header, Payload, TokenType };
+import { TokenValidator } from "./TokenValidator";
+
+export { Token, Header, Payload, TokenType, TokenValidator };

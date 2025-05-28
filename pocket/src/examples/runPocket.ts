@@ -94,6 +94,18 @@ async function main() {
           break;
 
         case "3":
+          // Prompt for transfer type first
+          const type = await new Promise<string>((resolve) => {
+            rl.question(
+              "Transfer type (fungible/tat): \n\n" +
+              "1. fungible \n" +
+              "2. tat \n" +
+              "Enter type number: \n",
+              resolve);
+          });
+
+          const transferType = type === "1" ? "fungible" : "tat";
+
           // Gather all unique issuers from tokens
           // @ts-ignore: Accessing private property
           const tokensMap = pocket.getState().tokens;
@@ -119,67 +131,75 @@ async function main() {
             break;
           }
 
-          // @ts-ignore: Accessing private property
-          const tatIndex = pocket.getState().tatIndex;
-          const availableTokenIDs = Array.from(tatIndex.get(issuer)?.keys() || []);
-          if (availableTokenIDs.length === 0) {
-            console.log("No TAT tokenIDs available for this issuer.");
-            break;
-          }
-          console.log("Available tokenIDs:");
-          availableTokenIDs.forEach((tid, idx) => {
-            console.log(`${idx + 1}. ${tid}`);
-          });
-          const tokenIDIdx = parseInt(await new Promise<string>((resolve) => {
-            rl.question("Select tokenID number: ", resolve);
-          }));
-          if (isNaN(tokenIDIdx) || tokenIDIdx < 1 || tokenIDIdx > availableTokenIDs.length) {
-            console.log("Invalid selection.");
-            break;
-          }
-          const tokenID: string = availableTokenIDs[tokenIDIdx - 1];
-
-          const type = await new Promise<string>((resolve) => {
-            rl.question("Transfer type (fungible/tat): ", resolve);
-          });
-
-          const recipient = await new Promise<string>((resolve) => {
-            rl.question("Enter recipient public key: ", resolve);
-          });
-          if (!recipient) {
-            console.log("Invalid recipient.");
+          if (transferType === "fungible") {
+            const recipient = await new Promise<string>((resolve) => {
+              rl.question("Enter recipient public key: ", resolve);
+            });
+            if (!recipient) {
+              console.log("Invalid recipient.");
+              break;
+            }
+            const amount = parseInt(await new Promise<string>((resolve) => {
+              rl.question("Enter amount to transfer: ", resolve);
+            }));
+            if (isNaN(amount) || amount <= 0) {
+              console.log("Invalid amount.");
+              break;
+            }
+            try {
+              const response = await pocket.transfer(issuer, recipient, amount);
+              if (response.result) {
+                console.log("Transfer successful!");
+                console.log("New token received:", response.result.token);
+              } else {
+                console.error("Transfer failed:", response.error);
+              }
+            } catch (err) {
+              console.error("Transfer failed:", err);
+            }
             break;
           }
 
-          // @ts-ignore: Accessing private property
-          const tokenHash = tatIndex.get(issuer)?.get(tokenID);
-          console.log("tokenHash", tokenHash);
-          if (!tokenHash) {
-            console.log("Selected tokenID does not have a valid token hash in your wallet. It may have been spent or is missing.");
-            break;
-          }
-          const tokenJWT = tokensMap.get(issuer)?.get(tokenHash);
-
-          if (type.trim().toLowerCase() === "tat") {
+          if (transferType === "tat") {
+            // @ts-ignore: Accessing private property
+            const tatIndex = pocket.getState().tatIndex;
+            const availableTokenIDs = Array.from(tatIndex.get(issuer)?.keys() || []);
+            if (availableTokenIDs.length === 0) {
+              console.log("No TAT tokenIDs available for this issuer.");
+              break;
+            }
+            console.log("Available tokenIDs:");
+            availableTokenIDs.forEach((tid, idx) => {
+              console.log(`${idx + 1}. ${tid}`);
+            });
+            const tokenIDIdx = parseInt(await new Promise<string>((resolve) => {
+              rl.question("Select tokenID number: ", resolve);
+            }));
+            if (isNaN(tokenIDIdx) || tokenIDIdx < 1 || tokenIDIdx > availableTokenIDs.length) {
+              console.log("Invalid selection.");
+              break;
+            }
+            const tokenID: string = availableTokenIDs[tokenIDIdx - 1];
+            const recipient = await new Promise<string>((resolve) => {
+              rl.question("Enter recipient public key: ", resolve);
+            });
+            if (!recipient) {
+              console.log("Invalid recipient.");
+              break;
+            }
+            // @ts-ignore: Accessing private property
+            const tokenHash = tatIndex.get(issuer)?.get(tokenID);
+            if (!tokenHash) {
+              console.log("Selected tokenID does not have a valid token hash in your wallet. It may have been spent or is missing.");
+              break;
+            }
+            const tokenJWT = tokensMap.get(issuer)?.get(tokenHash);
             if (!tokenJWT || !tokenID) {
               console.log("Selected tokenID does not have a valid token in your wallet. It may have been spent or is missing.");
               break;
             }
-          }
-
-          try {
-            let response;
-            if (type.trim().toLowerCase() === "fungible") {
-              const amount = parseInt(await new Promise<string>((resolve) => {
-                rl.question("Enter amount to transfer: ", resolve);
-              }));
-              if (isNaN(amount) || amount <= 0) {
-                console.log("Invalid amount.");
-                break;
-              }
-              response = await pocket.transfer(issuer, recipient, amount);
-            } else if (type.trim().toLowerCase() === "tat") {
-              // Use the selected tokenID from the list, only if tokenJWT and tokenID exist
+            try {
+              let response;
               if (typeof pocket.sendTAT === 'function') {
                 response = await pocket.sendTAT(issuer, recipient, tokenID);
               } else if (typeof pocket["createTATTransferTx"] === 'function' && typeof pocket["sendTx"] === 'function') {
@@ -189,20 +209,19 @@ async function main() {
               } else {
                 throw new Error("sendTAT method not available on Pocket instance");
               }
-            } else {
-              console.log("Unknown transfer type.");
-              break;
+              if (response.result) {
+                console.log("Transfer successful!");
+                console.log("New token received:", response.result.token);
+              } else {
+                console.error("Transfer failed:", response.error);
+              }
+            } catch (err) {
+              console.error("Transfer failed:", err);
             }
-
-            if (response.result) {
-              console.log("Transfer successful!");
-              console.log("New token received:", response.result.token);
-            } else {
-              console.error("Transfer failed:", response.error);
-            }
-          } catch (err) {
-            console.error("Transfer failed:", err);
+            break;
           }
+
+          console.log("Unknown transfer type.");
           break;
 
         case "4":

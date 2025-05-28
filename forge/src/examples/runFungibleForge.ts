@@ -16,7 +16,6 @@ console.log("Secret Key:", secretKey);
 console.log("Public Key:", publicKey);
 console.log("-------------KEYS-------------------\n");
 
-
 // Create forge config for TATUSD fungible token
 const config: ForgeConfig = {
   owner: "aaa266a87d1c24a11b9509cc74e1eaf2db8ca2a563be0c1a429917acd4d1f37d",

@@ -1,7 +1,7 @@
 import { ForgeConfig } from "./ForgeConfig";
 import { ForgeState } from "./ForgeState";
 import { Token } from "@tat-protocol/token";
-import { TokenType } from "@tat-protocol/token";
+import { TokenType, TokenValidator } from "@tat-protocol/token";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import {
   NWPCServer,
@@ -19,7 +19,9 @@ import NDK from "@nostr-dev-kit/ndk";
 
 type Recipient = {
   to: string;
-  amount: number;
+  amount?: number;
+  tokenID?: string;
+  issuer?: string;
 };
 
 /**
@@ -337,6 +339,9 @@ export class Forge extends NWPCServer {
     }
   }
 
+
+
+
   //Handlers
 
   /**
@@ -351,32 +356,26 @@ export class Forge extends NWPCServer {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const { tokenJWT, to } = JSON.parse(req.params);
+    const [method, tx] = JSON.parse(req.params);
     const sender = context.sender; // Get sender from context
 
-    // Basic validation
-    if (!tokenJWT || !to) {
-      return await res.error(
-        400,
-        "Missing required parameters: tokenJWT and to",
-      );
+    //validate transaction
+    const [validTx, error] = await this.validateTXInputs(tx);
+    if (error) {
+      return await res.error(400, "Invalid transaction");
     }
 
-    try {
-      const token = await new Token().restore(tokenJWT);
-
-      // Route to appropriate handler based on token type
-      switch (token.getTokenType()) {
-        case TokenType.FUNGIBLE:
-          return await this.handleFungibleTransfer([token], to, res, sender);
-        case TokenType.TAT:
-          return await this.handleNonFungibleTransfer(token, to, res);
-        default:
-          return await res.error(400, "Invalid token type");
-      }
-    } catch (error: any) {
-      return await res.error(500, error.message);
+    switch (method) {
+      case 'transferTAT':
+        //takes a tokenJWT and a to address
+        return await this.handleNonFungibleTransfer(validTx.inputs, validTx.outs, res);
+      case 'transfer':
+        //takes inputs and outputs to build a fungible transfer
+        return await this.handleFungibleTransfer(validTx.inputs, validTx.outs, res, sender);
+      default:
+        return await res.error(400, "Invalid method");
     }
+
   }
 
   /**
@@ -384,25 +383,27 @@ export class Forge extends NWPCServer {
    * Ensures all-or-nothing: no state is mutated and no tokens are sent until all checks and preparations succeed.
    */
   private async handleFungibleTransfer(
-    tokens: Token[],
-    toArray: Recipient[],
+    inputs: Token[],
+    outs: Recipient[],
     res: NWPCResponseObject,
     sender: string,
   ) {
+
+    if (!inputs || !outs) {
+      return await res.error(400, "Missing required parameters: inputs, outs");
+    }
+
     // 1. Validate
-    const validationError = await this.validateFungibleTransfer(
-      tokens,
-      toArray,
-    );
+    const validationError = await this.validateFungibleTransfer(inputs, outs);
     if (validationError) return await res.error(400, validationError);
 
     // 2. Prepare
     const { recipientTokens, changeTokenJWT } =
-      await this.prepareFungibleTransfer(tokens, toArray, sender);
+      await this.prepareFungibleTransfer(inputs, outs, sender);
 
     // 3. Commit (mark all input tokens as spent)
     await Promise.all(
-      tokens.map(
+      inputs.map(
         async (token) =>
           await this.publishSpentToken(await token.create_token_hash()),
       ),
@@ -421,31 +422,25 @@ export class Forge extends NWPCServer {
 
   // Helper: Validate fungible transfer with multiple inputs/outputs
   private async validateFungibleTransfer(
-    tokens: Token[],
-    toArray: Recipient[],
+    inputs: Token[],
+    outs: Recipient[],
   ): Promise<string | null> {
-    if (!Array.isArray(tokens) || tokens.length === 0) {
+    if (!Array.isArray(inputs) || inputs.length === 0) {
       return "At least one input token is required";
     }
     let inputTotal = 0;
-    for (const token of tokens) {
+    for (const token of inputs) {
       if (
         typeof token.payload.amount !== "number" ||
         token.payload.amount <= 0
       ) {
         return "Each input token must have a valid positive amount";
       }
-      if (token.isExpired()) {
-        return "One or more input tokens have expired";
-      }
-      const tokenHash = await token.create_token_hash();
-      if (this.state.spentTokens.has(tokenHash)) {
-        return "One or more input tokens have already been spent";
-      }
+
       inputTotal += token.payload.amount;
     }
     let outputTotal = 0;
-    for (const entry of toArray) {
+    for (const entry of outs) {
       if (
         typeof entry.amount !== "number" ||
         isNaN(entry.amount) ||
@@ -456,7 +451,7 @@ export class Forge extends NWPCServer {
       if (!entry.to) {
         return "Recipient 'to' is required";
       }
-      outputTotal += entry.amount;
+      outputTotal += entry.amount ?? 0;
     }
     if (outputTotal > inputTotal) {
       return "Insufficient total input token amount for transfer";
@@ -466,14 +461,14 @@ export class Forge extends NWPCServer {
 
   // Helper: Prepare tokens for recipients and change (multi-input, multi-output)
   private async prepareFungibleTransfer(
-    tokens: Token[],
-    toArray: Recipient[],
+      inputs: Token[],
+    outs: Recipient[],
     sender: string,
   ) {
     // For simplicity, use the first input token's properties for timeLock/data_uri/change lock
-    const baseToken = tokens[0];
+    const baseToken = inputs[0];
     const recipientTokens: { to: string; jwt: string }[] = [];
-    for (const entry of toArray) {
+    for (const entry of outs) {
       const newToken = new Token();
       await newToken.build({
         token_type: TokenType.FUNGIBLE,
@@ -489,11 +484,11 @@ export class Forge extends NWPCServer {
       recipientTokens.push({ to: entry.to, jwt });
     }
     // Calculate change
-    const inputTotal = tokens.reduce(
+    const inputTotal = inputs.reduce(
       (sum, t) => sum + (t.payload.amount || 0),
       0,
     );
-    const outputTotal = toArray.reduce((sum, entry) => sum + entry.amount, 0);
+    const outputTotal = outs.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
     let changeTokenJWT: string | undefined = undefined;
     if (inputTotal > outputTotal) {
       const changeToken = new Token();
@@ -512,44 +507,56 @@ export class Forge extends NWPCServer {
     return { recipientTokens, changeTokenJWT };
   }
 
+
   private async handleNonFungibleTransfer(
-    token: Token,
-    to: string,
+    inputs: Token[],
+    outs: Recipient[],
     res: NWPCResponseObject,
   ) {
-    // Validate NFT properties
-    if (!token.payload.tokenID) {
-      return await res.error(400, "Non-fungible token must have a tokenID");
+    if (!inputs?.length || !outs?.length) {
+      return await res.error(400, "Missing required parameters: inputs, outs");
     }
 
-    // Check token validity
-    if (token.isExpired()) {
-      return await res.error(400, "Token has expired");
+    for (const recipient of outs) {
+      const tokenID = recipient.tokenID;
+      const to = recipient.to;
+
+      if (!tokenID || !to) {
+        return await res.error(400, "Each recipient must specify tokenID and to");
+      }
+
+      // Find the input token with the matching tokenID
+      const token = inputs.find(
+        t =>
+          t.payload.tokenID !== undefined &&
+          String(t.payload.tokenID) === String(tokenID)
+      );
+
+      if (!token) {
+        return await res.error(400, `Input token with tokenID ${tokenID} not found`);
+      }
+
+      // Mint new token for recipient
+      const newToken = new Token();
+      await newToken.build({
+        token_type: TokenType.TAT,
+        payload: Token.createPayload({
+          iss: this.keys.publicKey!,
+          tokenID: typeof token.payload.tokenID === "string"
+            ? Number(token.payload.tokenID)
+            : token.payload.tokenID,
+          P2PKlock: to,
+          timeLock: token.payload.timeLock,
+          data_uri: token.payload.data_uri,
+        }),
+      });
+
+      const newTokenJWT = await this.signAndCreateJWT(newToken);
+      await this.publishSpentToken(await token.create_token_hash());
+
+      await res.send({ token: newTokenJWT }, to);
     }
-
-    // Check if token is already spent
-    const tokenHash = await token.create_token_hash();
-    if (this.state.spentTokens.has(tokenHash)) {
-      return await res.error(400, "Token has already been spent");
-    }
-
-    // Create new token for recipient
-    const newToken = new Token();
-    await newToken.build({
-      token_type: TokenType.TAT,
-      payload: Token.createPayload({
-        iss: this.keys.publicKey!,
-        tokenID: token.payload.tokenID,
-        P2PKlock: to,
-        timeLock: token.payload.timeLock,
-        data_uri: token.payload.data_uri,
-      }),
-    });
-
-    const newTokenJWT = await this.signAndCreateJWT(newToken);
-    await this.publishSpentToken(tokenHash);
-
-    return await res.send({ token: newTokenJWT }, to);
+    return;
   }
 
   // Helper method to sign and create JWT
@@ -592,7 +599,7 @@ export class Forge extends NWPCServer {
           if (
             this.state.totalSupply > 0 &&
             (this.state.circulatingSupply ?? 0) + amountToForge >
-              this.state.totalSupply
+            this.state.totalSupply
           ) {
             return await res.error(
               400,
@@ -680,6 +687,63 @@ export class Forge extends NWPCServer {
   /**
    * Handle token verification request
    */
+
+  private async validateTXInputs(tx: any, witnessData?:string[], providedHTLCSecret?: string): Promise<[any, string | null]> {
+    //check if inputs can be used
+    for (const input of tx.inputs) {
+      const token = await new Token().restore(input.token);
+      const tokenHash = await token.create_token_hash();
+
+
+      if (this.state.spentTokens.has(tokenHash)) {
+        return [null, "Token has already been spent"];
+      }
+      if (token.isExpired()) {
+        return [null, "Token has expired"];
+      }
+      if (token.payload.P2PKlock) {
+        //get witness from witness array with same index as input
+        const witness = witnessData?.[tx.inputs.indexOf(input)];
+        if (!witness) {
+          return [null, "Witness for input not found"];
+        }
+        //verify witness signature
+        const isValid = verifySignature(hexToBytes(token.header.token_hash), hexToBytes(witness), token.payload.P2PKlock);
+        if (!isValid) {
+          return [null, "Witness signature is not valid"];
+        }
+      }
+      if (token.payload.timeLock && token.payload.timeLock > Date.now()) {
+        return [null, "The TimeLock has not passed"];
+      }
+      if (token.payload.HTLC) {
+        // Parse HTLC if it's a string
+        const htlc = typeof token.payload.HTLC === "string"
+          ? JSON.parse(token.payload.HTLC)
+          : token.payload.HTLC;
+        const payload = {
+          ...token.payload,
+          HTLC: htlc,
+          tokenID: token.payload.tokenID !== undefined
+            ? Number(token.payload.tokenID)
+            : undefined,
+        };
+        const validation = await TokenValidator.validateTokenHTLC(
+          { ...token, payload },
+          providedHTLCSecret
+        );
+        if (!validation.valid) {
+          return [null, validation.error ?? null];
+        }
+        if (!validation.canRedeem && !validation.canRefund) {
+          return [null, "Token is locked and cannot be used"];
+        }
+      }
+
+    }
+    return [tx, null];
+  }
+
   private async handleVerify(
     req: NWPCRequest,
     context: NWPCContext,

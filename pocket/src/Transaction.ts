@@ -41,10 +41,9 @@ export class Transaction {
         if (!jwt) {
             throw new Error(`JWT not found: ${issuer}:${tokenID}:${to}`);
         }
-        const outs = [{ to, tokenID: tokenID }];
-
-        //return the method,  issuer, tx
-        return ['transfer', issuer, { ins: [jwt], outs }];
+     
+        //return the method,  issuer, TAT tx
+        return ['transferTAT', {token: jwt, to: to}];
     }
 
     private greedy(denominations: Array<{ d: number, c: number }>, target: number): [number, Array<{ d: number, used: number }>] {
@@ -77,7 +76,7 @@ export class Transaction {
      * @returns [method, issuer, { ins: string[], outs: FungibleOut[] }]
      * @throws Error if outs is empty, issuers differ, or tokens are missing.
      */
-    private build() {
+    public  build() {
         if (this.outs.length === 0) {
             throw new Error('No outputs specified for transaction.');
         }
@@ -118,6 +117,6 @@ export class Transaction {
             ];
         }
         // Return the transaction structure
-        return [this.method, issuer, { ins: jwts, outs }];
+        return [this.method, { ins: jwts, outs }];
     }
 }
