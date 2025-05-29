@@ -339,9 +339,6 @@ export class Forge extends NWPCServer {
     }
   }
 
-
-
-
   //Handlers
 
   /**
@@ -362,20 +359,28 @@ export class Forge extends NWPCServer {
     //validate transaction
     const [validTx, error] = await this.validateTXInputs(tx);
     if (error) {
-      return await res.error(400, "Invalid transaction");
+      return await res.error(400, "Invalid transaction: " + error);
     }
 
     switch (method) {
-      case 'transferTAT':
+      case "transferTAT":
         //takes a tokenJWT and a to address
-        return await this.handleNonFungibleTransfer(validTx.inputs, validTx.outs, res);
-      case 'transfer':
+        return await this.handleNonFungibleTransfer(
+          validTx.ins,
+          validTx.outs,
+          res,
+        );
+      case "transfer":
         //takes inputs and outputs to build a fungible transfer
-        return await this.handleFungibleTransfer(validTx.inputs, validTx.outs, res, sender);
+        return await this.handleFungibleTransfer(
+          validTx.ins,
+          validTx.outs,
+          res,
+          sender,
+        );
       default:
         return await res.error(400, "Invalid method");
     }
-
   }
 
   /**
@@ -388,7 +393,6 @@ export class Forge extends NWPCServer {
     res: NWPCResponseObject,
     sender: string,
   ) {
-
     if (!inputs || !outs) {
       return await res.error(400, "Missing required parameters: inputs, outs");
     }
@@ -461,7 +465,7 @@ export class Forge extends NWPCServer {
 
   // Helper: Prepare tokens for recipients and change (multi-input, multi-output)
   private async prepareFungibleTransfer(
-      inputs: Token[],
+    inputs: Token[],
     outs: Recipient[],
     sender: string,
   ) {
@@ -488,7 +492,10 @@ export class Forge extends NWPCServer {
       (sum, t) => sum + (t.payload.amount || 0),
       0,
     );
-    const outputTotal = outs.reduce((sum, entry) => sum + (entry.amount ?? 0), 0);
+    const outputTotal = outs.reduce(
+      (sum, entry) => sum + (entry.amount ?? 0),
+      0,
+    );
     let changeTokenJWT: string | undefined = undefined;
     if (inputTotal > outputTotal) {
       const changeToken = new Token();
@@ -507,7 +514,6 @@ export class Forge extends NWPCServer {
     return { recipientTokens, changeTokenJWT };
   }
 
-
   private async handleNonFungibleTransfer(
     inputs: Token[],
     outs: Recipient[],
@@ -522,18 +528,24 @@ export class Forge extends NWPCServer {
       const to = recipient.to;
 
       if (!tokenID || !to) {
-        return await res.error(400, "Each recipient must specify tokenID and to");
+        return await res.error(
+          400,
+          "Each recipient must specify tokenID and to",
+        );
       }
 
       // Find the input token with the matching tokenID
       const token = inputs.find(
-        t =>
+        (t) =>
           t.payload.tokenID !== undefined &&
-          String(t.payload.tokenID) === String(tokenID)
+          String(t.payload.tokenID) === String(tokenID),
       );
 
       if (!token) {
-        return await res.error(400, `Input token with tokenID ${tokenID} not found`);
+        return await res.error(
+          400,
+          `Input token with tokenID ${tokenID} not found`,
+        );
       }
 
       // Mint new token for recipient
@@ -542,9 +554,10 @@ export class Forge extends NWPCServer {
         token_type: TokenType.TAT,
         payload: Token.createPayload({
           iss: this.keys.publicKey!,
-          tokenID: typeof token.payload.tokenID === "string"
-            ? Number(token.payload.tokenID)
-            : token.payload.tokenID,
+          tokenID:
+            typeof token.payload.tokenID === "string"
+              ? Number(token.payload.tokenID)
+              : token.payload.tokenID,
           P2PKlock: to,
           timeLock: token.payload.timeLock,
           data_uri: token.payload.data_uri,
@@ -688,12 +701,18 @@ export class Forge extends NWPCServer {
    * Handle token verification request
    */
 
-  private async validateTXInputs(tx: any, witnessData?:string[], providedHTLCSecret?: string): Promise<[any, string | null]> {
-    //check if inputs can be used
-    for (const input of tx.inputs) {
-      const token = await new Token().restore(input.token);
-      const tokenHash = await token.create_token_hash();
+  private async validateTXInputs(
+    tx: any,
+    witnessData?: string[],
+    providedHTLCSecret?: string,
+  ): Promise<[any, string | null]> {
 
+    const inputs = tx.ins;
+
+    //check if inputs can be used
+    for (const input of inputs) {
+      const token = await new Token().restore(input);
+      const tokenHash = await token.create_token_hash();
 
       if (this.state.spentTokens.has(tokenHash)) {
         return [null, "Token has already been spent"];
@@ -703,12 +722,16 @@ export class Forge extends NWPCServer {
       }
       if (token.payload.P2PKlock) {
         //get witness from witness array with same index as input
-        const witness = witnessData?.[tx.inputs.indexOf(input)];
+        const witness = witnessData?.[inputs.indexOf(input)];
         if (!witness) {
           return [null, "Witness for input not found"];
         }
         //verify witness signature
-        const isValid = verifySignature(hexToBytes(token.header.token_hash), hexToBytes(witness), token.payload.P2PKlock);
+        const isValid = verifySignature(
+          hexToBytes(token.header.token_hash),
+          hexToBytes(witness),
+          token.payload.P2PKlock,
+        );
         if (!isValid) {
           return [null, "Witness signature is not valid"];
         }
@@ -718,19 +741,21 @@ export class Forge extends NWPCServer {
       }
       if (token.payload.HTLC) {
         // Parse HTLC if it's a string
-        const htlc = typeof token.payload.HTLC === "string"
-          ? JSON.parse(token.payload.HTLC)
-          : token.payload.HTLC;
+        const htlc =
+          typeof token.payload.HTLC === "string"
+            ? JSON.parse(token.payload.HTLC)
+            : token.payload.HTLC;
         const payload = {
           ...token.payload,
           HTLC: htlc,
-          tokenID: token.payload.tokenID !== undefined
-            ? Number(token.payload.tokenID)
-            : undefined,
+          tokenID:
+            token.payload.tokenID !== undefined
+              ? Number(token.payload.tokenID)
+              : undefined,
         };
         const validation = await TokenValidator.validateTokenHTLC(
           { ...token, payload },
-          providedHTLCSecret
+          providedHTLCSecret,
         );
         if (!validation.valid) {
           return [null, validation.error ?? null];
@@ -739,7 +764,6 @@ export class Forge extends NWPCServer {
           return [null, "Token is locked and cannot be used"];
         }
       }
-
     }
     return [tx, null];
   }

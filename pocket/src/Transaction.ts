@@ -4,6 +4,13 @@ export interface FungibleOut {
     issuer: string,
     to: string,
     amount: number
+
+}
+export interface NonFungibleOut {
+    issuer: string,
+    to: string,
+    tokenID: string
+
 }
 
 export class Transaction {
@@ -32,7 +39,7 @@ export class Transaction {
         this.outs.push(...outs);
         return this;
     }
-    transferTAT(issuer: string, to: string, tokenID: string) {
+    transferTAT(issuer: string, to: string, tokenID: string): [method: string, { ins: string[], outs: NonFungibleOut[] }] {
         const tokenHash = this.tatIndex.get(issuer)?.get(tokenID);
         if (!tokenHash) {
             throw new Error(`TAT not found: ${issuer}:${tokenID}`);
@@ -41,32 +48,43 @@ export class Transaction {
         if (!jwt) {
             throw new Error(`JWT not found: ${issuer}:${tokenID}:${to}`);
         }
-     
+
         //return the method,  issuer, TAT tx
-        return ['transferTAT', {token: jwt, to: to}];
+        return ['transferTAT', { ins: [jwt], outs: [{ issuer: issuer, to: to, tokenID: tokenID }] }];
     }
 
     private greedy(denominations: Array<{ d: number, c: number }>, target: number): [number, Array<{ d: number, used: number }>] {
-        // Sort by denomination descending (largest first)
-        const sorted = [...denominations].sort((a, b) => b.d - a.d);
+        // For small numbers of denominations, try all combinations
+        const n = denominations.length;
+        let bestSum = Infinity;
+        let bestCombo: Array<{ d: number, used: number }> = [];
 
-        const result: Array<{ d: number, used: number }> = [];
-        let remaining = target;
-
-        for (const { d, c } of sorted) {
-            if (remaining === 0) break;
-
-            // Use as many of this denomination as possible
-            const canUse = Math.min(Math.floor(remaining / d), c);
-
-            if (canUse > 0) {
-                result.push({ d, used: canUse });
-                remaining -= canUse * d;
+        // Helper to recursively try all combinations
+        function search(idx: number, currentSum: number, used: number[]) {
+            if (currentSum >= target) {
+                if (currentSum < bestSum) {
+                    bestSum = currentSum;
+                    bestCombo = used.map((u, i) => ({ d: denominations[i].d, used: u })).filter(x => x.used > 0);
+                }
+                return;
             }
+            if (idx >= n) return;
+            // Try all counts for this denomination (from 0 up to c)
+            for (let count = 0; count <= denominations[idx].c; count++) {
+                used[idx] = count;
+                search(idx + 1, currentSum + count * denominations[idx].d, used);
+            }
+            used[idx] = 0; // reset for other branches
         }
 
-        // Check if we made exact change
-        return [remaining, result];
+        search(0, 0, Array(n).fill(0));
+
+        // If no combo found, return empty
+        if (bestSum === Infinity) {
+            return [target, []];
+        }
+        // change = bestSum - target
+        return [bestSum - target, bestCombo];
     }
 
 
@@ -76,7 +94,7 @@ export class Transaction {
      * @returns [method, issuer, { ins: string[], outs: FungibleOut[] }]
      * @throws Error if outs is empty, issuers differ, or tokens are missing.
      */
-    public  build() {
+    public build(): [method: string, { ins: string[], outs: FungibleOut[] }] {
         if (this.outs.length === 0) {
             throw new Error('No outputs specified for transaction.');
         }
@@ -102,11 +120,18 @@ export class Transaction {
         // Collect JWTs
         let jwts: string[] = [];
         for (const { d, used } of use) {
-            const tokens = tokenMap.get(d);
-            if (!tokens || tokens.length < used) {
+            const tokenHashes = tokenMap.get(d);
+            if (!tokenHashes || tokenHashes.length < used) {
                 throw new Error(`Not enough tokens for issuer: ${issuer}, denomination: ${d}`);
             }
-            jwts.push(...tokens.slice(0, used));
+            // Look up JWTs for each token hash
+            for (const tokenHash of tokenHashes.slice(0, used)) {
+                const jwt = this.tokens?.get(issuer)?.get(tokenHash);
+                if (!jwt) {
+                    throw new Error(`JWT not found for token hash: ${tokenHash}`);
+                }
+                jwts.push(jwt);
+            }
         }
         // Prepare outputs (add change if needed)
         let outs: FungibleOut[] = [...this.outs];

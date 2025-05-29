@@ -119,7 +119,6 @@ export class Pocket extends NWPCPeer {
     }
 
     async loadPocketState(): Promise<void> {
-
         try {
             const state = await this.loadState(this.stateKey);
             if (state === null) {
@@ -147,6 +146,11 @@ export class Pocket extends NWPCPeer {
             };
             const seed = await HDKey.mnemonicToSeed(this.state.hdMasterKey.mnemonic);
             this.hdKey = HDKey.fromMasterSeed(seed);
+
+            // Subscribe to all single-use key pubkeys after loading state
+            for (const pubkey of this.state.singleUseKeys.keys()) {
+                await this.subscribe(pubkey);
+            }
         } catch (error) {
             throw new Error(`Failed to load pocket state: ${error}`);
         }
@@ -288,7 +292,7 @@ export class Pocket extends NWPCPeer {
     protected async handleEvent(event: NDKEvent): Promise<void> {
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
-        console.log("Pocket: toKey", toKey);
+       console.log("Pocket: toKey", toKey);
         if (toKey === this.keys.publicKey) {
             keys = this.keys;
         }
@@ -303,12 +307,12 @@ export class Pocket extends NWPCPeer {
         try {
             const unwrapped = await Unwrap(event.content, keys, event.pubkey);
             if (!unwrapped) {
-                console.log("Pocket: Failed to unwrap event:", event.id);
+               console.log("Pocket: Failed to unwrap event:", event.id);
                 return;
             }
 
             if (!unwrapped.verifiedSender) {
-                console.log("Pocket:Original Event is not valid:", event.id);
+               console.log("Pocket:Original Event is not valid:", event.id);
                 return;
             }
 
@@ -318,7 +322,7 @@ export class Pocket extends NWPCPeer {
                 await this.storeToken(message.result.token);
             }
             else {
-                console.log("Pocket: handleEvent message", message);
+               console.log("Pocket: handleEvent message", message);
             }
         }
         catch (error) {
@@ -407,7 +411,7 @@ export class Pocket extends NWPCPeer {
             changeKey || singleUseKey.publicKey // Use the new single-use key for change
         );
         tx.to(issuer, to, amount);
-        return tx['build']();
+        return tx.build();
     }
 
     /**
@@ -435,9 +439,9 @@ export class Pocket extends NWPCPeer {
      * @returns The response from the network
      */
     public async sendTAT(issuer: string, to: string, tokenID: string) {
-        const tx = this.createTATTransferTx(issuer, to, tokenID);
-        console.log("tx", tx);
-        return this.sendTx('transfer', issuer, tx);
+        const [method, tx] = this.createTATTransferTx(issuer, to, tokenID);
+       console.log("Pocket: sendTAT", tx);
+        return this.sendTx(method, issuer, tx);
     }
 
     /**
@@ -449,8 +453,9 @@ export class Pocket extends NWPCPeer {
      * @returns The response from the network
      */
     public async transfer(issuer: string, to: string, amount: number, changeKey?: string) {
-        const tx = this.createFungibleTransferTx(issuer, to, amount, changeKey);
-        return this.sendTx('transfer', issuer, tx);
+        const[method,tx] = await this.createFungibleTransferTx(issuer, to, amount, changeKey);
+       console.log("Pocket: transfer", tx);
+        return this.sendTx(method, issuer, tx);
     }
 
 
@@ -462,11 +467,15 @@ export class Pocket extends NWPCPeer {
      * @returns The response from the network
      */
     public async sendTx(method: string, issuer: string, tx: any) {
-        // Restore tokens from tx.inputs
+        // Restore tokens from tx.inputs or tx.ins
         const inputs: Token[] = [];
-        if (tx.inputs) {
-            for (const input of tx.inputs) {
-                const token = await new Token().restore(input.token);
+       console.log("Pocket: sendTx", tx);
+        if (tx.ins) {
+            for (const input of tx.ins) {
+                // Support both { token: jwt } and raw jwt
+                
+                const jwt = input.token || input;
+                const token = await new Token().restore(jwt);
                 inputs.push(token);
             }
         }
@@ -476,8 +485,9 @@ export class Pocket extends NWPCPeer {
         if (witnessData.some(w => w)) {
             tx.witnessData = witnessData;
         }
-        // Use a new single-use key for the sender  
-        return this.sendRequestWithSingleUseKey(method, tx, issuer);
+
+       console.log("Pocket: sendTx witnessData", witnessData);
+        return this.request(method, tx, issuer);
     }
 
     /**

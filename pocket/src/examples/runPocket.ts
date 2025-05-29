@@ -132,9 +132,10 @@ async function main() {
           }
 
           if (transferType === "fungible") {
-            const recipient = await new Promise<string>((resolve) => {
+          /*   const recipient = await new Promise<string>((resolve) => {
               rl.question("Enter recipient public key: ", resolve);
-            });
+            }); */
+            const recipient = "d87cfe1a9d5ba4135531310e5261ff3c95fcc2dd58fdbd645de5729374e48278";
             if (!recipient) {
               console.log("Invalid recipient.");
               break;
@@ -180,9 +181,11 @@ async function main() {
               break;
             }
             const tokenID: string = availableTokenIDs[tokenIDIdx - 1];
-            const recipient = await new Promise<string>((resolve) => {
+           /*  const recipient = await new Promise<string>((resolve) => {
               rl.question("Enter recipient public key: ", resolve);
             });
+ */
+            const recipient = "d87cfe1a9d5ba4135531310e5261ff3c95fcc2dd58fdbd645de5729374e48278";
             if (!recipient) {
               console.log("Invalid recipient.");
               break;

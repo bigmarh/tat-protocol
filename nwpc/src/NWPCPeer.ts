@@ -28,7 +28,9 @@ export class NWPCPeer extends NWPCBase {
   }
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
-      console.log("NWPCPeer: handleEvent:+++++++++++++++++++++++++++++++++++++++++*(\n\n");
+    console.log(
+      "NWPCPeer: handleEvent:+++++++++++++++++++++++++++++++++++++++++*(\n\n",
+    );
     try {
       const unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
       if (!unwrapped) {
@@ -37,7 +39,7 @@ export class NWPCPeer extends NWPCBase {
       }
 
       const message = JSON.parse(unwrapped.content);
-  
+
       const context: NWPCContext = {
         event,
         poster: event.pubkey,
@@ -46,7 +48,12 @@ export class NWPCPeer extends NWPCBase {
       };
 
       console.log("NWPCPeer: handleEvent:", message);
-      console.log("NWPCPeer: handleEvent: response handlers", this.responseHandlers, "has", this.responseHandlers.has(message.id));
+      console.log(
+        "NWPCPeer: handleEvent: response handlers",
+        this.responseHandlers,
+        "has",
+        this.responseHandlers.has(message.id),
+      );
 
       // Check if it's a response to our request
       if (this.responseHandlers.has(message.id)) {
@@ -114,7 +121,6 @@ export class NWPCPeer extends NWPCBase {
     recipientPubkey: string,
     senderKeys?: KeyPair,
     timeout: number = 30000,
-    
   ): Promise<NWPCResponse> {
     const request = this.createRequest(method, params);
     const wrappedEvent = await Wrap(
