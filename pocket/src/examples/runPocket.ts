@@ -257,7 +257,7 @@ async function main() {
           //loop thrrough issuers and clean up spent tokens
           const issuers = pocket.getState().tokens.keys();
           for (const issuer of issuers) {
-
+            console.log("Issuer:", issuer);
             //clean up spent tokens
             pocket.ndk.fetchEvents({
               kinds: [1],

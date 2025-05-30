@@ -16,8 +16,8 @@ import { deserializeData, serializeData, Wrap } from "@tat-protocol/utils";
 import { INWPCBase } from "./NWPCBaseInterface";
 import { NWPCState } from "./NWPCState";
 import { v4 as uuidv4 } from "uuid";
-import { LRUCache } from 'lru-cache';
-import { BloomFilter } from 'bloom-filters';
+import { LRUCache } from "lru-cache";
+import { BloomFilter } from "bloom-filters";
 
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
@@ -32,6 +32,7 @@ export abstract class NWPCBase implements INWPCBase {
   protected stateKey!: string;
   protected connected: boolean = false;
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
+  private deduplication: boolean = true; // Enable deduplication for event processing
 
   // Hybrid LRU + Bloom filter for processed events
   private processedEventLRU: LRUCache<string, true>;
@@ -84,7 +85,10 @@ export abstract class NWPCBase implements INWPCBase {
     this.engine = new HandlerEngine();
     // Initialize LRU cache and Bloom filter
     this.processedEventLRU = new LRUCache({ max: NWPCBase.LRU_SIZE });
-    this.processedEventBloom = BloomFilter.create(NWPCBase.BLOOM_EXPECTED_ITEMS, NWPCBase.BLOOM_ERROR_RATE);
+    this.processedEventBloom = BloomFilter.create(
+      NWPCBase.BLOOM_EXPECTED_ITEMS,
+      NWPCBase.BLOOM_ERROR_RATE,
+    );
   }
 
   public async connect(): Promise<NWPCBase> {
@@ -127,14 +131,18 @@ export abstract class NWPCBase implements INWPCBase {
 
   // Hybrid duplicate detection
   public isEventProcessed(eventId: string): boolean {
-    if (this.processedEventLRU.has(eventId)) return true;
-    if (this.processedEventBloom.has(eventId)) return true;
+    if (this.deduplication) {
+      if (this.processedEventLRU.has(eventId)) return true;
+      if (this.processedEventBloom.has(eventId)) return true;
+    }
     return false;
   }
 
   public markEventProcessed(eventId: string) {
-    this.processedEventLRU.set(eventId, true);
-    this.processedEventBloom.add(eventId);
+    if (this.deduplication) {
+      this.processedEventLRU.set(eventId, true);
+      this.processedEventBloom.add(eventId);
+    }
   }
 
   public async subscribe(
@@ -159,7 +167,7 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      if (this.isEventProcessed(event.id)) {
+      if (this.deduplication && this.isEventProcessed(event.id)) {
         console.log(`\nSkipping already processed event: ${event.id}`);
         return;
       }
@@ -227,7 +235,9 @@ export abstract class NWPCBase implements INWPCBase {
         await this.saveState(key, state);
       }
       if (state.processedEventBloom) {
-        this.processedEventBloom = BloomFilter.fromJSON(state.processedEventBloom);
+        this.processedEventBloom = BloomFilter.fromJSON(
+          state.processedEventBloom,
+        );
       }
     }
     return state;

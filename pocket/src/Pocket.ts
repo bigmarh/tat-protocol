@@ -58,6 +58,7 @@ export class Pocket extends NWPCPeer {
     protected isInitialized!: boolean;
     private hdKey!: HDKey;
     protected stateKey!: string;
+    private subscribedIssuers: Set<string> = new Set();
 
     // =============================
     // 1. Initialization & State Management
@@ -151,6 +152,10 @@ export class Pocket extends NWPCPeer {
             for (const pubkey of this.state.singleUseKeys.keys()) {
                 await this.subscribe(pubkey);
             }
+
+            for (const issuer of this.state.tokens.keys()) {
+                await this.subscribeToIssuerSpent(issuer);
+            }
         } catch (error) {
             throw new Error(`Failed to load pocket state: ${error}`);
         }
@@ -225,6 +230,8 @@ export class Pocket extends NWPCPeer {
     private async storeToken(tokenJWT: string) {
         const token = await new Token().restore(tokenJWT);
         const issuer = token.payload.iss;
+        // Subscribe to spent events for this issuer if not already
+        await this.subscribeToIssuerSpent(issuer);
         const tokenHash = token.header.token_hash;
         const issuerTokens = this.state.tokens.get(issuer);
         if (issuerTokens && issuerTokens.has(tokenHash)) {
@@ -678,5 +685,43 @@ export class Pocket extends NWPCPeer {
 
         // Save state after deletion
         await this.savePocketState();
+    }
+
+    // Subscribe to spent events for a given issuer
+    private async subscribeToIssuerSpent(issuerPubkey: string) {
+        if (this.subscribedIssuers.has(issuerPubkey)) return;
+        this.subscribedIssuers.add(issuerPubkey);
+        // Subscribe to spent events (kind 1059, tag ["p", issuerPubkey])
+        await this.subscribe(
+            issuerPubkey,
+            this.handleIssuerSpentEvent.bind(this)
+        );
+    }
+
+    // Handle spent events from issuer
+    private async handleIssuerSpentEvent(event: NDKEvent) {
+        console.log("Pocket: handleIssuerSpentEvent", event);
+        try {
+            let message: any;
+            try {
+                message = JSON.parse(event.content);
+            } catch (e) {
+                // Not JSON, ignore or handle as needed
+                console.warn("Pocket: handleIssuerSpentEvent received non-JSON content, ignoring:", event.content);
+                return;
+            }
+            if (message.result?.spent && message.result?.issuer) {
+                const tokenHash = message.result.spent;
+                const issuer = message.result.issuer;
+                const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
+                if (tokenJWT) {
+                    await this.deleteToken(tokenJWT);
+                }
+                await this.savePocketState();
+                console.log(`Pocket: Token spent event processed for issuer ${issuer}, tokenHash ${tokenHash}`);
+            }
+        } catch (error) {
+            console.error("Pocket: handleIssuerSpentEvent error", error);
+        }
     }
 }

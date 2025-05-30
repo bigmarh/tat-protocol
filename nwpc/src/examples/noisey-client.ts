@@ -100,15 +100,15 @@ class NoiseyClient {
     });
     console.log("\n--------------------------------");
     console.log("Available commands:");
-    console.log("  add <name> <pubkey>  - Add a new server");
-    console.log("  use <server>         - Switch to a server");
-    console.log("  list                 - List available servers");
-    console.log("  newkey <name>        - Generate new key pair");
-    console.log("  setkey <name>        - Set your own key pair");
-    console.log("  usekey <name>        - Switch to a key pair");
-    console.log("  listkeys             - List available key pairs");
-    console.log("  send <message>       - Send a message to current server");
-    console.log("  exit                 - Quit the client\n");
+    console.log("  add <name> <pubkey>               - Add a new server");
+    console.log("  use <server>                      - Switch to a server");
+    console.log("  list                              - List available servers");
+    console.log("  newkey <name>                     - Generate new key pair");
+    console.log("  setkey <name>                     - Set your own key pair");
+    console.log("  usekey <name>                     - Switch to a key pair");
+    console.log("  listkeys                          - List available key pairs");
+    console.log("  send <method> <JSON params>       - Send a message to current server");
+    console.log("  exit                              - Quit the client\n");
   }
 
   private async handleCommand(input: string) {
@@ -253,7 +253,6 @@ class NoiseyClient {
 
           // Join remaining args back into a single string for JSON parsing
           const jsonString = args.join(" ");
-          console.log("JSON string:", jsonString);
 
           let parsedParam;
           try {
@@ -265,7 +264,6 @@ class NoiseyClient {
             return;
           }
 
-          console.log("Parsed param:", parsedParam);
           const result = await this.peer.request(
             String(action),
             parsedParam,
@@ -275,6 +273,10 @@ class NoiseyClient {
         } catch (error) {
           console.error("Error sending message:", error);
         }
+        break;
+      }
+      case "help": {
+        this.printWelcome();
         break;
       }
       case "exit":

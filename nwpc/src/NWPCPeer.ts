@@ -28,9 +28,6 @@ export class NWPCPeer extends NWPCBase {
   }
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
-    console.log(
-      "NWPCPeer: handleEvent:+++++++++++++++++++++++++++++++++++++++++*(\n\n",
-    );
     try {
       const unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
       if (!unwrapped) {
@@ -47,13 +44,6 @@ export class NWPCPeer extends NWPCBase {
         recipient: this.keys.publicKey as string,
       };
 
-      console.log("NWPCPeer: handleEvent:", message);
-      console.log(
-        "NWPCPeer: handleEvent: response handlers",
-        this.responseHandlers,
-        "has",
-        this.responseHandlers.has(message.id),
-      );
 
       // Check if it's a response to our request
       if (this.responseHandlers.has(message.id)) {
@@ -65,10 +55,6 @@ export class NWPCPeer extends NWPCBase {
           if (!shouldContinue) return;
         }
 
-        console.log(
-          "NWPCPeer: Found response handler for message ID:",
-          message.id,
-        );
         const handler = this.responseHandlers.get(message.id);
         if (handler) {
           clearTimeout(handler.timeoutId);
@@ -90,7 +76,6 @@ export class NWPCPeer extends NWPCBase {
 
         // Handle as a request
         const request = message as NWPCRequest;
-        console.log("NWPCPeer: handleEvent: has method", request.method);
         const handler = this.requestHandlers.get(request.method);
         if (handler) {
           const res = new NWPCResponseObject(request.id, this, context);

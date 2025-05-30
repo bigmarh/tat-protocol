@@ -7,6 +7,7 @@ import {
 } from "@tat-protocol/nwpc";
 import { ForgeConfig } from "./ForgeConfig";
 import { Recipient } from "./Types";
+import { v4 as uuidv4 } from "uuid";
 
 export class NonFungibleForge extends ForgeBase {
   constructor(config: ForgeConfig) {
@@ -39,16 +40,23 @@ export class NonFungibleForge extends ForgeBase {
         `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
       );
     }
+    // Choose tokenID strategy
+    let tokenID: string | number;
+    if (this.config.assetIdStrategy === "unique") {
+      tokenID = uuidv4();
+    } else {
+      tokenID = this.state.lastAssetId;
+      this.state.lastAssetId += 1;
+    }
     const token = new Token();
     await token.build({
       token_type: TokenType.TAT,
       payload: Token.createPayload({
         iss: this.keys.publicKey!,
-        tokenID: this.state.lastAssetId,
+        tokenID,
         P2PKlock: to,
       }),
     });
-    this.state.lastAssetId += 1;
     this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + 1;
     const tokenJWT = await this.signAndCreateJWT(token);
     await this._saveState();
@@ -153,12 +161,24 @@ export class NonFungibleForge extends ForgeBase {
     }
     return;
   }
+
+  // Add a getter for total supply
+  public getTotalSupply(): number {
+    return this.state.totalSupply;
+  }
+
   async burnToken(
     req: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
     // Use shared burn logic
-    return await this.handleBurn(req, context, res);
+    const burnResult = await this.handleBurn(req, context, res);
+    // Decrement circulatingSupply on successful burn
+    if (burnResult && !(burnResult as any).error) {
+      this.state.circulatingSupply = Math.max(0, (this.state.circulatingSupply ?? 1) - 1);
+      await this._saveState();
+    }
+    return burnResult;
   }
 }
