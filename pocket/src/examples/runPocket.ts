@@ -9,6 +9,9 @@ const rl = readline.createInterface({
 });
 
 async function main() {
+
+
+
   try {
 
     let pStart: any = {
@@ -21,6 +24,8 @@ async function main() {
       pStart.keyID = process.argv[2];
     }
 
+
+    const recipient = pStart.keyID !== "d87cfe1a9d5ba4135531310e5261ff3c95fcc2dd58fdbd645de5729374e48278" ? "d87cfe1a9d5ba4135531310e5261ff3c95fcc2dd58fdbd645de5729374e48278" : "3e15ce7303d2238046dea435caeeec7339720e23ed48c5c283350739e8fa91e2";
     // Create and initialize the Pocket
     const pocket = await Pocket.create(pStart);
     // Check idKey format
@@ -48,8 +53,9 @@ async function main() {
           "3. Transfer tokens\n" +
           "4. Show single-use keys\n" +
           "5. Generate new single-use key\n" +
-          "6. Exit\n" +
+          "6. Clean up spent tokens\n" +
           "7. View Current State\n" +
+          "8. Exit\n" +
           "Enter command number: \n",
           resolve
         );
@@ -94,17 +100,6 @@ async function main() {
           break;
 
         case "3":
-          // Prompt for transfer type first
-          const type = await new Promise<string>((resolve) => {
-            rl.question(
-              "Transfer type (fungible/tat): \n\n" +
-              "1. fungible \n" +
-              "2. tat \n" +
-              "Enter type number: \n",
-              resolve);
-          });
-
-          const transferType = type === "1" ? "fungible" : "tat";
 
           // Gather all unique issuers from tokens
           // @ts-ignore: Accessing private property
@@ -114,7 +109,7 @@ async function main() {
             console.log("No issuers available for transfer.");
             break;
           }
-          console.log("Available issuers:");
+          console.log("Recipient: " + recipient + "\n" + "Available issuers:");
           allIssuers.forEach((issuer, idx) => {
             console.log(`${idx + 1}. ${issuer}`);
           });
@@ -131,11 +126,13 @@ async function main() {
             break;
           }
 
+          const transferType = issuerIdx === 1 ? "fungible" : "tat";
+
           if (transferType === "fungible") {
-          /*   const recipient = await new Promise<string>((resolve) => {
-              rl.question("Enter recipient public key: ", resolve);
-            }); */
-            const recipient = "d87cfe1a9d5ba4135531310e5261ff3c95fcc2dd58fdbd645de5729374e48278";
+            /*   const recipient = await new Promise<string>((resolve) => {
+                rl.question("Enter recipient public key: ", resolve);
+              }); */
+
             if (!recipient) {
               console.log("Invalid recipient.");
               break;
@@ -150,8 +147,8 @@ async function main() {
             try {
               const response = await pocket.transfer(issuer, recipient, amount);
               if (response.result) {
-                console.log("Transfer successful!");
-                console.log("New token received:", response.result.token);
+                console.log("Transfer successful!", issuer, recipient, amount);
+                console.log("New token received:", response.result);
               } else {
                 console.error("Transfer failed:", response.error);
               }
@@ -181,11 +178,11 @@ async function main() {
               break;
             }
             const tokenID: string = availableTokenIDs[tokenIDIdx - 1];
-           /*  const recipient = await new Promise<string>((resolve) => {
-              rl.question("Enter recipient public key: ", resolve);
-            });
- */
-            const recipient = "d87cfe1a9d5ba4135531310e5261ff3c95fcc2dd58fdbd645de5729374e48278";
+            /*  const recipient = await new Promise<string>((resolve) => {
+               rl.question("Enter recipient public key: ", resolve);
+             });
+  */
+
             if (!recipient) {
               console.log("Invalid recipient.");
               break;
@@ -213,8 +210,8 @@ async function main() {
                 throw new Error("sendTAT method not available on Pocket instance");
               }
               if (response.result) {
-                console.log("Transfer successful!");
-                console.log("New token received:", response.result.token);
+                console.log("Transfer successful!", issuer, recipient, tokenID);
+                console.log("New token received:", response.result);
               } else {
                 console.error("Transfer failed:", response.error);
               }
@@ -256,6 +253,32 @@ async function main() {
           break;
 
         case "6":
+
+          //loop thrrough issuers and clean up spent tokens
+          const issuers = pocket.getState().tokens.keys();
+          for (const issuer of issuers) {
+
+            //clean up spent tokens
+            pocket.ndk.fetchEvents({
+              kinds: [1],
+              "#p": [issuer]
+            }).then(async (events) => {
+              for(const event of events) {
+                console.log("Event:", event);
+                const tokenHash = event.tags.find((tag) => tag[0] === "t")?.[1];
+                if (tokenHash) {
+                  console.log("Delete Spent token:", tokenHash);
+                  const tokenJWT = pocket.getState().tokens.get(issuer)?.get(tokenHash);
+                  if (tokenJWT) {
+                    await pocket.deleteToken(String(tokenJWT));
+                  }
+                }
+              }
+            });
+          }
+          break;
+
+        case "8":
           console.log("Exiting...");
           rl.close();
           process.exit(0);

@@ -37,7 +37,8 @@
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
     "localdrive": "^2",
-    "nostr-tools": "^2.12.0"
+    "nostr-tools": "^2.12.0",
+    "uuid": "^11.1.0"
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",

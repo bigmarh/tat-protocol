@@ -1,10 +1,9 @@
-import { Forge } from "@tat-protocol/forge";
-import { ForgeConfig } from "@tat-protocol/forge";
+import { ForgeConfig } from "../ForgeConfig";
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
 import { Storage } from "@tat-protocol/storage";
-import { TokenType } from "@tat-protocol/token";
 import { defaultConfig } from "./defaultConfig";
+import { FungibleForge } from "../FungibleForge";
 
 // Test keys
 const secretKey =
@@ -26,14 +25,13 @@ const config: ForgeConfig = {
   totalSupply: 100000000,
   authorizedForgers: [publicKey], // Authorize ourselves
   storage: new Storage(), // Use default storage
-  tokenType: TokenType.FUNGIBLE, // Set token type to fungible
   relays: defaultConfig.relays,
 };
 
 // Create and run the fungible token forge
 async function runFungibleForge() {
   try {
-    const forge = new Forge(config);
+    const forge = new FungibleForge(config);
     await forge.initialize(); // Wait for initialization to complete
 
     console.log("\n-------------FORGE-------------------");

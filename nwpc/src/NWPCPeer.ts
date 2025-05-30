@@ -11,7 +11,7 @@ import { NWPCBase } from "./NWPCBase";
 import { KeyPair } from "@tat-protocol/hdkeys";
 
 export class NWPCPeer extends NWPCBase {
-  private responseHandlers: Map<
+  protected responseHandlers: Map<
     string,
     {
       resolve: (response: NWPCResponse) => void;

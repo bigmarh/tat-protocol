@@ -268,7 +268,7 @@ class NoiseyClient {
           console.log("Parsed param:", parsedParam);
           const result = await this.peer.request(
             String(action),
-            [parsedParam],
+            parsedParam,
             serverPubkey,
           );
           console.log("Server response:", result);

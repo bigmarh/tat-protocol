@@ -29,7 +29,7 @@ export interface ForgeConfig {
   /**
    * The type of token this forge will handle
    */
-  tokenType: TokenType;
+  tokenType?: TokenType;
 
   /**
    * Optional storage implementation

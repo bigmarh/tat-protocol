@@ -50,7 +50,7 @@ export class Transaction {
         }
 
         //return the method,  issuer, TAT tx
-        return ['transferTAT', { ins: [jwt], outs: [{ issuer: issuer, to: to, tokenID: tokenID }] }];
+        return ['transfer', { ins: [jwt], outs: [{ issuer: issuer, to: to, tokenID: tokenID }] }];
     }
 
     private greedy(denominations: Array<{ d: number, c: number }>, target: number): [number, Array<{ d: number, used: number }>] {

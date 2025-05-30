@@ -53,6 +53,7 @@ export interface NWPCResponse {
     // Error details if any
     code: number;
     message: string;
+    params?: string;
   };
   timestamp: number; // Response timestamp
 }
@@ -127,9 +128,10 @@ export class NWPCResponseObject {
   async error(
     code: number,
     message: string,
+    params?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    this.response.error = { code, message };
+    this.response.error = { code, message, params };
     const targetRecipient = recipient || this.context.sender;
 
     if (targetRecipient) {
@@ -156,27 +158,27 @@ export class NWPCResponseObject {
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(404, message || "Not found", recipient);
+    return this.error(404, message || "Not found", undefined, recipient);
   }
 
   async badRequest(
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(400, message || "Bad request", recipient);
+    return this.error(400, message || "Bad request", undefined, recipient);
   }
 
   async unauthorized(
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(401, message || "Unauthorized", recipient);
+    return this.error(401, message || "Unauthorized", undefined, recipient);
   }
 
   async internalError(
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(500, message || "Internal server error", recipient);
+    return this.error(500, message || "Internal server error", undefined, recipient);
   }
 }

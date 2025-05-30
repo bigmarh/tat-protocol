@@ -54,6 +54,7 @@ export async function postToFeed(
   post.created_at = timestamp;
   post.tags = tags;
   post.sig = await post.sign(signer);
+  await post.publish();
   return post;
 }
 

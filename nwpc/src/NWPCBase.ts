@@ -15,6 +15,7 @@ import {
 import { deserializeData, serializeData, Wrap } from "@tat-protocol/utils";
 import { INWPCBase } from "./NWPCBaseInterface";
 import { NWPCState } from "./NWPCState";
+import { v4 as uuidv4 } from 'uuid';
 
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
@@ -42,6 +43,7 @@ export abstract class NWPCBase implements INWPCBase {
   public async init(): Promise<void> {
     // Load state from storage if available
     // Connect and subscribe after state is loaded
+    console.log("NWPCBase init", this.config);
     await this.connect();
     if (this.keys) {
       await this.subscribe(
@@ -72,7 +74,7 @@ export abstract class NWPCBase implements INWPCBase {
     this.router = new NWPCRouter(this.requestHandlers);
     this.engine = new HandlerEngine();
   }
-
+   
   public async connect(): Promise<NWPCBase> {
     if (this.connected) {
       console.log("NWPCBase: already connected", this.state.relays);
@@ -219,7 +221,7 @@ export abstract class NWPCBase implements INWPCBase {
     params: Record<string, any>,
   ): NWPCRequest {
     return {
-      id: Math.random().toString(36).substring(7),
+      id: uuidv4(),
       method,
       params: JSON.stringify(params),
       timestamp: Date.now(),

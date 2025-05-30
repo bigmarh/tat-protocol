@@ -311,7 +311,7 @@ export interface EnhancedPayload {
   HTLC?: HTLC; // Hash Time Locked Contract
   timeLock?: number; // Simple timelock constraint (different from HTLC)
   P2PKlock?: string; // Public key lock
-  tokenID?: number; // Unique token identifier
+  tokenID?: number | string; // Unique token identifier
   data_uri?: string; // Optional data URI
 }
 

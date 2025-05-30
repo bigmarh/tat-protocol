@@ -1,4 +1,4 @@
-import { NWPCHandler, NWPCConfig, NWPCPeer, NWPCState } from "@tat-protocol/nwpc";
+import { NWPCHandler, NWPCConfig, NWPCPeer, NWPCState, NWPCContext } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger, Unwrap } from "@tat-protocol/utils";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
@@ -175,6 +175,26 @@ export class Pocket extends NWPCPeer {
             createdAt: Date.now(),
             used: false,
         };
+
+        console.log("Pocket: deriveSingleUseKey subscribe:", keyPair.publicKey);
+        const handler = async (event: NDKEvent) => {
+            try {
+                console.log("Pocket: sendRequestWithSingleUseKey response");
+                await this.handleEvent(event);
+
+                //unsubscribe from the single-use key after use
+                await this.unsubscribe(keyPair.publicKey);
+                this.state.singleUseKeys.delete(keyPair.publicKey);
+                console.log("Pocket: unsubscribe from single-use key", keyPair.publicKey);
+            } catch (e) {
+                // Ignore invalid responses
+                console.log("Pocket: sendRequestWithSingleUseKey error", e);
+            }
+
+        };
+        console.log("Pocket: subscribe to single-use key", keyPair.publicKey);
+        // Subscribe to the single-use key immediately
+        await this.subscribe(keyPair.publicKey, handler);
         await this.addSingleUseKey(singleUseKey.publicKey, singleUseKey);
         return singleUseKey;
     }
@@ -292,7 +312,7 @@ export class Pocket extends NWPCPeer {
     protected async handleEvent(event: NDKEvent): Promise<void> {
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
-       console.log("Pocket: toKey", toKey);
+        console.log("Pocket: toKey", event.tags);
         if (toKey === this.keys.publicKey) {
             keys = this.keys;
         }
@@ -307,22 +327,81 @@ export class Pocket extends NWPCPeer {
         try {
             const unwrapped = await Unwrap(event.content, keys, event.pubkey);
             if (!unwrapped) {
-               console.log("Pocket: Failed to unwrap event:", event.id);
+                console.log("Pocket: Failed to unwrap event:", event.id);
                 return;
             }
 
             if (!unwrapped.verifiedSender) {
-               console.log("Pocket:Original Event is not valid:", event.id);
+                console.log("Pocket:Original Event is not valid:", event.id);
                 return;
             }
 
 
             const message = JSON.parse(unwrapped.content);
+
+            const context: NWPCContext = {
+                event,
+                poster: event.pubkey,
+                sender: unwrapped.sender,
+                recipient: this.keys.publicKey as string,
+            };
+
+
+            //
             if (message.result?.token) {
+                console.log("Pocket: received token", message.result.token);
                 await this.storeToken(message.result.token);
             }
+            //delete the token from the state if it is spent
+            else if (message.result?.spent) {
+                console.log("Pocket: received spent token", message.result);
+                //delete the token from the state
+                const tokenHash = message.result.spent;
+                const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
+
+                if (tokenJWT) {
+                    await this.deleteToken(tokenJWT);
+                }
+
+                await this.savePocketState();
+            }
             else {
-               console.log("Pocket: handleEvent message", message);
+
+                if (this.responseHandlers.has(message.id)) {
+                    if (this.hooks.beforeResponse) {
+                        const shouldContinue = await this.hooks.beforeResponse(
+                            message,
+                            context,
+                        );
+                        if (!shouldContinue) return;
+                    }
+
+                    console.log(
+                        "NWPCPeer: Found response handler for message ID:",
+                        message.id,
+                    );
+                    const handler = this.responseHandlers.get(message.id);
+                    if (handler) {
+                        clearTimeout(handler.timeoutId);
+                        this.responseHandlers.delete(message.id);
+                        handler.resolve(message);
+                        console.log("Pocket: handleEvent message", message);
+                        if (message.error?.code == 409) {
+                            console.log("Pocket: handleEvent error", message.error);
+                            //delete the token from the state
+                            const tokenHash = message.result.spent;
+                            const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
+                            if (tokenJWT) {
+                                await this.deleteToken(tokenJWT);
+                            }
+                        }
+                        if (this.hooks.afterResponse) {
+                            await this.hooks.afterResponse(message, context);
+                        }
+                    }
+                }
+                console.log("Pocket: handleEvent messageID", message.id);
+                console.log("Pocket: handleEvent secondary message", message);
             }
         }
         catch (error) {
@@ -424,7 +503,7 @@ export class Pocket extends NWPCPeer {
     private createTATTransferTx(issuer: string, to: string, tokenID: string) {
         console.log("createTATTransferTx", issuer, to, tokenID);
         const tx = new Transaction(
-            'transfer',
+            'transferTAT',
             this.state
         );
         return tx.transferTAT(issuer, to, tokenID);
@@ -440,7 +519,7 @@ export class Pocket extends NWPCPeer {
      */
     public async sendTAT(issuer: string, to: string, tokenID: string) {
         const [method, tx] = this.createTATTransferTx(issuer, to, tokenID);
-       console.log("Pocket: sendTAT", tx);
+        console.log("Pocket: sendTAT", tx);
         return this.sendTx(method, issuer, tx);
     }
 
@@ -453,8 +532,8 @@ export class Pocket extends NWPCPeer {
      * @returns The response from the network
      */
     public async transfer(issuer: string, to: string, amount: number, changeKey?: string) {
-        const[method,tx] = await this.createFungibleTransferTx(issuer, to, amount, changeKey);
-       console.log("Pocket: transfer", tx);
+        const [method, tx] = await this.createFungibleTransferTx(issuer, to, amount, changeKey);
+        console.log("Pocket: transfer", tx);
         return this.sendTx(method, issuer, tx);
     }
 
@@ -469,13 +548,14 @@ export class Pocket extends NWPCPeer {
     public async sendTx(method: string, issuer: string, tx: any) {
         // Restore tokens from tx.inputs or tx.ins
         const inputs: Token[] = [];
-       console.log("Pocket: sendTx", tx);
+        console.log("Pocket: sendTx", method, tx);
         if (tx.ins) {
             for (const input of tx.ins) {
                 // Support both { token: jwt } and raw jwt
-                
+
                 const jwt = input.token || input;
                 const token = await new Token().restore(jwt);
+                console.log("Pocket: sendTx token", token);
                 inputs.push(token);
             }
         }
@@ -486,7 +566,7 @@ export class Pocket extends NWPCPeer {
             tx.witnessData = witnessData;
         }
 
-       console.log("Pocket: sendTx witnessData", witnessData);
+        console.log("Pocket: sendTx finalTx", tx);
         return this.request(method, tx, issuer);
     }
 
@@ -500,7 +580,7 @@ export class Pocket extends NWPCPeer {
         return singleUseKey.publicKey;
     }
 
-   
+
     /**
      * Send a request to the forge using a new single-use key as the sender,
      * subscribe for the response, and clean up after.
@@ -531,6 +611,10 @@ export class Pocket extends NWPCPeer {
                         response = JSON.parse(unwrapped.content);
                         responseReceived = true;
                     }
+
+
+
+
                 } catch (e) {
                     // Ignore invalid responses
                 }
@@ -555,5 +639,39 @@ export class Pocket extends NWPCPeer {
             throw new Error('No response received from forge (timeout)');
         }
         return response;
+    }
+
+    async deleteToken(tokenJWT: string) {
+        const token = await new Token().restore(String(tokenJWT));
+        const issuer = token.payload.iss;
+        const denomination = Number(token.payload.amount);
+        const setID = token.payload.ext?.setID ? token.payload.ext.setID : "-";
+        const tokenHash = token.header.token_hash;
+
+        // Remove from tokenIndex
+        const tokenIndex = this.state.tokenIndex.get(issuer);
+        if (tokenIndex) {
+            tokenIndex.delete(denomination);
+            // update the balance
+            const balance = this.state.balances.get(issuer)?.get(setID);
+            if (balance) {
+                this.state.balances.get(issuer)?.set(setID, balance - denomination);
+            }
+        }
+
+        // Remove from tatIndex
+        const tatIndex = this.state.tatIndex.get(issuer);
+        if (tatIndex) {
+            tatIndex.delete(String(token.payload.tokenID));
+        }
+
+        // Remove from tokens
+        const issuerTokens = this.state.tokens.get(issuer);
+        if (issuerTokens) {
+            issuerTokens.delete(tokenHash);
+        }
+
+        // Save state after deletion
+        await this.savePocketState();
     }
 }

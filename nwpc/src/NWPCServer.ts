@@ -38,7 +38,7 @@ export class NWPCServer extends NWPCBase {
         console.log("NWPCServer:Original Event is not valid:", event.id);
         return;
       }
-      
+
       //Event is valid from sender
       const context = {
         event,
