@@ -179,6 +179,11 @@ export class NWPCResponseObject {
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(500, message || "Internal server error", undefined, recipient);
+    return this.error(
+      500,
+      message || "Internal server error",
+      undefined,
+      recipient,
+    );
   }
 }

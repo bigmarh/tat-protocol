@@ -1,15 +1,23 @@
-import { ForgeBase } from './ForgeBase';
-import { Token, TokenType } from '@tat-protocol/token';
-import { NWPCRequest, NWPCContext, NWPCResponseObject } from '@tat-protocol/nwpc';
-import { ForgeConfig } from './ForgeConfig';
-import { Recipient } from './Types';
+import { ForgeBase } from "./ForgeBase";
+import { Token, TokenType } from "@tat-protocol/token";
+import {
+  NWPCRequest,
+  NWPCContext,
+  NWPCResponseObject,
+} from "@tat-protocol/nwpc";
+import { ForgeConfig } from "./ForgeConfig";
+import { Recipient } from "./Types";
 
 export class FungibleForge extends ForgeBase {
   constructor(config: ForgeConfig) {
     super(config);
     this.config.tokenType = TokenType.FUNGIBLE;
   }
-  async forgeToken(req: NWPCRequest, _context: NWPCContext, res: NWPCResponseObject) {
+  async forgeToken(
+    req: NWPCRequest,
+    _context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
     const reqObj = JSON.parse(req.params);
 
     const { to, amount } = reqObj;
@@ -22,11 +30,12 @@ export class FungibleForge extends ForgeBase {
     }
     if (
       this.state.totalSupply > 0 &&
-      (this.state.circulatingSupply ?? 0) + amountToForge > this.state.totalSupply
+      (this.state.circulatingSupply ?? 0) + amountToForge >
+        this.state.totalSupply
     ) {
       return await res.error(
         400,
-        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`
+        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
       );
     }
     const token = new Token();
@@ -38,32 +47,45 @@ export class FungibleForge extends ForgeBase {
         P2PKlock: to,
       }),
     });
-    this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + amountToForge;
+    this.state.circulatingSupply =
+      (this.state.circulatingSupply ?? 0) + amountToForge;
     const tokenJWT = await this.signAndCreateJWT(token);
     return await res.send({ token: tokenJWT }, to);
   }
 
-  async transferToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) {
+  async transferToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
     const tx = JSON.parse(req.params);
     const sender = context.sender;
     // Validate transaction
-    const [validTx, error, code, params] = await this.validateTXInputs(tx, tx.witnessData);
+    const [validTx, error, code, params] = await this.validateTXInputs(
+      tx,
+      tx.witnessData,
+    );
     if (error) {
-      return await res.error(code ?? 400, "Invalid transaction: " + error, params);
+      return await res.error(
+        code ?? 400,
+        "Invalid transaction: " + error,
+        params,
+      );
     }
-    validTx.ins = await Promise.all(validTx.ins.map(async (input: string) => {
-      return await new Token().restore(input);
-    }));
+    validTx.ins = await Promise.all(
+      validTx.ins.map(async (input: string) => {
+        return await new Token().restore(input);
+      }),
+    );
 
     // Use shared transfer logic
     return await this.handleFungibleTransfer(
       validTx.ins,
       validTx.outs,
       res,
-      sender
+      sender,
     );
   }
-
 
   // Make these methods public so handlers can call them
   public async handleFungibleTransfer(
@@ -83,11 +105,10 @@ export class FungibleForge extends ForgeBase {
       await this.prepareFungibleTransfer(inputs, outs, sender);
     // 3. Commit (mark all input tokens as spent)
     await Promise.all(
-      inputs.map(
-        async (token) =>{
-          const tokenHash = await token.create_token_hash();
-          await this.publishSpentToken(tokenHash);
-        })
+      inputs.map(async (token) => {
+        const tokenHash = await token.create_token_hash();
+        await this.publishSpentToken(tokenHash);
+      }),
     );
 
     console.log("recipientTokens:", recipientTokens.length);
@@ -104,12 +125,17 @@ export class FungibleForge extends ForgeBase {
 
     //send spent tokens to the sender
     inputs.forEach(async (token) => {
-      await res.send({ spent:await token.create_token_hash(), issuer: this.keys.publicKey! }, sender);
+      await res.send(
+        {
+          spent: await token.create_token_hash(),
+          issuer: this.keys.publicKey!,
+        },
+        sender,
+      );
     });
     return;
   }
 
-  
   public async validateFungibleTransfer(
     inputs: Token[],
     outs: Recipient[],
@@ -151,7 +177,10 @@ export class FungibleForge extends ForgeBase {
     inputs: Token[],
     outs: Recipient[],
     sender: string,
-  ): Promise<{ recipientTokens: { to: string; jwt: string }[]; changeTokenJWT?: string }> {
+  ): Promise<{
+    recipientTokens: { to: string; jwt: string }[];
+    changeTokenJWT?: string;
+  }> {
     // For simplicity, use the first input token's properties for timeLock/data_uri/change lock
     const baseToken = inputs[0];
     const recipientTokens: { to: string; jwt: string }[] = [];
@@ -197,11 +226,12 @@ export class FungibleForge extends ForgeBase {
     return { recipientTokens, changeTokenJWT };
   }
 
-
-  async burnToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) {
+  async burnToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
     // Use shared burn logic
     return await this.handleBurn(req, context, res);
   }
-
-
-} 
+}

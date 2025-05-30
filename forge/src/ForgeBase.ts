@@ -40,25 +40,34 @@ export abstract class ForgeBase extends NWPCServer {
       authorizedForgers: new Set(this.config.authorizedForgers || []),
       tokenUsage: new Map(),
       circulatingSupply: 0,
-      processedEventIds: new Set(),
       relays: new Set(),
     };
     if (config.keys) this.keys = config.keys;
     this.storage = new Storage(config?.storage);
     this.setupDefaultHandlers();
-
   }
 
-  abstract forgeToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject): Promise<any>;
-  abstract transferToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject): Promise<any>;
-  abstract burnToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject): Promise<any>;
+  abstract forgeToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ): Promise<any>;
+  abstract transferToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ): Promise<any>;
+  abstract burnToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ): Promise<any>;
 
   setupDefaultHandlers() {
     this.use("forge", this.forgeToken.bind(this));
     this.use("transfer", this.transferToken.bind(this));
     this.use("burn", this.burnToken.bind(this));
   }
-
 
   public onlyAuthorized(
     _req: NWPCRequest,
@@ -87,7 +96,6 @@ export abstract class ForgeBase extends NWPCServer {
     }
     return res.error(403, "Forbidden");
   }
-
 
   public async initialize(): Promise<void> {
     await super.init();
@@ -205,7 +213,6 @@ export abstract class ForgeBase extends NWPCServer {
         pendingTxs: new Map(savedState.pendingTxs || []),
         authorizedForgers: new Set(savedState.authorizedForgers || []),
         tokenUsage: new Map(savedState.tokenUsage || []),
-        processedEventIds: new Set(savedState.processedEventIds || []),
       };
     } else {
       this.state = {
@@ -219,7 +226,6 @@ export abstract class ForgeBase extends NWPCServer {
         authorizedForgers: new Set(this.config.authorizedForgers || []),
         tokenUsage: new Map(),
         circulatingSupply: 0,
-        processedEventIds: new Set(),
       };
       await this._saveState();
     }
@@ -229,10 +235,10 @@ export abstract class ForgeBase extends NWPCServer {
     if (this.keys.publicKey && this.keys.secretKey) {
       await postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, [
         ["t", tokenHash],
-        ["p", this.keys.publicKey!]
+        ["p", this.keys.publicKey!],
       ]);
     }
-    
+
     this.state.spentTokens.add(tokenHash);
     await this._saveState();
   }
@@ -275,15 +281,20 @@ export abstract class ForgeBase extends NWPCServer {
       const token = await new Token().restore(input);
       const tokenHash = await token.create_token_hash();
       if (this.state.spentTokens.has(tokenHash)) {
-        return [null, "Token is already spent", 409, JSON.stringify({spent: tokenHash,issuer: token.payload.iss})];
+        return [
+          null,
+          "Token is already spent",
+          409,
+          JSON.stringify({ spent: tokenHash, issuer: token.payload.iss }),
+        ];
       }
       if (token.isExpired()) {
-        return [null, "Token has expired", 400,""];
+        return [null, "Token has expired", 400, ""];
       }
       if (token.payload.P2PKlock) {
         const witness = witnessData?.[inputs.indexOf(input)];
         if (!witness) {
-          return [null, "Witness for input not found", 400,""];
+          return [null, "Witness for input not found", 400, ""];
         }
         const isValid = verifySignature(
           hexToBytes(token.header.token_hash),
@@ -291,11 +302,11 @@ export abstract class ForgeBase extends NWPCServer {
           token.payload.P2PKlock,
         );
         if (!isValid) {
-          return [null, "Witness signature is not valid", 400,""];
+          return [null, "Witness signature is not valid", 400, ""];
         }
       }
       if (token.payload.timeLock && token.payload.timeLock > Date.now()) {
-        return [null, "The TimeLock has not passed", 400,""];
+        return [null, "The TimeLock has not passed", 400, ""];
       }
       if (token.payload.HTLC) {
         const htlc =
@@ -305,20 +316,20 @@ export abstract class ForgeBase extends NWPCServer {
         const payload = {
           ...token.payload,
           HTLC: htlc,
-          tokenID: token.payload.tokenID
+          tokenID: token.payload.tokenID,
         };
         const validation = await TokenValidator.validateTokenHTLC(
           { ...token, payload },
           providedHTLCSecret,
         );
         if (!validation.valid) {
-          return [null, validation.error ?? null, 400,""];
+          return [null, validation.error ?? null, 400, ""];
         }
         if (!validation.canRedeem && !validation.canRefund) {
-          return [null, "Token is locked and cannot be used", 400,""];
+          return [null, "Token is locked and cannot be used", 400, ""];
         }
       }
     }
     return [tx, null, null, undefined];
   }
-}   
+}

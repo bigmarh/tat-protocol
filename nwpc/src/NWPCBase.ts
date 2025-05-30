@@ -15,7 +15,9 @@ import {
 import { deserializeData, serializeData, Wrap } from "@tat-protocol/utils";
 import { INWPCBase } from "./NWPCBaseInterface";
 import { NWPCState } from "./NWPCState";
-import { v4 as uuidv4 } from 'uuid';
+import { v4 as uuidv4 } from "uuid";
+import { LRUCache } from 'lru-cache';
+import { BloomFilter } from 'bloom-filters';
 
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
@@ -30,6 +32,13 @@ export abstract class NWPCBase implements INWPCBase {
   protected stateKey!: string;
   protected connected: boolean = false;
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
+
+  // Hybrid LRU + Bloom filter for processed events
+  private processedEventLRU: LRUCache<string, true>;
+  private processedEventBloom: BloomFilter;
+  private static BLOOM_EXPECTED_ITEMS = 15000;
+  private static BLOOM_ERROR_RATE = 0.01;
+  private static LRU_SIZE = 1000;
 
   // Save queue lock to serialize state saves
   private saveLock: Promise<void> = Promise.resolve();
@@ -69,12 +78,15 @@ export abstract class NWPCBase implements INWPCBase {
     this.hooks = config.hooks || {};
     this.state = {
       relays: new Set(),
-      processedEventIds: new Set(),
+      // processedEventIds: new Set(), // No longer used for runtime checks
     };
     this.router = new NWPCRouter(this.requestHandlers);
     this.engine = new HandlerEngine();
+    // Initialize LRU cache and Bloom filter
+    this.processedEventLRU = new LRUCache({ max: NWPCBase.LRU_SIZE });
+    this.processedEventBloom = BloomFilter.create(NWPCBase.BLOOM_EXPECTED_ITEMS, NWPCBase.BLOOM_ERROR_RATE);
   }
-   
+
   public async connect(): Promise<NWPCBase> {
     if (this.connected) {
       console.log("NWPCBase: already connected", this.state.relays);
@@ -113,13 +125,16 @@ export abstract class NWPCBase implements INWPCBase {
     return this.activeSubscriptions?.get(pubkey);
   }
 
-  // Helper to serialize NWPCState safely
-  protected serializeState(state: NWPCState): any {
-    return {
-      ...state,
-      relays: Array.from(state.relays || []),
-      processedEventIds: Array.from(state.processedEventIds || []),
-    };
+  // Hybrid duplicate detection
+  public isEventProcessed(eventId: string): boolean {
+    if (this.processedEventLRU.has(eventId)) return true;
+    if (this.processedEventBloom.has(eventId)) return true;
+    return false;
+  }
+
+  public markEventProcessed(eventId: string) {
+    this.processedEventLRU.set(eventId, true);
+    this.processedEventBloom.add(eventId);
   }
 
   public async subscribe(
@@ -144,7 +159,7 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      if (this.state.processedEventIds.has(event.id)) {
+      if (this.isEventProcessed(event.id)) {
         console.log(`\nSkipping already processed event: ${event.id}`);
         return;
       }
@@ -152,7 +167,7 @@ export abstract class NWPCBase implements INWPCBase {
         `\n=========================== NWPCBase: Received event on subscription : ${event.id} ============\n\n`,
       );
       await handler(event);
-      this.state.processedEventIds.add(event.id);
+      this.markEventProcessed(event.id);
       // Use the save queue to serialize state saves
       await this.queueSaveState(this.stateKey, this.state);
     };
@@ -177,7 +192,19 @@ export abstract class NWPCBase implements INWPCBase {
     return this.activeSubscriptions?.delete(pubkey) ?? false;
   }
 
+  // Helper to serialize NWPCState safely
+  protected serializeState(state: NWPCState): any {
+    return {
+      ...state,
+      relays: Array.from(state.relays || []),
+      // processedEventIds: Array.from(state.processedEventIds || []),
+      processedEventBloom: this.processedEventBloom.saveAsJSON(),
+    };
+  }
+
   public async saveState(key: string, state: NWPCState): Promise<void> {
+    // Persist the Bloom filter in state
+    state.processedEventBloom = this.processedEventBloom.saveAsJSON();
     const serializedState = serializeData(state);
     key = key || "nwpc-bbb-love";
     await this.storage.setItem(key, serializedState);
@@ -186,7 +213,24 @@ export abstract class NWPCBase implements INWPCBase {
 
   public async loadState(key: string): Promise<any> {
     const stateString = await this.storage.getItem(key);
-    return stateString ? deserializeData(stateString) : null;
+    const state = stateString ? deserializeData(stateString) : null;
+    if (state) {
+      // Migration: If processedEventIds exists, add to Bloom filter
+      if (state.processedEventIds && Array.isArray(state.processedEventIds)) {
+        for (const eventId of state.processedEventIds) {
+          this.processedEventBloom.add(eventId);
+        }
+        // Remove the old set to save space
+        delete state.processedEventIds;
+        // Save the migrated state
+        state.processedEventBloom = this.processedEventBloom.saveAsJSON();
+        await this.saveState(key, state);
+      }
+      if (state.processedEventBloom) {
+        this.processedEventBloom = BloomFilter.fromJSON(state.processedEventBloom);
+      }
+    }
+    return state;
   }
 
   public async sendResponse(

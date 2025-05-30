@@ -1,24 +1,31 @@
-import { ForgeBase } from './ForgeBase';
-import { Token, TokenType } from '@tat-protocol/token';
-import { NWPCRequest, NWPCContext, NWPCResponseObject } from '@tat-protocol/nwpc';
-import { ForgeConfig } from './ForgeConfig';
-import { Recipient } from './Types';
+import { ForgeBase } from "./ForgeBase";
+import { Token, TokenType } from "@tat-protocol/token";
+import {
+  NWPCRequest,
+  NWPCContext,
+  NWPCResponseObject,
+} from "@tat-protocol/nwpc";
+import { ForgeConfig } from "./ForgeConfig";
+import { Recipient } from "./Types";
 
 export class NonFungibleForge extends ForgeBase {
-
   constructor(config: ForgeConfig) {
     super(config);
     this.config.tokenType = TokenType.TAT;
   }
-  /* 
-  * @dev Forge a new token
-  * @param req - The request object
-  * @param _context - The context object
-  * @param res - The response object
-  * @returns The token JWT
-  */
-  async forgeToken(req: NWPCRequest, _context: NWPCContext, res: NWPCResponseObject) {
-    const reqObj= JSON.parse(req.params);
+  /*
+   * @dev Forge a new token
+   * @param req - The request object
+   * @param _context - The context object
+   * @param res - The response object
+   * @returns The token JWT
+   */
+  async forgeToken(
+    req: NWPCRequest,
+    _context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
+    const reqObj = JSON.parse(req.params);
     const { to } = reqObj;
     if (!to) {
       return await res.error(400, "Missing required parameters");
@@ -29,7 +36,7 @@ export class NonFungibleForge extends ForgeBase {
     ) {
       return await res.error(
         400,
-        `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`
+        `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
       );
     }
     const token = new Token();
@@ -48,15 +55,19 @@ export class NonFungibleForge extends ForgeBase {
     return await res.send({ token: tokenJWT }, to);
   }
 
-  /* 
-  * @dev Transfer a token
-  * @param req - The request object
-  * @param _context - The context object
-  * @param res - The response object
-  * @returns The token JWT
-  */
+  /*
+   * @dev Transfer a token
+   * @param req - The request object
+   * @param _context - The context object
+   * @param res - The response object
+   * @returns The token JWT
+   */
 
-  async transferToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) {
+  async transferToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
     const sender = context.sender;
     const tx = JSON.parse(req.params);
     // Validate transaction
@@ -65,30 +76,32 @@ export class NonFungibleForge extends ForgeBase {
       return await res.error(400, "Invalid transaction: " + error);
     }
 
-    validTx.ins = await Promise.all(validTx.ins.map(async (input: string) => {
-      return await new Token().restore(input);
-    }));
+    validTx.ins = await Promise.all(
+      validTx.ins.map(async (input: string) => {
+        return await new Token().restore(input);
+      }),
+    );
     // Use shared transfer logic
     return await this.handleNonFungibleTransfer(
       validTx.ins,
       validTx.outs,
       res,
-      sender
+      sender,
     );
   }
 
-  /* 
-  * @dev Handle a non-fungible transfer
-  * @param inputs - The input tokens
-  * @param outs - The output recipients
-  * @param res - The response object
-  * @returns The token JWT
-  */
+  /*
+   * @dev Handle a non-fungible transfer
+   * @param inputs - The input tokens
+   * @param outs - The output recipients
+   * @param res - The response object
+   * @returns The token JWT
+   */
   public async handleNonFungibleTransfer(
     inputs: Token[],
     outs: Recipient[],
     res: NWPCResponseObject,
-    sender?: string
+    sender?: string,
   ) {
     if (!inputs?.length || !outs?.length) {
       return await res.error(400, "Missing required parameters: inputs, outs");
@@ -106,8 +119,7 @@ export class NonFungibleForge extends ForgeBase {
       const token = inputs.find(
         (t) =>
           t.payload.tokenID !== undefined &&
-          String(t.payload.tokenID) === String(tokenID
-          )
+          String(t.payload.tokenID) === String(tokenID),
       );
       if (!token) {
         return await res.error(
@@ -134,12 +146,19 @@ export class NonFungibleForge extends ForgeBase {
       await this.publishSpentToken(await token.create_token_hash());
       await this._saveState();
       await res.send({ token: newTokenJWT }, to);
-      await res.send({ spent:token.header.token_hash, issuer: this.keys.publicKey! }, sender);
+      await res.send(
+        { spent: token.header.token_hash, issuer: this.keys.publicKey! },
+        sender,
+      );
     }
     return;
   }
-  async burnToken(req: NWPCRequest, context: NWPCContext, res: NWPCResponseObject) {
+  async burnToken(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
     // Use shared burn logic
     return await this.handleBurn(req, context, res);
   }
-} 
+}

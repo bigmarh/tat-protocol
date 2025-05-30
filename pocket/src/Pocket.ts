@@ -336,7 +336,6 @@ export class Pocket extends NWPCPeer {
                 return;
             }
 
-
             const message = JSON.parse(unwrapped.content);
 
             const context: NWPCContext = {
@@ -346,6 +345,12 @@ export class Pocket extends NWPCPeer {
                 recipient: this.keys.publicKey as string,
             };
 
+            const eventId = event.id;
+            if (this.isEventProcessed(eventId)) {
+                console.log("Pocket: duplicate event detected", eventId);
+                return;
+            }
+            this.markEventProcessed(eventId);
 
             //
             if (message.result?.token) {
