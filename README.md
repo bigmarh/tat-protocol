@@ -105,4 +105,14 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guid
 
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details. 
+MIT License. See [LICENSE](LICENSE) for details.
+
+## Node.js Usage
+
+If you need direct access to the Node.js storage implementation (`NodeStore`), import it directly:
+
+```js
+import { NodeStore } from '@tat-protocol/storage/dist/DiskStorage';
+```
+
+This avoids including Node-only code in browser builds. 

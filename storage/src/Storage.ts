@@ -1,28 +1,45 @@
 import { StorageInterface } from './StorageInterface';
 import { BrowserStore } from './BrowserStorage';
-import { NodeStore } from './DiskStorage';
 
+/**
+ * Cross-platform Storage class.
+ * - In the browser, use the synchronous constructor: `new Storage()`
+ * - In Node.js, use the async factory: `await Storage.create()`
+ * This avoids bundling Node-only modules (like fs) in browser builds.
+ */
 export class Storage implements StorageInterface {
-  private isBrowser: boolean;
   private storage: StorageInterface;
 
+  /**
+   * Synchronous constructor: safe for browser only.
+   * In Node.js, use the async factory method instead.
+   */
   constructor(storage?: StorageInterface) {
-    this.isBrowser =
-      typeof globalThis !== 'undefined' &&
-      Object.prototype.hasOwnProperty.call(globalThis, 'window');
-    this.storage = this.initializeStorage(storage);
+    if (typeof window === 'undefined') {
+      // Node.js: throw to force use of async factory
+      throw new Error(
+        'In Node.js, use Storage.create() instead of the constructor.'
+      );
+    }
+    // Browser: use BrowserStore or provided storage
+    this.storage = storage || new BrowserStore();
   }
 
-  private initializeStorage(storage?: StorageInterface): StorageInterface {
-    if (storage) {
-      return storage;
-    }
-    // Default to browser storage in browser environments
-    if (this.isBrowser) {
+  /**
+   * Async factory for universal (Node/browser) usage.
+   * - In browser: returns BrowserStore
+   * - In Node.js: dynamically imports and returns NodeStore
+   */
+  static async create(storage?: StorageInterface): Promise<StorageInterface> {
+    if (storage) return storage;
+    if (typeof window !== 'undefined') {
+      // Browser: use BrowserStore
       return new BrowserStore();
+    } else {
+      // Node.js: dynamically import NodeStore (DiskStorage)
+      const { NodeStore } = await import('./DiskStorage');
+      return new NodeStore();
     }
-    // Default to node storage in Node.js environments
-    return new NodeStore();
   }
 
   async getItem(key: string): Promise<string | null> {

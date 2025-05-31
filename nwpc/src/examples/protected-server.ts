@@ -7,6 +7,7 @@ import type {
 } from "@tat-protocol/nwpc";
 import { getPublicKey } from "nostr-tools";
 import { hexToBytes } from "@noble/hashes/utils";
+import { NodeStore } from '@tat-protocol/storage/dist/DiskStorage';
 
 // Example keys - DO NOT USE IN PRODUCTION
 const secretKey =
@@ -26,6 +27,7 @@ class ProtectedServer extends NWPCServer {
       keys: SERVER_KEYS,
       type: "server",
       relays: ["ws://localhost:8080"],
+      storage: new NodeStore(),
     });
     this.initializeMiddleware();
     this.registerHandlers();

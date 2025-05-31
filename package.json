@@ -1,8 +1,10 @@
 {
-  "name": "@tat-protocol/sdk",
+  "name": "@tat-protocol/base",
   "private": true,
   "version": "1.0.0",
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
   "scripts": {
     "build": "turbo run build",
     "test": "jest --passWithNoTests",
@@ -36,6 +38,9 @@
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
+    "@tat-protocol/boxoffice": "workspace:*",
+    "@tat-protocol/turnstile": "workspace:*",
+    "@tat-protocol/tdk": "workspace:*",
     "bloom-filters": "^3.0.4",
     "localdrive": "^2",
     "lru-cache": "^11.1.0",
@@ -64,6 +69,8 @@
   },
   "packageManager": "pnpm@10.10.0",
   "workspaces": [
+    "boxoffice",
+    "turnstile",
     "hdkeys",
     "storage",
     "utils",

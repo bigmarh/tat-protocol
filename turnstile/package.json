@@ -5,7 +5,11 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "build": "tsc -b"
+        "build": "tsc -b",
+        "test": "jest",
+        "lint": "eslint .",
+        "format": "prettier --write \"**/*.ts\"",
+        "clean": "rm -rf dist"
     },
     "keywords": [
         "turnstile",

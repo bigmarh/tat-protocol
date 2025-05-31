@@ -44,7 +44,6 @@ export class NWPCPeer extends NWPCBase {
         recipient: this.keys.publicKey as string,
       };
 
-
       // Check if it's a response to our request
       if (this.responseHandlers.has(message.id)) {
         if (this.hooks.beforeResponse) {

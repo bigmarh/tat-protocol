@@ -176,7 +176,10 @@ export class NonFungibleForge extends ForgeBase {
     const burnResult = await this.handleBurn(req, context, res);
     // Decrement circulatingSupply on successful burn
     if (burnResult && !(burnResult as any).error) {
-      this.state.circulatingSupply = Math.max(0, (this.state.circulatingSupply ?? 1) - 1);
+      this.state.circulatingSupply = Math.max(
+        0,
+        (this.state.circulatingSupply ?? 1) - 1,
+      );
       await this._saveState();
     }
     return burnResult;

@@ -4,6 +4,7 @@ import { getPublicKey } from "nostr-tools";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey } from "nostr-tools";
 import { defaultConfig } from "./defaultConfig";
+import { NodeStore } from '@tat-protocol/storage/dist/DiskStorage';
 
 //send forge 1000 04133dbe9039a986f9342ff2c2d287f1b184a6c385b3c72d9b1829b1d6b9bdfc
 interface KeyPair {
@@ -83,6 +84,7 @@ class NoiseyClient {
       },
       type: "client",
       relays: defaultConfig.relays,
+      storage: new NodeStore(),
     });
     await this.peer.init();
 
@@ -106,8 +108,12 @@ class NoiseyClient {
     console.log("  newkey <name>                     - Generate new key pair");
     console.log("  setkey <name>                     - Set your own key pair");
     console.log("  usekey <name>                     - Switch to a key pair");
-    console.log("  listkeys                          - List available key pairs");
-    console.log("  send <method> <JSON params>       - Send a message to current server");
+    console.log(
+      "  listkeys                          - List available key pairs",
+    );
+    console.log(
+      "  send <method> <JSON params>       - Send a message to current server",
+    );
     console.log("  exit                              - Quit the client\n");
   }
 

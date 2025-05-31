@@ -30,7 +30,8 @@ export class FungibleForge extends ForgeBase {
     }
     if (
       this.state.totalSupply > 0 &&
-      (this.state.circulatingSupply ?? 0) + amountToForge > this.state.totalSupply
+      (this.state.circulatingSupply ?? 0) + amountToForge >
+        this.state.totalSupply
     ) {
       return await res.error(
         400,

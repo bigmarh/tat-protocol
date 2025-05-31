@@ -1,0 +1,54 @@
+{
+  "name": "@tat-protocol/tdk",
+  "private": false,
+  "version": "1.0.0",
+  "description": "TAT Protocol Monorepo - Core Protocol Packages",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -b",
+    "test": "jest --passWithNoTests",
+    "lint": "eslint . --ext .ts",
+    "clean": "rimraf dist"
+  },
+  "dependencies": {
+    "@noble/hashes": "^1.0.0",
+    "@nostr-dev-kit/ndk": "2.14.15",
+    "@tat-protocol/forge": "workspace:*",
+    "@tat-protocol/hdkeys": "workspace:*",
+    "@tat-protocol/nwpc": "workspace:*",
+    "@tat-protocol/pocket": "workspace:*",
+    "@tat-protocol/storage": "workspace:*",
+    "@tat-protocol/token": "workspace:*",
+    "@tat-protocol/utils": "workspace:*",
+    "@tat-protocol/boxoffice": "workspace:*",
+    "@tat-protocol/turnstile": "workspace:*",
+    "bloom-filters": "^3.0.4",
+    "localdrive": "^2",
+    "lru-cache": "^11.1.0",
+    "nostr-tools": "^2.12.0",
+    "uuid": "^11.1.0"
+  },
+  "devDependencies": {
+    "@jest/globals": "^29.7.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "^22.15.21",
+    "@types/ws": "^8.5.8",
+    "@typescript-eslint/eslint-plugin": "^8.32.1",
+    "@typescript-eslint/parser": "^8.32.1",
+    "eslint": "^9.15.0",
+    "husky": "^9.0.11",
+    "jest": "^29.7.0",
+    "lint-staged": "^16.0.0",
+    "prettier": "^3.2.5",
+    "ts-jest": "^29.3.4",
+    "tsx": "^4.19.4",
+    "typescript": "^5.8.3",
+    "ws": "^8.14.2",
+    "rimraf": "^5.0.5"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  },
+  "packageManager": "pnpm@10.10.0"
+}

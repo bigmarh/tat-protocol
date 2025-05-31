@@ -2,7 +2,6 @@ import { ForgeConfig } from "./ForgeConfig";
 import { ForgeState } from "./ForgeState";
 import { Token } from "@tat-protocol/token";
 import { TokenValidator } from "@tat-protocol/token";
-import { KeyPair } from "@tat-protocol/hdkeys";
 import {
   NWPCServer,
   NWPCRequest,
@@ -16,13 +15,11 @@ import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StorageInterface, Storage } from "@tat-protocol/storage";
 
 export abstract class ForgeBase extends NWPCServer {
-  public keys!: KeyPair;
   public config: ForgeConfig;
-  public state!: ForgeState;
+  public state: ForgeState = undefined as any;
   public storage: StorageInterface;
   public owner: string;
   public isInitialized: boolean = false;
-  public stateKey!: string;
 
   constructor(config: ForgeConfig) {
     super(config);

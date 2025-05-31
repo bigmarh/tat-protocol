@@ -1,1 +1,1 @@
-export * from './lib/core/Turnstile'; 
+export * from './src'; 

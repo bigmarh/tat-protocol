@@ -1,7 +1,7 @@
 import { NWPCHandler, NWPCConfig, NWPCPeer, NWPCState, NWPCContext } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger, Unwrap } from "@tat-protocol/utils";
-import { StorageInterface, Storage } from "@tat-protocol/storage";
+import { StorageInterface } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
 import { Transaction } from "./Transaction";
@@ -53,11 +53,10 @@ export interface HDKeys {
 const Debug = DebugLogger.getInstance();
 
 export class Pocket extends NWPCPeer {
-    protected keys!: KeyPair;
-    protected state!: PocketState;
+    declare protected state: PocketState;
     protected isInitialized!: boolean;
     private hdKey!: HDKey;
-    protected stateKey!: string;
+    protected stateKey: string = '';
     private subscribedIssuers: Set<string> = new Set();
 
     // =============================
@@ -68,7 +67,10 @@ export class Pocket extends NWPCPeer {
         this.config = config || {};
         this.isInitialized = false;
         this.keys = config?.keys || { secretKey: '', publicKey: '' };
-        this.storage = new Storage(config?.storage);
+        if (!config?.storage) {
+            this.storage = new Storage().create(config.storage);
+        }
+
         this.handleEvent = this.handleEvent.bind(this);
     }
 
@@ -88,6 +90,7 @@ export class Pocket extends NWPCPeer {
             this.saveIdKey();
         }
         await super.init();
+        this.state = { ...this.state } as PocketState;
         this.stateKey = `pocket-state-${this.keys.publicKey}`;
         await this.loadPocketState();
         this.isInitialized = true;

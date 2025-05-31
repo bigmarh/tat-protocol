@@ -1,1 +1,1 @@
-export * from './lib/core/Boxoffice'; 
+export * from './src'; 

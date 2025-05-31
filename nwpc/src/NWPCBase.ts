@@ -75,7 +75,14 @@ export abstract class NWPCBase implements INWPCBase {
       explicitRelayUrls: config.relays || defaultConfig.relays,
     });
     this.requestHandlers = config.requestHandlers || new Map();
-    this.storage = new Storage(config.storage);
+    // Use provided storage directly if present, otherwise create a new Storage (browser only)
+    if (config.storage) {
+      this.storage = config.storage;
+    } else if (typeof window !== 'undefined') {
+      this.storage = new Storage();
+    } else {
+      throw new Error('No storage implementation provided for NWPCBase in Node.js.');
+    }
     this.hooks = config.hooks || {};
     this.state = {
       relays: new Set(),

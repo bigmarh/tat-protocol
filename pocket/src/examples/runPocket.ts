@@ -1,6 +1,7 @@
 import readline from "readline";
 import { Pocket } from "@tat-protocol/pocket";
 import { Token } from "@tat-protocol/token";
+import { NodeStore } from '@tat-protocol/storage/dist/DiskStorage';
 
 
 const rl = readline.createInterface({
@@ -16,7 +17,8 @@ async function main() {
 
     let pStart: any = {
       keys: { secretKey: '', publicKey: '' },
-      relays: ['ws://localhost:8080']
+      relays: ['ws://localhost:8080'],
+      storage: new NodeStore(),
     }
 
     // Pass in KeyID form process.argv
@@ -263,6 +265,7 @@ async function main() {
               kinds: [1],
               "#p": [issuer]
             }).then(async (events) => {
+              console.log("Events:", events);
               for(const event of events) {
                 console.log("Event:", event);
                 const tokenHash = event.tags.find((tag) => tag[0] === "t")?.[1];

@@ -1,8 +1,13 @@
 {
   "compilerOptions": {
-    "target": "ES2020",
-    "module": "commonjs",
-    "lib": ["ES2020", "DOM"],
+    "module": "ESNext",
+    "target": "ESNext",
+    "moduleResolution": "Node",
+    "lib": [
+      "ES2020",
+      "DOM"
+    ],
+
     "declaration": true,
     "strict": true,
     "noImplicitAny": true,
@@ -22,20 +27,54 @@
     "forceConsistentCasingInFileNames": true,
     "baseUrl": ".",
     "paths": {
-      "@tat-protocol/*": ["./*/src"],
-      "*": ["node_modules/*"]
+      "@tat-protocol/*": [
+        "./*/src"
+      ],
+      "*": [
+        "node_modules/*"
+      ]
     },
-    "types": ["node"],
-    "typeRoots": ["./node_modules/@types"],
+    "types": [
+      "node"
+    ],
+    "typeRoots": [
+      "./node_modules/@types"
+    ],
   },
   "references": [
-    { "path": "hdkeys" },
-    { "path": "utils" },
-    { "path": "storage" },
-    { "path": "token" },
-    { "path": "pocket" },
-    { "path": "nwpc" },
-    { "path": "forge" },
+    {
+      "path": "boxoffice"
+    },
+    {
+      "path": "turnstile"
+    },
+    {
+      "path": "hdkeys"
+    },
+    {
+      "path": "utils"
+    },
+    {
+      "path": "storage"
+    },
+    {
+      "path": "token"
+    },
+    {
+      "path": "pocket"
+    },
+    {
+      "path": "nwpc"
+    },
+    {
+      "path": "forge"
+    },
   ],
-  "exclude": ["node_modules", "dist",  "**/.svelte2tsx-language-server-files", "*.svelte", "**/*copy*.ts"]
-} 
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/.svelte2tsx-language-server-files",
+    "*.svelte",
+    "**/*copy*.ts"
+  ]
+}

@@ -1,7 +1,7 @@
 import { ForgeConfig } from "../ForgeConfig";
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
-import { Storage } from "@tat-protocol/storage";
+import { NodeStore } from '@tat-protocol/storage/dist/DiskStorage';
 import { defaultConfig } from "./defaultConfig";
 import { FungibleForge } from "../FungibleForge";
 
@@ -24,7 +24,7 @@ const config: ForgeConfig = {
   },
   totalSupply: 100000000,
   authorizedForgers: [publicKey], // Authorize ourselves
-  storage: new Storage(), // Use default storage
+  storage: new NodeStore(), // Use Node.js storage
   relays: defaultConfig.relays,
 };
 

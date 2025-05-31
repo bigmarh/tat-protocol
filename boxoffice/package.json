@@ -6,7 +6,10 @@
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "tsc -b",
-        "prepare": "npm run build"
+        "test": "jest",
+        "lint": "eslint .",
+        "format": "prettier --write \"**/*.ts\"",
+        "clean": "rm -rf dist"
     },
     "keywords": [
         "boxoffice",
