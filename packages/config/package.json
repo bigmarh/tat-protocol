@@ -1,0 +1,7 @@
+{
+  "name": "@tat-protocol/config",
+  "version": "1.0.0",
+  "main": "defaultConfig.ts",
+  "types": "defaultConfig.ts",
+  "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+} 

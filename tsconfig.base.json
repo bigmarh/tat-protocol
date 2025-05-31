@@ -28,7 +28,7 @@
     "baseUrl": ".",
     "paths": {
       "@tat-protocol/*": [
-        "./*/src"
+        "./packages/*/src"
       ],
       "*": [
         "node_modules/*"
@@ -42,33 +42,17 @@
     ],
   },
   "references": [
-    {
-      "path": "boxoffice"
-    },
-    {
-      "path": "turnstile"
-    },
-    {
-      "path": "hdkeys"
-    },
-    {
-      "path": "utils"
-    },
-    {
-      "path": "storage"
-    },
-    {
-      "path": "token"
-    },
-    {
-      "path": "pocket"
-    },
-    {
-      "path": "nwpc"
-    },
-    {
-      "path": "forge"
-    },
+    { "path": "packages/boxoffice" },
+    { "path": "packages/turnstile" },
+    { "path": "packages/hdkeys" },
+    { "path": "packages/utils" },
+    { "path": "packages/storage" },
+    { "path": "packages/token" },
+    { "path": "packages/pocket" },
+    { "path": "packages/nwpc" },
+    { "path": "packages/forge" },
+    { "path": "packages/config" },
+    { "path": "packages/tdk" }
   ],
   "exclude": [
     "node_modules",

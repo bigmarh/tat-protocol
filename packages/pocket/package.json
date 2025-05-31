@@ -1,0 +1,28 @@
+{
+    "name": "@tat-protocol/pocket",
+    "version": "1.0.0",
+    "description": "Pocket module for TAT Protocol",
+    "main": "dist/index.js",
+    "types": "dist/index.d.ts",
+    "scripts": {
+        "build": "tsc -b",
+        "dev": "npx tsx src/examples/runPocket.ts",
+        "dev:watch": "npx tsx watch src/examples/runPocket.ts", 
+        "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+    },
+    "keywords": [
+        "pocket",
+        "wallet",
+        "storage"
+    ],
+    "author": "TAT Protocol",
+    "license": "MIT",
+    "dependencies": {
+        "@tat-protocol/config": "file:../config",
+        "@tat-protocol/hdkeys": "workspace:*",
+        "@tat-protocol/nwpc": "workspace:*",
+        "@tat-protocol/storage": "workspace:*",
+        "@tat-protocol/utils": "workspace:*",
+        "nostr-tools": "^2.12.0"
+    }
+}
