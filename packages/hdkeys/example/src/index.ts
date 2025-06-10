@@ -1,3 +1,4 @@
+import { bytesToHex } from "@noble/hashes/utils";
 import { HDKey } from "@tat-protocol/hdkeys";
 console.log("Hello World");
 async function main() {
@@ -11,7 +12,7 @@ async function main() {
 
   // Convert mnemonic to seed
   const seed = await HDKey.mnemonicToSeed(mnemonic);
-  console.log("Seed (hex):", Buffer.from(seed).toString("hex"));
+  console.log("Seed (hex):", bytesToHex(seed));
   console.log();
 
   // Create master HD key from seed

@@ -12,7 +12,7 @@ import {
 import { signMessage, verifySignature, postToFeed } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
-import { StorageInterface, Storage } from "@tat-protocol/storage";
+import { StorageInterface } from "@tat-protocol/storage";
 
 export abstract class ForgeBase extends NWPCServer {
   public config: ForgeConfig;
@@ -40,7 +40,8 @@ export abstract class ForgeBase extends NWPCServer {
       relays: new Set(),
     };
     if (config.keys) this.keys = config.keys;
-    this.storage = new Storage(config?.storage);
+    if (!config.storage) throw new Error("A StorageInterface implementation must be provided in config.storage");
+    this.storage = config.storage;
     this.setupDefaultHandlers();
   }
 

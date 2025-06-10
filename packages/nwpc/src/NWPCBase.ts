@@ -1,5 +1,5 @@
 import NDK, { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
-import { Storage, StorageInterface } from "@tat-protocol/storage";
+import { StorageInterface } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { defaultConfig } from "@tat-protocol/config/defaultConfig";
 import { NWPCRouter } from "./NWPCRouter";
@@ -17,7 +17,7 @@ import { INWPCBase } from "./NWPCBaseInterface";
 import { NWPCState } from "./NWPCState";
 import { v4 as uuidv4 } from "uuid";
 import { LRUCache } from "lru-cache";
-import { BloomFilter } from "bloom-filters";
+import { BloomFilter } from '@tat-protocol/utils';
 
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
@@ -44,6 +44,8 @@ export abstract class NWPCBase implements INWPCBase {
   // Save queue lock to serialize state saves
   private saveLock: Promise<void> = Promise.resolve();
 
+  
+
   /**
    * Call this after construction and before using the instance.
    * Example:
@@ -54,6 +56,7 @@ export abstract class NWPCBase implements INWPCBase {
     // Load state from storage if available
     // Connect and subscribe after state is loaded
     console.log("NWPCBase init", this.config);
+    console.log(this.storage);
     await this.connect();
     if (this.keys) {
       await this.subscribe(
@@ -74,15 +77,15 @@ export abstract class NWPCBase implements INWPCBase {
     this.ndk = new NDK({
       explicitRelayUrls: config.relays || defaultConfig.relays,
     });
+    
     this.requestHandlers = config.requestHandlers || new Map();
-    // Use provided storage directly if present, otherwise create a new Storage (browser only)
+    // Use provided storage directly if present, otherwise throw
+    console.log("NWPCBase: constructor: config.storage", config.storage);
     if (config.storage) {
       this.storage = config.storage;
-    } else if (typeof window !== "undefined") {
-      this.storage = new Storage();
     } else {
       throw new Error(
-        "No storage implementation provided for NWPCBase in Node.js.",
+        "A StorageInterface implementation must be provided for NWPCBase."
       );
     }
     this.hooks = config.hooks || {};
@@ -94,7 +97,7 @@ export abstract class NWPCBase implements INWPCBase {
     this.engine = new HandlerEngine();
     // Initialize LRU cache and Bloom filter
     this.processedEventLRU = new LRUCache({ max: NWPCBase.LRU_SIZE });
-    this.processedEventBloom = BloomFilter.create(
+    this.processedEventBloom = new BloomFilter(
       NWPCBase.BLOOM_EXPECTED_ITEMS,
       NWPCBase.BLOOM_ERROR_RATE,
     );
@@ -142,7 +145,7 @@ export abstract class NWPCBase implements INWPCBase {
   public isEventProcessed(eventId: string): boolean {
     if (this.deduplication) {
       if (this.processedEventLRU.has(eventId)) return true;
-      if (this.processedEventBloom.has(eventId)) return true;
+      if (this.processedEventBloom.contains(eventId)) return true;
     }
     return false;
   }
@@ -215,13 +218,13 @@ export abstract class NWPCBase implements INWPCBase {
       ...state,
       relays: Array.from(state.relays || []),
       // processedEventIds: Array.from(state.processedEventIds || []),
-      processedEventBloom: this.processedEventBloom.saveAsJSON(),
+      processedEventBloom: this.processedEventBloom.serialize(),
     };
   }
 
   public async saveState(key: string, state: NWPCState): Promise<void> {
     // Persist the Bloom filter in state
-    state.processedEventBloom = this.processedEventBloom.saveAsJSON();
+    state.processedEventBloom = this.processedEventBloom.serialize();
     const serializedState = serializeData(state);
     key = key || "nwpc-bbb-love";
     await this.storage.setItem(key, serializedState);
@@ -240,11 +243,11 @@ export abstract class NWPCBase implements INWPCBase {
         // Remove the old set to save space
         delete state.processedEventIds;
         // Save the migrated state
-        state.processedEventBloom = this.processedEventBloom.saveAsJSON();
+        state.processedEventBloom = this.processedEventBloom.serialize();
         await this.saveState(key, state);
       }
       if (state.processedEventBloom) {
-        this.processedEventBloom = BloomFilter.fromJSON(
+        this.processedEventBloom = BloomFilter.deserialize(
           state.processedEventBloom,
         );
       }

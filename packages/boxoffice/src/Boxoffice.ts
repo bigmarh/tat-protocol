@@ -25,9 +25,10 @@ export class Boxoffice {
 
     try {
       // Initialize storage if provided
-      if (this.config.storage) {
-        Debug.log("Storage initialized", "Boxoffice");
+      if (!this.config.storage) {
+        throw new Error("A StorageInterface implementation must be provided in config.storage");
       }
+      Debug.log("Storage initialized", "Boxoffice");
 
       this.isInitialized = true;
     } catch (error) {

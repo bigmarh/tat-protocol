@@ -25,9 +25,10 @@ export class Turnstile {
 
     try {
       // Initialize storage if provided
-      if (this.config.storage) {
-        Debug.log("Storage initialized", "Turnstile");
+      if (!this.config.storage) {
+        throw new Error("A StorageInterface implementation must be provided in config.storage");
       }
+      Debug.log("Storage initialized", "Turnstile");
 
       this.isInitialized = true;
     } catch (error) {

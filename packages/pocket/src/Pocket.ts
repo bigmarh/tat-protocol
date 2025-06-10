@@ -9,6 +9,8 @@ import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { SingleUseKey } from "@tat-protocol/hdkeys";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
+import { validateMnemonic } from '@scure/bip39';
+import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
 
 export type token_hash = string;
 export type issuerId = string;
@@ -126,7 +128,8 @@ export class Pocket extends NWPCPeer {
         try {
             const state = await this.loadState(this.stateKey);
             if (state === null) {
-                const mnemonic = HDKey.generateMnemonic();
+                const mnemonic = HDKey.generateMnemonic(128);
+                console.log("Pocket: loadPocketState: mnemonic", mnemonic);
                 this.state = {
                     ...this.state,
                     favorites: [],
@@ -148,6 +151,9 @@ export class Pocket extends NWPCPeer {
                 ...this.state,
                 ...state
             };
+            if (!validateMnemonic(this.state.hdMasterKey.mnemonic, englishWordlist)) {
+                throw new Error("Invalid mnemonic in pocket state");
+            }
             const seed = await HDKey.mnemonicToSeed(this.state.hdMasterKey.mnemonic);
             this.hdKey = HDKey.fromMasterSeed(seed);
 
@@ -703,7 +709,6 @@ export class Pocket extends NWPCPeer {
 
     // Handle spent events from issuer
     private async handleIssuerSpentEvent(event: NDKEvent) {
-        console.log("Pocket: handleIssuerSpentEvent", event);
         try {
             let message: any;
             try {

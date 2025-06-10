@@ -129,7 +129,7 @@ async function main() {
             break;
           }
 
-          const transferType = issuerIdx === 1 ? "fungible" : "tat";
+          const transferType =  Array.from(pocket.getState().tatIndex.get(issuer)?.keys() || []).length === 0 ? "fungible" : "tat";
 
           if (transferType === "fungible") {
             /*   const recipient = await new Promise<string>((resolve) => {

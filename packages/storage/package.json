@@ -2,7 +2,8 @@
     "name": "@tat-protocol/storage",
     "version": "1.0.0",
     "description": "Storage module for TAT Protocol",
-    "main": "dist/index.js",
+    "main": "./node.js",
+    "browser": "./browser.js",
     "types": "dist/index.d.ts",
     "scripts": {
         "build": "tsc -b",

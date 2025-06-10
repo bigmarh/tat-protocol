@@ -22,6 +22,7 @@ export class NWPCPeer extends NWPCBase {
 
   constructor(config: NWPCConfig) {
     super(config);
+   
     this.responseHandlers = new Map();
     // Bind handleEvent to this instance
     this.handleEvent = this.handleEvent.bind(this);

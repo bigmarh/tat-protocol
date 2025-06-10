@@ -1,6 +1,7 @@
 import { HDKey as HDKeyLib } from "@scure/bip32";
 import { bytesToHex } from "@noble/hashes/utils";
-import { generateMnemonic, mnemonicToSeed } from "bip39";
+import { generateMnemonic, mnemonicToSeed } from "@scure/bip39";
+import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
 
 export class HDKey {
   private hdKey: HDKeyLib;
@@ -9,8 +10,8 @@ export class HDKey {
     this.hdKey = HDKeyLib.fromMasterSeed(seed);
   }
 
-  static generateMnemonic(): string {
-    return generateMnemonic(256);
+  static generateMnemonic(strength: number = 256): string {
+    return generateMnemonic(englishWordlist, strength);
   }
 
   static async mnemonicToSeed(mnemonic: string): Promise<Uint8Array> {
