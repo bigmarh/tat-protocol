@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tat-protocol.org/schemas/nwpc-request.schema.json",
+  "title": "NWPC Request Message",
+  "description": "Request message structure for NWPC protocol",
+  "type": "object",
+  "required": ["method", "params", "id", "ver"],
+  "properties": {
+    "method": {
+      "type": "string",
+      "minLength": 1,
+      "description": "NWPC method name",
+      "examples": ["mint", "transfer", "burn", "verify", "getSupply"]
+    },
+    "params": {
+      "type": "object",
+      "description": "Method-specific parameters"
+    },
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique request identifier (UUID recommended)"
+    },
+    "ver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Protocol version in semver format"
+    }
+  },
+  "additionalProperties": false
+}

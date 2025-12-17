@@ -1,0 +1,31 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tat-protocol.org/schemas/token-header.schema.json",
+  "title": "TAT Protocol Token Header",
+  "description": "JWT header structure for TAT Protocol tokens",
+  "type": "object",
+  "required": ["alg", "typ", "token_hash", "ver"],
+  "properties": {
+    "alg": {
+      "type": "string",
+      "const": "Schnorr",
+      "description": "Signature algorithm - must be Schnorr"
+    },
+    "typ": {
+      "type": "string",
+      "enum": ["FUNGIBLE", "TAT"],
+      "description": "Token type identifier"
+    },
+    "token_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "SHA-256 hash of payload (64 hex characters)"
+    },
+    "ver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Protocol version in semver format (e.g., 1.0.0)"
+    }
+  },
+  "additionalProperties": false
+}

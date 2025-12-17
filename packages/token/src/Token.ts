@@ -8,6 +8,16 @@ import {
 } from "@tat-protocol/utils";
 import { KeyPair } from "@tat-protocol/hdkeys";
 
+/**
+ * Recursive type for access control rules
+ */
+export type AccessRule = string | number | boolean | null | AccessRule[] | { [key: string]: AccessRule };
+
+/**
+ * Access rules object
+ */
+export type AccessRules = { [key: string]: AccessRule };
+
 export enum TokenType {
   /**
    * Fungible tokens - interchangeable and identical
@@ -30,6 +40,7 @@ export interface Header {
   alg: string; // Signature algorithm (e.g., "Schnorr")
   typ: TokenType; // Token type identifier
   token_hash: string; // Hash of the token payload
+  ver: string; // Protocol version (e.g., "1.0.0")
 }
 
 /**
@@ -45,7 +56,7 @@ export interface Payload {
   P2PKlock?: string; // Public key lock Priority #3
   tokenID?: string; // Unique token identifier
   data_uri?: string; // Optional data URI
-  ext?: Record<string, any>; // Optional extension fields
+  ext?: Record<string, unknown>; // Optional extension fields
 }
 
 /**
@@ -53,9 +64,7 @@ export interface Payload {
  */
 export interface DerivedPayload extends Payload {
   parentToken: string;
-  access?: {
-    [key: string]: any; // Flexible access control rules
-  };
+  access?: AccessRules; // Flexible access control rules
 }
 
 /**
@@ -67,7 +76,30 @@ export interface TokenBuildParams {
 }
 
 /**
- * Token class for handling token operations
+ * Core token class for creating, signing, and managing tokens in the TAT Protocol.
+ *
+ * Token represents both fungible tokens (with amounts) and Transferable Access Tokens (TATs).
+ * Each token contains a header with metadata, a payload with token data, and a signature.
+ * Tokens are encoded as JWTs for transport and storage.
+ *
+ * Key features:
+ * - Support for fungible and non-fungible (TAT) token types
+ * - Schnorr signature-based authentication
+ * - Multiple lock mechanisms: P2PK (public key), time locks, and HTLC (hash time-locked contracts)
+ * - JWT encoding/decoding for standardized format
+ *
+ * @example
+ * ```typescript
+ * // Create a new fungible token
+ * const token = new Token({
+ *   token_type: TokenType.FUNGIBLE,
+ *   payload: {
+ *     iss: 'forgePubkey',
+ *     iat: Date.now(),
+ *     amount: 100
+ *   }
+ * });
+ * ```
  */
 export default class Token {
   public hash!: string;
@@ -91,6 +123,7 @@ export default class Token {
       alg: "Schnorr",
       typ: opts.token_type,
       token_hash: "",
+      ver: "1.0.0",
     };
     this.payload = opts.payload;
     await this.create_token_hash();
@@ -102,16 +135,45 @@ export default class Token {
   }
 
   /**
-   * Restores a token from its string representation
+   * Restores a token from its JWT string representation.
+   *
+   * This method deserializes a JWT-encoded token back into a Token instance,
+   * parsing the header, payload, and signature. Use this to work with tokens
+   * received from others or loaded from storage.
+   *
+   * @param token_string - The JWT-encoded token string
+   * @returns The restored Token instance
+   * @throws {Error} If the JWT format is invalid or cannot be decoded
+   *
+   * @example
+   * ```typescript
+   * const token = await new Token().restore(jwtString);
+   * console.log('Token amount:', token.payload.amount);
+   * console.log('Token issuer:', token.payload.iss);
+   * ```
+   *
+   * @see toJWT for the reverse operation
    */
   restore(token_string: string): Promise<Token> {
     return this.fromJWT(token_string);
   }
 
   /**
-   * Sign data using the provided private key
-   * @param data - The data to sign
-   * @returns The signature
+   * Signs data using Schnorr signatures.
+   *
+   * This method creates a cryptographic signature over the provided data using
+   * the supplied key pair. In the TAT Protocol, tokens are signed by their issuer
+   * (forge), and signatures are also used for P2PK lock verification.
+   *
+   * @param data - The data to sign (typically the token hash)
+   * @param keys - The key pair containing the private key for signing
+   * @returns The signature as a Uint8Array
+   *
+   * @example
+   * ```typescript
+   * const dataToSign = await token.data_to_sign();
+   * const signature = await token.sign(dataToSign, forgeKeys);
+   * ```
    */
   async sign(data: Uint8Array, keys: KeyPair): Promise<Uint8Array> {
     return signMessage(data, keys);
@@ -301,10 +363,27 @@ export default class Token {
   }
 
   /**
-   * Creates a token payload with provided parameters
+   * Creates a token payload from a parameter object.
+   *
+   * This static helper method constructs a properly formatted payload with
+   * required and optional fields. It automatically sets the issued-at timestamp
+   * and includes any provided locks, amounts, or metadata.
+   *
+   * @param payloadObj - Object containing payload parameters (iss, amount, locks, etc.)
+   * @returns A formatted Payload or DerivedPayload object
+   *
+   * @example
+   * ```typescript
+   * const payload = Token.createPayload({
+   *   iss: 'forgePubkey',
+   *   amount: 50,
+   *   P2PKlock: 'recipientPubkey',
+   *   exp: Math.floor(Date.now() / 1000) + 86400 // 24 hours
+   * });
+   * ```
    */
   static createPayload(
-    payloadObj: Record<string, any>,
+    payloadObj: Record<string, unknown>,
   ): Payload | DerivedPayload {
     const payload: Payload = {
       iss: payloadObj.iss,
@@ -334,7 +413,26 @@ export default class Token {
   }
 
   /**
-   * Validates token based on its type
+   * Validates the token's structure and required fields.
+   *
+   * This method performs type-specific validation to ensure the token has all
+   * required fields and meets the constraints for its token type. It checks:
+   * - Presence of issuer and issued-at timestamp
+   * - Expiration status
+   * - Type-specific requirements (amount for fungible, tokenID for TATs)
+   *
+   * @returns True if the token is valid
+   * @throws {Error} If validation fails, with a descriptive error message
+   *
+   * @example
+   * ```typescript
+   * try {
+   *   await token.validate();
+   *   console.log('Token is valid');
+   * } catch (error) {
+   *   console.error('Token validation failed:', error.message);
+   * }
+   * ```
    */
   async validate(): Promise<boolean> {
     // Check required fields
@@ -431,20 +529,41 @@ export default class Token {
   /**
    * Gets the access rules for the token
    */
-  getAccessRules(): { [key: string]: any } | undefined {
+  getAccessRules(): AccessRules | undefined {
     return (this.payload as DerivedPayload).access;
   }
 
   /**
-   * Creates a derived token with flexible access control
-   * @param parentToken - The parent token to derive from
-   * @param accessRules - Flexible access control rules
-   * @returns A new derived token
+   * Creates a derived token with flexible access control rules.
+   *
+   * Derived tokens are linked to a parent token and can have restricted access rights.
+   * This is useful for creating temporary passes, delegation tokens, or scoped access
+   * credentials. The derived token references the parent's hash and includes custom
+   * access rules that define what the holder can do.
+   *
+   * @param tokenType - The type of derived token to create
+   * @param parentToken - The parent token to derive from (must have a valid hash)
+   * @param accessRules - Flexible access control rules defining permissions
+   * @returns A new derived token instance
+   * @throws {Error} If the parent token doesn't have a valid hash
+   *
+   * @example
+   * ```typescript
+   * // Create a temporary access pass from a master ticket
+   * const derivedToken = await Token.createDerivedToken(
+   *   TokenType.TAT,
+   *   masterTicket,
+   *   {
+   *     features: ['basic_access'],
+   *     expiresAt: Date.now() + 3600000 // 1 hour
+   *   }
+   * );
+   * ```
    */
   static async createDerivedToken(
     tokenType: TokenType,
     parentToken: Token,
-    accessRules: { [key: string]: any },
+    accessRules: AccessRules,
   ): Promise<Token> {
     // Verify parent token is valid
     if (!parentToken.header.token_hash) {
@@ -474,9 +593,9 @@ export default class Token {
  */
 class DerivedToken extends Token {
   public parentToken: Token;
-  public accessRules: { [key: string]: any };
+  public accessRules: AccessRules;
   public payload: DerivedPayload;
-  constructor(parentToken: Token, accessRules: { [key: string]: any }) {
+  constructor(parentToken: Token, accessRules: AccessRules) {
     super();
     if (!parentToken.header.token_hash) {
       throw new Error("Parent token must have a valid hash");
@@ -517,7 +636,7 @@ class DerivedToken extends Token {
   /**
    * Gets the access rules for the token
    */
-  getAccessRules(): { [key: string]: any } | undefined {
+  getAccessRules(): AccessRules | undefined {
     return this.payload.access;
   }
 }

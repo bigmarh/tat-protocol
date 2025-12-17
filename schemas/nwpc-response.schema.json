@@ -1,0 +1,60 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tat-protocol.org/schemas/nwpc-response.schema.json",
+  "title": "NWPC Response Message",
+  "description": "Response message structure for NWPC protocol",
+  "type": "object",
+  "required": ["id", "ver"],
+  "properties": {
+    "result": {
+      "description": "Response data on success"
+    },
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": {
+          "type": "integer",
+          "minimum": 1000,
+          "maximum": 3999,
+          "description": "Error code (1000-1999: client errors, 2000-2999: token errors, 3000-3999: server errors)"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Human-readable error message"
+        },
+        "data": {
+          "description": "Additional error context"
+        }
+      },
+      "additionalProperties": false
+    },
+    "id": {
+      "type": "string",
+      "description": "Request ID this response corresponds to"
+    },
+    "ver": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$",
+      "description": "Protocol version in semver format"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "description": "Success response",
+      "required": ["result"],
+      "not": {
+        "required": ["error"]
+      }
+    },
+    {
+      "description": "Error response",
+      "required": ["error"],
+      "not": {
+        "required": ["result"]
+      }
+    }
+  ]
+}

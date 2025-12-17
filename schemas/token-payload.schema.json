@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tat-protocol.org/schemas/token-payload.schema.json",
+  "title": "TAT Protocol Token Payload",
+  "description": "Payload structure for TAT Protocol tokens",
+  "type": "object",
+  "required": ["iss", "iat"],
+  "properties": {
+    "iss": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Issuer public key (64 hex characters)"
+    },
+    "iat": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Issued at timestamp (Unix seconds)"
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Expiration timestamp (Unix seconds, optional)"
+    },
+    "amount": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Token amount (required for FUNGIBLE tokens)"
+    },
+    "tokenID": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique token identifier (required for TAT tokens)"
+    },
+    "setID": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Token set identifier (optional, groups related fungible tokens)"
+    },
+    "P2PKlock": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Public key lock - only this key can unlock (64 hex characters)"
+    },
+    "timeLock": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Cannot spend before this timestamp (Unix seconds)"
+    },
+    "HTLC": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Hash for HTLC (64 hex characters)"
+    },
+    "data_uri": {
+      "type": "string",
+      "format": "uri",
+      "description": "URI to external data"
+    },
+    "ext": {
+      "type": "object",
+      "description": "Extension fields for custom data"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "description": "FUNGIBLE token - must have amount",
+      "required": ["amount"]
+    },
+    {
+      "description": "TAT token - must have tokenID",
+      "required": ["tokenID"]
+    }
+  ]
+}

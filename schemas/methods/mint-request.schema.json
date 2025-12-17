@@ -1,0 +1,61 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://tat-protocol.org/schemas/methods/mint-request.schema.json",
+  "title": "NWPC Mint Request",
+  "description": "Parameters for mint method",
+  "type": "object",
+  "required": ["token_type", "recipient"],
+  "properties": {
+    "token_type": {
+      "type": "string",
+      "enum": ["FUNGIBLE", "TAT"],
+      "description": "Type of token to mint"
+    },
+    "recipient": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$",
+      "description": "Recipient public key or address"
+    },
+    "amount": {
+      "type": "number",
+      "exclusiveMinimum": 0,
+      "description": "Amount to mint (required for FUNGIBLE)"
+    },
+    "tokenID": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique identifier (required for TAT)"
+    },
+    "setID": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Token set identifier"
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Expiration timestamp"
+    },
+    "ext": {
+      "type": "object",
+      "description": "Extension fields"
+    }
+  },
+  "additionalProperties": false,
+  "oneOf": [
+    {
+      "description": "FUNGIBLE mint",
+      "properties": {
+        "token_type": { "const": "FUNGIBLE" }
+      },
+      "required": ["amount"]
+    },
+    {
+      "description": "TAT mint",
+      "properties": {
+        "token_type": { "const": "TAT" }
+      },
+      "required": ["tokenID"]
+    }
+  ]
+}

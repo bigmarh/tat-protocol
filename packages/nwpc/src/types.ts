@@ -13,8 +13,24 @@ export interface NWPCError {
   message: string;
 }
 
+/**
+ * NWPC message data structure
+ */
+export interface NWPCMessageData {
+  id: string;
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+  };
+  ver?: string; // Protocol version (e.g., "1.0.0")
+  [key: string]: unknown;
+}
+
 export type MessageHook = (
-  message: any,
+  message: NWPCMessageData,
   context: NWPCContext,
 ) => Promise<boolean>;
 
@@ -28,18 +44,20 @@ export interface NWPCContext {
 export interface NWPCRequest {
   id: string;
   method: string;
-  params: Record<string, any>;
+  params: Record<string, unknown>;
   timestamp: number;
+  ver?: string; // Protocol version (e.g., "1.0.0")
 }
 
 export interface NWPCResponse {
   id: string;
-  result?: any;
+  result?: unknown;
   error?: {
     code: number;
     message: string;
   };
   timestamp: number;
+  ver?: string; // Protocol version (e.g., "1.0.0")
 }
 
 export interface NWPCRoute {
@@ -77,7 +95,7 @@ export class NWPCResponseObject {
     };
   }
 
-  async send(data: any, recipient?: string | string[]): Promise<NWPCResponse> {
+  async send(data: unknown, recipient?: string | string[]): Promise<NWPCResponse> {
     this.response.result = data;
     let targetRecipient = recipient || this.context.poster;
 
