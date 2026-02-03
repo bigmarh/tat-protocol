@@ -23,7 +23,15 @@ interface BloomFilterMetadata {
   hashSeeds: number[];
 }
 
-type BloomFilterInput = string | number | boolean | Date | ArrayBufferView | object | null | undefined;
+type BloomFilterInput =
+  | string
+  | number
+  | boolean
+  | Date
+  | ArrayBufferView
+  | object
+  | null
+  | undefined;
 
 class BloomFilter {
   private readonly size: number;
@@ -36,15 +44,24 @@ class BloomFilter {
 
   constructor(expectedItems: number = 1000, falsePositiveRate: number = 0.01) {
     // Validate inputs
-    if (expectedItems <= 0 || falsePositiveRate <= 0 || falsePositiveRate >= 1) {
-      throw new Error('Invalid parameters: expectedItems must be > 0, falsePositiveRate must be between 0 and 1');
+    if (
+      expectedItems <= 0 ||
+      falsePositiveRate <= 0 ||
+      falsePositiveRate >= 1
+    ) {
+      throw new Error(
+        "Invalid parameters: expectedItems must be > 0, falsePositiveRate must be between 0 and 1",
+      );
     }
 
     // Calculate optimal size and hash functions
     this.expectedItems = expectedItems;
     this.falsePositiveRate = falsePositiveRate;
     this.size = this.calculateOptimalSize(expectedItems, falsePositiveRate);
-    this.hashFunctions = this.calculateOptimalHashFunctions(this.size, expectedItems);
+    this.hashFunctions = this.calculateOptimalHashFunctions(
+      this.size,
+      expectedItems,
+    );
     this.bits = new Uint8Array(Math.ceil(this.size / 8));
 
     // Pre-compute hash constants for better distribution
@@ -53,7 +70,7 @@ class BloomFilter {
 
   // Calculate optimal bit array size
   private calculateOptimalSize(n: number, p: number): number {
-    return Math.ceil(-n * Math.log(p) / (Math.log(2) ** 2));
+    return Math.ceil((-n * Math.log(p)) / Math.log(2) ** 2);
   }
 
   // Calculate optimal number of hash functions
@@ -65,13 +82,13 @@ class BloomFilter {
   private generateHashSeeds(count: number): number[] {
     const seeds: number[] = [];
     let seed = 0x9747b28c; // Starting seed
-    
+
     for (let i = 0; i < count; i++) {
       seeds.push(seed);
       // Linear congruential generator for next seed
       seed = (seed * 1664525 + 1013904223) >>> 0;
     }
-    
+
     return seeds;
   }
 
@@ -79,7 +96,7 @@ class BloomFilter {
   private hash(item: BloomFilterInput, seed: number): number {
     const str = this.normalizeInput(item);
     const data = new TextEncoder().encode(str);
-    
+
     let hash = seed;
     const c1 = 0xcc9e2d51;
     const c2 = 0x1b873593;
@@ -90,12 +107,16 @@ class BloomFilter {
 
     // Process 4-byte chunks
     for (let i = 0; i < data.length - 3; i += 4) {
-      let k = data[i] | (data[i + 1] << 8) | (data[i + 2] << 16) | (data[i + 3] << 24);
-      
+      let k =
+        data[i] |
+        (data[i + 1] << 8) |
+        (data[i + 2] << 16) |
+        (data[i + 3] << 24);
+
       k = Math.imul(k, c1);
       k = (k << r1) | (k >>> (32 - r1));
       k = Math.imul(k, c2);
-      
+
       hash ^= k;
       hash = (hash << r2) | (hash >>> (32 - r2));
       hash = Math.imul(hash, m) + n;
@@ -128,19 +149,20 @@ class BloomFilter {
   // Normalize input for consistent hashing
   private normalizeInput(item: BloomFilterInput): string {
     if (item === null || item === undefined) {
-      throw new Error('Cannot add null or undefined to bloom filter');
+      throw new Error("Cannot add null or undefined to bloom filter");
     }
-    
-    if (typeof item === 'string') return item;
-    if (typeof item === 'number') return item.toString();
-    if (typeof item === 'boolean') return item.toString();
+
+    if (typeof item === "string") return item;
+    if (typeof item === "number") return item.toString();
+    if (typeof item === "boolean") return item.toString();
     if (item instanceof Date) return item.toISOString();
-    if (ArrayBuffer.isView(item)) return Array.from(item as Uint8Array).toString();
-    
+    if (ArrayBuffer.isView(item))
+      return Array.from(item as Uint8Array).toString();
+
     try {
       return JSON.stringify(item);
     } catch (e) {
-      throw new Error('Cannot serialize item for bloom filter');
+      throw new Error("Cannot serialize item for bloom filter");
     }
   }
 
@@ -148,7 +170,7 @@ class BloomFilter {
   private setBit(position: number): void {
     const byteIndex = Math.floor(position / 8);
     const bitIndex = position % 8;
-    this.bits[byteIndex] |= (1 << bitIndex);
+    this.bits[byteIndex] |= 1 << bitIndex;
   }
 
   // Check if a bit is set at the given position
@@ -181,17 +203,19 @@ class BloomFilter {
   // Get current false positive probability
   getCurrentFalsePositiveRate(): number {
     if (this.itemsAdded === 0) return 0;
-    
+
     const k = this.hashFunctions;
     const m = this.size;
     const n = this.itemsAdded;
-    
-    return Math.pow(1 - Math.exp(-k * n / m), k);
+
+    return Math.pow(1 - Math.exp((-k * n) / m), k);
   }
 
   // Check if filter is approaching capacity
   isNearCapacity(threshold: number = 0.8): boolean {
-    return this.getCurrentFalsePositiveRate() > (this.falsePositiveRate * threshold);
+    return (
+      this.getCurrentFalsePositiveRate() > this.falsePositiveRate * threshold
+    );
   }
 
   // Get filter statistics
@@ -204,7 +228,7 @@ class BloomFilter {
       targetFalsePositiveRate: this.falsePositiveRate,
       currentFalsePositiveRate: this.getCurrentFalsePositiveRate(),
       fillRatio: this.getFillRatio(),
-      memoryUsage: this.bits.length
+      memoryUsage: this.bits.length,
     };
   }
 
@@ -225,17 +249,17 @@ class BloomFilter {
       expectedItems: this.expectedItems,
       falsePositiveRate: this.falsePositiveRate,
       itemsAdded: this.itemsAdded,
-      hashSeeds: this.hashSeeds
+      hashSeeds: this.hashSeeds,
     };
-    
+
     const metadataStr = JSON.stringify(metadata);
     const bitsStr = btoa(String.fromCharCode(...this.bits));
-    
+
     const serialized: SerializedBloomFilter = {
       metadata: metadataStr,
-      bits: bitsStr
+      bits: bitsStr,
     };
-    
+
     return JSON.stringify(serialized);
   }
 
@@ -244,9 +268,9 @@ class BloomFilter {
     try {
       const parsed: SerializedBloomFilter = JSON.parse(serializedData);
       const metadata: BloomFilterMetadata = JSON.parse(parsed.metadata);
-      
+
       const filter = new BloomFilter(1, 0.1); // Temporary values
-      
+
       // Restore metadata using type assertion to bypass readonly
       (filter as any).size = metadata.size;
       (filter as any).hashFunctions = metadata.hashFunctions;
@@ -254,39 +278,44 @@ class BloomFilter {
       (filter as any).falsePositiveRate = metadata.falsePositiveRate;
       (filter as any).hashSeeds = metadata.hashSeeds;
       filter.itemsAdded = metadata.itemsAdded;
-      
+
       // Restore bits
       const binaryString = atob(parsed.bits);
       (filter as any).bits = new Uint8Array(binaryString.length);
       for (let i = 0; i < binaryString.length; i++) {
         (filter as any).bits[i] = binaryString.charCodeAt(i);
       }
-      
+
       return filter;
     } catch (e) {
-      throw new Error(`Invalid serialized bloom filter data: ${e instanceof Error ? e.message : 'Unknown error'}`);
+      throw new Error(
+        `Invalid serialized bloom filter data: ${e instanceof Error ? e.message : "Unknown error"}`,
+      );
     }
   }
 
   // Union with another bloom filter (must have same parameters)
   union(other: BloomFilter): BloomFilter {
-    if (this.size !== other.size || this.hashFunctions !== other.hashFunctions) {
-      throw new Error('Cannot union bloom filters with different parameters');
+    if (
+      this.size !== other.size ||
+      this.hashFunctions !== other.hashFunctions
+    ) {
+      throw new Error("Cannot union bloom filters with different parameters");
     }
-    
+
     const result = new BloomFilter(this.expectedItems, this.falsePositiveRate);
-    
+
     // Override readonly properties for result filter
     (result as any).size = this.size;
     (result as any).hashFunctions = this.hashFunctions;
     (result as any).hashSeeds = [...this.hashSeeds];
     (result as any).bits = new Uint8Array(this.bits.length);
-    
+
     // OR the bits together
     for (let i = 0; i < this.bits.length; i++) {
       (result as any).bits[i] = this.bits[i] | other.bits[i];
     }
-    
+
     result.itemsAdded = this.itemsAdded + other.itemsAdded;
     return result;
   }

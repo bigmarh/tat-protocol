@@ -1,11 +1,23 @@
 import { Storage, Bucket } from '@google-cloud/storage';
 import { StorageInterface } from './StorageInterface';
+import { DebugLogger } from '@tat-protocol/utils';
+
+const Debug = DebugLogger.getInstance();
+
+/**
+ * Google Cloud credentials interface
+ */
+interface GoogleCloudCredentials {
+  client_email?: string;
+  private_key?: string;
+  [key: string]: unknown;
+}
 
 export class GoogleCloudStorage implements StorageInterface {
   private bucket: Bucket;
   private prefix: string;
 
-  constructor(bucketName: string, prefix: string = '', credentials?: any) {
+  constructor(bucketName: string, prefix: string = '', credentials?: GoogleCloudCredentials) {
     const storage = new Storage({ credentials });
     this.bucket = storage.bucket(bucketName);
     this.prefix = prefix;
@@ -27,7 +39,7 @@ export class GoogleCloudStorage implements StorageInterface {
       const [content] = await file.download();
       return content.toString();
     } catch (error) {
-      console.error('Error getting item from Google Cloud Storage:', error);
+      Debug.error('Error getting item from Google Cloud Storage:' + error, 'GoogleCloudStorage');
       return null;
     }
   }
@@ -39,7 +51,7 @@ export class GoogleCloudStorage implements StorageInterface {
         contentType: 'application/json',
       });
     } catch (error) {
-      console.error('Error saving item to Google Cloud Storage:', error);
+      Debug.error('Error saving item to Google Cloud Storage:' + error, 'GoogleCloudStorage');
       throw error;
     }
   }
@@ -69,7 +81,7 @@ export class GoogleCloudStorage implements StorageInterface {
         await this.bucket.deleteFiles();
       }
     } catch (error) {
-      console.error('Error clearing Google Cloud Storage:', error);
+      Debug.error('Error clearing Google Cloud Storage:' + error, 'GoogleCloudStorage');
       throw error;
     }
   }

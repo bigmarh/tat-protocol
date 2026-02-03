@@ -1,8 +1,9 @@
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { NWPCResponse } from "./NWPCResponseTypes";
+import { NWPCRouter } from "./NWPCRouter";
 
 export interface INWPCBase {
-  router: any;
+  router: NWPCRouter;
   sendResponse(response: NWPCResponse, recipientPubkey: string): Promise<void>;
   broadcastResponse(
     response: NWPCResponse,
@@ -11,5 +12,5 @@ export interface INWPCBase {
   subscribe(
     pubkey: string,
     handler: (event: NDKEvent) => Promise<void>,
-  ): Promise<any>;
+  ): Promise<unknown>;
 }

@@ -1,17 +1,24 @@
 import { base64 } from "@scure/base";
-import { bytesToHex } from "@noble/hashes/utils";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import {
   createHash,
   removeBase64Padding,
   signMessage,
   DebugLogger,
+  verifySignature,
 } from "@tat-protocol/utils";
 import { KeyPair } from "@tat-protocol/hdkeys";
 
 /**
  * Recursive type for access control rules
  */
-export type AccessRule = string | number | boolean | null | AccessRule[] | { [key: string]: AccessRule };
+export type AccessRule =
+  | string
+  | number
+  | boolean
+  | null
+  | AccessRule[]
+  | { [key: string]: AccessRule };
 
 /**
  * Access rules object
@@ -359,6 +366,7 @@ export default class Token {
       alg: "Schnorr",
       typ,
       token_hash: tokenHash,
+      ver: "1.0.0",
     };
   }
 
@@ -386,17 +394,31 @@ export default class Token {
     payloadObj: Record<string, unknown>,
   ): Payload | DerivedPayload {
     const payload: Payload = {
-      iss: payloadObj.iss,
+      iss: payloadObj.iss as string,
       iat: Math.floor(Date.now() / 1000), // Convert to seconds
     };
 
-    if (payloadObj.amount !== undefined) payload.amount = payloadObj.amount;
-    if (payloadObj.P2PKlock) payload.P2PKlock = payloadObj.P2PKlock;
-    if (payloadObj.timeLock) payload.timeLock = payloadObj.timeLock;
-    if (payloadObj.tokenID !== undefined) payload.tokenID = payloadObj.tokenID;
-    if (payloadObj.data_uri) payload.data_uri = payloadObj.data_uri;
-    if (payloadObj.HTLC) payload.HTLC = payloadObj.HTLC;
-    if (payloadObj.exp) payload.exp = payloadObj.exp;
+    if (payloadObj.amount !== undefined && payloadObj.amount !== null) {
+      payload.amount = payloadObj.amount as number;
+    }
+    if (payloadObj.P2PKlock) {
+      payload.P2PKlock = payloadObj.P2PKlock as string;
+    }
+    if (payloadObj.timeLock) {
+      payload.timeLock = payloadObj.timeLock as number;
+    }
+    if (payloadObj.tokenID !== undefined && payloadObj.tokenID !== null) {
+      payload.tokenID = payloadObj.tokenID as string;
+    }
+    if (payloadObj.data_uri) {
+      payload.data_uri = payloadObj.data_uri as string;
+    }
+    if (payloadObj.HTLC) {
+      payload.HTLC = payloadObj.HTLC as string;
+    }
+    if (payloadObj.exp) {
+      payload.exp = payloadObj.exp as number;
+    }
 
     return payload;
   }
@@ -435,12 +457,28 @@ export default class Token {
    * ```
    */
   async validate(): Promise<boolean> {
+    if (!this.header || !this.payload) {
+      throw new Error("Token must have header and payload");
+    }
     // Check required fields
     if (!this.payload.iss) {
       throw new Error("Token must have an issuer");
     }
     if (!this.payload.iat) {
       throw new Error("Token must have an issued at timestamp");
+    }
+
+    if (!this.header.token_hash) {
+      throw new Error("Token must have a token hash");
+    }
+    if (!(await this.verifyTokenHash())) {
+      throw new Error("Token hash does not match payload");
+    }
+    if (!this.signature) {
+      throw new Error("Token must have a signature");
+    }
+    if (!(await this.verifyTokenSignature())) {
+      throw new Error("Invalid token signature");
     }
 
     // Check expiration
@@ -465,6 +503,46 @@ export default class Token {
     }
 
     return true;
+  }
+
+  /**
+   * Verify the token hash matches the current payload.
+   * This does not mutate the token.
+   */
+  async verifyTokenHash(): Promise<boolean> {
+    if (!this.header?.token_hash) return false;
+    const expected = await this.computeTokenHashBase();
+    return expected === this.header.token_hash;
+  }
+
+  /**
+   * Verify the token signature against the token hash.
+   */
+  async verifyTokenSignature(): Promise<boolean> {
+    if (!this.signature || !this.header?.token_hash || !this.payload?.iss) {
+      return false;
+    }
+    try {
+      const dataToVerify = new TextEncoder().encode(this.header.token_hash);
+      return verifySignature(
+        dataToVerify,
+        hexToBytes(this.signature),
+        this.payload.iss,
+      );
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Compute token hash from payload without mutating state.
+   */
+  private async computeTokenHashBase(): Promise<string> {
+    const dataToHash = this.encode_payload();
+    const hash1 = await createHash(JSON.stringify(dataToHash));
+    const nonceData = new TextDecoder().decode(hash1);
+    const hash2 = await createHash(nonceData);
+    return bytesToHex(new Uint8Array(hash2));
   }
 
   /**
@@ -630,7 +708,11 @@ class DerivedToken extends Token {
    * Gets the accessible features
    */
   getFeatures(): string[] | undefined {
-    return this.payload.access?.features;
+    const features = (this.payload as DerivedPayload).access?.features;
+    if (Array.isArray(features)) {
+      return features.filter((f): f is string => typeof f === "string");
+    }
+    return undefined;
   }
 
   /**

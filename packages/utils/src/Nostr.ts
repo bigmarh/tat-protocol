@@ -5,7 +5,7 @@ import {
   verifyEvent,
   Event,
 } from "nostr-tools";
-import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
+import { bytesToHex, hexToBytes, randomBytes } from "@noble/hashes/utils";
 import NDK, {
   NDKEvent,
   NDKKind,
@@ -13,6 +13,9 @@ import NDK, {
   NDKTag,
 } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
+import { DebugLogger } from "./debug";
+
+const Debug = DebugLogger.getInstance();
 
 export { generateSecretKey, getPublicKey, nip44, verifyEvent };
 
@@ -88,10 +91,10 @@ export async function follow(ndk: NDK, fromKeys: KeyPair, toPubkey: string) {
     event.created_at = Math.floor(Date.now() / 1000);
     event.sig = await event.sign(signer);
     await event.publish();
-    console.log("Follow event published successfully!");
+    Debug.log("Follow event published successfully!", "Nostr");
     return event.id;
   } catch (error) {
-    console.error("Failed to publish follow event:", error);
+    Debug.error("Failed to publish follow event:" + error, "Nostr");
     throw error;
   }
 }
@@ -216,7 +219,7 @@ export async function Unwrap(
     if (openEnv.pubkey == unwrapped.pubkey) {
       //verify Event is valid
       return {
-        verifiedSender: unW.verifySignature(true),
+        verifiedSender: unW.verifySignature(true) ?? false,
         sender: openEnv.pubkey,
         kind: openEnv.kind,
         content: openEnv.content,
@@ -224,8 +227,8 @@ export async function Unwrap(
     } else {
       throw new Error("Pubkeys don't match, Sender doesn't match writer");
     }
-  } catch (error: any) {
-    console.error("Error Unwrapping Message", error);
+  } catch (error: unknown) {
+    Debug.error("Error Unwrapping Message" + error, "Nostr");
     return false;
   }
 }
@@ -235,7 +238,9 @@ export function getRandomTimestampWithinTwoDays() {
   const twoDaysAgo = now - 2 * 24 * 60 * 60 * 1000; // 2 days in milliseconds
 
   // Generate a random time between now and two days ago
-  const randomTimestamp = twoDaysAgo + Math.random() * (now - twoDaysAgo);
+  const randomValue =
+    new DataView(randomBytes(4).buffer).getUint32(0) / 0xffffffff;
+  const randomTimestamp = twoDaysAgo + randomValue * (now - twoDaysAgo);
   return Math.round(randomTimestamp / 1000);
 }
 

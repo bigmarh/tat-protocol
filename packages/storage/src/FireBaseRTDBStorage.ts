@@ -1,16 +1,30 @@
-/* 
+/*
 
-Uncomment this to use FirebaseRTDBStorage
-
+Uncomment this code block to use FirebaseRTDBStorage
 
 import { getDatabase, ref, set, get, remove } from "firebase/database";
 import { StorageInterface } from "./StorageInterface";
+import { DebugLogger } from "@tat-protocol/utils";
+
+const Debug = DebugLogger.getInstance();
+
+// Firebase app interface
+interface FirebaseApp {
+  database?(): FirebaseDatabase;
+  [key: string]: unknown;
+}
+
+// Firebase database interface
+interface FirebaseDatabase {
+  ref(path: string): unknown;
+  [key: string]: unknown;
+}
 
 export class FirebaseStorage implements StorageInterface {
-  private db: any;
+  private db: FirebaseDatabase;
   private basePath: string;
 
-  constructor(app: any, basePath: string = "nostr") {
+  constructor(app: FirebaseApp, basePath: string = "nostr") {
     this.db = getDatabase(app);
     this.basePath = basePath;
   }
@@ -24,7 +38,7 @@ export class FirebaseStorage implements StorageInterface {
       const snapshot = await get(ref(this.db, this.getFullPath(key)));
       return snapshot.exists() ? snapshot.val() : null;
     } catch (error) {
-      console.error("Error getting item from Firebase:", error);
+      Debug.error("Error getting item from Firebase:" + error, 'FirebaseStorage');
       return null;
     }
   }
@@ -33,7 +47,7 @@ export class FirebaseStorage implements StorageInterface {
     try {
       await set(ref(this.db, this.getFullPath(key)), value);
     } catch (error) {
-      console.error("Error setting item in Firebase:", error);
+      Debug.error("Error setting item in Firebase:" + error, 'FirebaseStorage');
       throw error;
     }
   }
@@ -42,7 +56,7 @@ export class FirebaseStorage implements StorageInterface {
     try {
       await remove(ref(this.db, this.getFullPath(key)));
     } catch (error) {
-      console.error("Error removing item from Firebase:", error);
+      Debug.error("Error removing item from Firebase:" + error, 'FirebaseStorage');
       throw error;
     }
   }
@@ -51,8 +65,10 @@ export class FirebaseStorage implements StorageInterface {
     try {
       await remove(ref(this.db, this.basePath));
     } catch (error) {
-      console.error("Error clearing Firebase path:", error);
+      Debug.error("Error clearing Firebase path:" + error, 'FirebaseStorage');
       throw error;
     }
   }
-} */
+}
+
+*/

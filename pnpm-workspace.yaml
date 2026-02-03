@@ -1,4 +1,6 @@
 packages:
+- 'packages/types'
+- 'packages/signers'
 - 'packages/forge'
 - 'packages/nwpc'
 - 'packages/storage'
@@ -8,6 +10,6 @@ packages:
 - 'packages/pocket'
 - 'packages/config'
 - 'packages/tdk'
-- 'packages/boxoffice'
-- 'packages/turnstile'
+- 'packages/booth'
+- 'packages/gate'
 - '!**/node_modules/**'

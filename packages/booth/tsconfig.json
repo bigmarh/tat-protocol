@@ -1,0 +1,19 @@
+{
+    "extends": "../../tsconfig.base.json",
+    "compilerOptions": {
+        "outDir": "./dist",
+        "rootDir": "./src",
+        "composite": true,
+        "declaration": true,
+        "declarationDir": "./dist"
+    },
+    "include": ["src"],
+    "references": [
+        { "path": "../types" },
+        { "path": "../nwpc" },
+        { "path": "../storage" },
+        { "path": "../token" },
+        { "path": "../hdkeys" },
+        { "path": "../utils" }
+    ]
+} 

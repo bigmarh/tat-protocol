@@ -3,16 +3,32 @@ import { NWPCServer } from "./NWPCServer";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { StorageInterface } from "@tat-protocol/storage";
+import { DebugLogger } from "@tat-protocol/utils";
+import type { Signer } from "@tat-protocol/types";
 
+const Debug = DebugLogger.getInstance();
+
+/**
+ * Configuration for NWPC instances.
+ *
+ * Supports two key management approaches:
+ * 1. `signer` - A Signer interface for abstracted key management (recommended)
+ * 2. `keys` - Direct KeyPair for backwards compatibility
+ *
+ * If both are provided, `signer` takes precedence.
+ */
 export interface NWPCConfig {
   relays?: string[];
+  /** Signer interface for abstracted key management (recommended) */
+  signer?: Signer;
+  /** Direct key pair for backwards compatibility */
   keys?: KeyPair;
   keyID?: string;
   hooks?: MessageHookOptions;
   storage?: StorageInterface;
   requestHandlers?: Map<string, NWPCHandler>;
   type?: "client" | "server";
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface NWPCError {
@@ -20,8 +36,24 @@ export interface NWPCError {
   message: string;
 }
 
+/**
+ * NWPC message data structure
+ */
+export interface NWPCMessageData {
+  id: string;
+  method?: string;
+  params?: unknown;
+  result?: unknown;
+  error?: {
+    code: number;
+    message: string;
+    params?: string;
+  };
+  [key: string]: unknown;
+}
+
 export type MessageHook = (
-  message: any,
+  message: NWPCMessageData,
   context: NWPCContext,
 ) => Promise<boolean>;
 
@@ -48,7 +80,7 @@ export interface NWPCRequest {
 
 export interface NWPCResponse {
   id: string; // Matches request ID
-  result?: any; // Success result
+  result?: unknown; // Success result
   error?: {
     // Error details if any
     code: number;
@@ -85,7 +117,7 @@ export class NWPCResponseObject {
     };
   }
 
-  async send(data: any, recipient?: string | string[]): Promise<NWPCResponse> {
+  async send(data: unknown, recipient?: string | string[]): Promise<NWPCResponse> {
     this.response.result = data;
     // If recipient is not specified, send it back to the entity who sent the request
     let targetRecipient = recipient || this.context.poster;
@@ -146,7 +178,7 @@ export class NWPCResponseObject {
           );
         }
       } else {
-        console.log("sending error response to", targetRecipient);
+        Debug.log("sending error response to" + targetRecipient, 'NWPCResponseObject');
         await this.sender.sendResponse(this.response, targetRecipient);
       }
     }

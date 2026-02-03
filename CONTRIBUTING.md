@@ -434,8 +434,8 @@ tat-protocol/
 │   ├── storage/      # Storage backends
 │   ├── utils/        # Utility functions
 │   ├── hdkeys/       # HD key management
-│   ├── boxoffice/    # Event ticketing
-│   ├── turnstile/    # Access control
+│   ├── boxoffice/    # Booth protocol (TAT sales)
+│   ├── turnstile/    # Gate protocol (access verification)
 │   ├── tdk/          # Complete SDK
 │   └── config/       # Configuration
 ├── specs/

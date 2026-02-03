@@ -1,4 +1,4 @@
-export function serializeData(data: any) {
+export function serializeData(data: unknown) {
   return JSON.stringify(data, (_key, value) => {
     if (value instanceof Set) {
       return { __type: "Set", value: Array.from(value) };

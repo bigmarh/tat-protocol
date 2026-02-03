@@ -1,10 +1,13 @@
-/* 
+/*
 
 Uncomment this to use RedisStorage
 
 
 import { createClient, RedisClientType } from "redis";
 import { StorageInterface } from "./StorageInterface";
+import { DebugLogger } from "@tat-protocol/utils";
+
+const Debug = DebugLogger.getInstance();
 
 export class RedisStorage implements StorageInterface {
   private client: RedisClientType;
@@ -31,7 +34,7 @@ export class RedisStorage implements StorageInterface {
       await this.connect();
       return await this.client.get(this.getFullKey(key));
     } catch (error) {
-      console.error("Error getting item from Redis:", error);
+      Debug.error("Error getting item from Redis:" + error, 'RedisStorage');
       return null;
     }
   }
@@ -41,7 +44,7 @@ export class RedisStorage implements StorageInterface {
       await this.connect();
       await this.client.set(this.getFullKey(key), value);
     } catch (error) {
-      console.error("Error setting item in Redis:", error);
+      Debug.error("Error setting item in Redis:" + error, 'RedisStorage');
       throw error;
     }
   }
@@ -51,7 +54,7 @@ export class RedisStorage implements StorageInterface {
       await this.connect();
       await this.client.del(this.getFullKey(key));
     } catch (error) {
-      console.error("Error removing item from Redis:", error);
+      Debug.error("Error removing item from Redis:" + error, 'RedisStorage');
       throw error;
     }
   }
@@ -65,7 +68,7 @@ export class RedisStorage implements StorageInterface {
         await this.client.del(keys);
       }
     } catch (error) {
-      console.error("Error clearing Redis keys:", error);
+      Debug.error("Error clearing Redis keys:" + error, 'RedisStorage');
       throw error;
     }
   }

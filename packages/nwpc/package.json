@@ -1,9 +1,24 @@
 {
   "name": "@tat-protocol/nwpc",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "NWPC (Nostr Wrapped Procedure Call) implementation for TAT Protocol",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "lib",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "jest",
@@ -21,17 +36,13 @@
   "author": "TAT Protocol",
   "license": "MIT",
   "dependencies": {
-    "@tat-protocol/config": "file:../config",
+    "@tat-protocol/config": "workspace:*",
+    "@tat-protocol/types": "workspace:*",
     "@tat-protocol/utils": "workspace:*",
     "nostr-tools": "^2.12.0",
     "readline": "^1.3.0"
   },
   "peerDependencies": {
     "@tat-protocol/storage": "workspace:*"
-  },
-  "files": [
-    "dist",
-    "lib",
-    "README.md"
-  ]
+  }
 }

@@ -9,10 +9,12 @@
     },
     "include": ["src"],
     "references": [
+        { "path": "../types" },
         { "path": "../nwpc" },
         { "path": "../hdkeys" },
         { "path": "../storage" },
         { "path": "../utils" },
-        { "path": "../token" }
+        { "path": "../token" },
+        { "path": "../signers" }
     ]
 } 

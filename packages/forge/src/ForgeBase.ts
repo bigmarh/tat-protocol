@@ -9,11 +9,53 @@ import {
   NWPCResponseObject,
   NWPCResponse,
 } from "@tat-protocol/nwpc";
-import { signMessage, verifySignature, postToFeed } from "@tat-protocol/utils";
+import {
+  signMessage,
+  verifySignature,
+  postToFeed,
+  DebugLogger,
+} from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StorageInterface } from "@tat-protocol/storage";
 
+const Debug = DebugLogger.getInstance();
+
+/**
+ * Transaction data structure
+ */
+interface TransactionData {
+  ins?: string[];
+  outs?: string[];
+  witnessData?: string[];
+  [key: string]: unknown;
+}
+
+/**
+ * Base class for implementing a token forge (issuer).
+ *
+ * ForgeBase provides the core infrastructure for creating, validating, and managing
+ * tokens in the TAT Protocol. Subclasses must implement the abstract methods for
+ * minting fungible tokens and TATs, as well as handling transfers and burns.
+ *
+ * The forge maintains state including spent tokens, authorized forgers, and supply limits.
+ * It validates all token transactions and publishes spent token notifications.
+ *
+ * @example
+ * ```typescript
+ * class MyForge extends ForgeBase {
+ *   async forgeToken(req, context, res) {
+ *     // Implementation for minting fungible tokens
+ *   }
+ *   async transferToken(req, context, res) {
+ *     // Implementation for transferring tokens
+ *   }
+ *   async burnToken(req, context, res) {
+ *     // Implementation for burning tokens
+ *   }
+ * }
+ * ```
+ */
 export abstract class ForgeBase extends NWPCServer {
   public config: ForgeConfig;
   public state: ForgeState = undefined as any;
@@ -21,6 +63,16 @@ export abstract class ForgeBase extends NWPCServer {
   public owner: string;
   public isInitialized: boolean = false;
 
+  /**
+   * Creates a new ForgeBase instance.
+   *
+   * The constructor initializes the forge with configuration, sets up storage,
+   * and registers default handlers for forge, transfer, and burn operations.
+   *
+   * @param config - Configuration object containing owner, storage, keys, and supply limits
+   * @throws {Error} If owner is not provided in config
+   * @throws {Error} If storage is not provided in config
+   */
   constructor(config: ForgeConfig) {
     super(config);
 
@@ -40,26 +92,66 @@ export abstract class ForgeBase extends NWPCServer {
       relays: new Set(),
     };
     if (config.keys) this.keys = config.keys;
-    if (!config.storage) throw new Error("A StorageInterface implementation must be provided in config.storage");
+    if (!config.storage)
+      throw new Error(
+        "A StorageInterface implementation must be provided in config.storage",
+      );
     this.storage = config.storage;
     this.setupDefaultHandlers();
   }
 
+  /**
+   * Abstract method for minting new fungible tokens.
+   *
+   * Implementations should validate the request, check authorization and supply limits,
+   * create new token(s), and return them to the requester. Fungible tokens are identical
+   * and interchangeable, each with a specific denomination/amount.
+   *
+   * @param req - The NWPC request containing minting parameters
+   * @param context - The request context with sender and recipient information
+   * @param res - Response object for sending the result
+   * @returns Response containing the newly minted token(s) or an error
+   */
   abstract forgeToken(
     req: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
-  ): Promise<any>;
+  ): Promise<NWPCResponse | void>;
+
+  /**
+   * Abstract method for transferring tokens between parties.
+   *
+   * Implementations should validate inputs, verify signatures and locks, check that
+   * tokens haven't been spent, update the spent token registry, and create new outputs.
+   * This is the core method for handling token transfers in the protocol.
+   *
+   * @param req - The NWPC request containing the transaction with inputs and outputs
+   * @param context - The request context with sender and recipient information
+   * @param res - Response object for sending the result
+   * @returns Response confirming the transfer or an error
+   */
   abstract transferToken(
     req: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
-  ): Promise<any>;
+  ): Promise<NWPCResponse | void>;
+
+  /**
+   * Abstract method for burning (destroying) tokens.
+   *
+   * Implementations should verify token ownership, mark the token as spent, and
+   * optionally update supply counters. Burning is permanent and cannot be reversed.
+   *
+   * @param req - The NWPC request containing the token to burn
+   * @param context - The request context with sender information
+   * @param res - Response object for sending the result
+   * @returns Response confirming the burn or an error
+   */
   abstract burnToken(
     req: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
-  ): Promise<any>;
+  ): Promise<NWPCResponse | void>;
 
   setupDefaultHandlers() {
     this.use("forge", this.forgeToken.bind(this));
@@ -73,7 +165,7 @@ export abstract class ForgeBase extends NWPCServer {
     res: NWPCResponseObject,
     next: () => Promise<void>,
   ): Promise<NWPCResponse | void> {
-    console.log("Forge: onlyAuthorized", context.sender, this.state.owner);
+    Debug.log("onlyAuthorized" + context.sender + this.state.owner, "Forge");
     if (
       this.state.authorizedForgers.has(context.sender) ||
       this.state.owner === context.sender
@@ -95,10 +187,37 @@ export abstract class ForgeBase extends NWPCServer {
     return res.error(403, "Forbidden");
   }
 
+  /**
+   * Initializes the forge instance.
+   *
+   * This method must be called after construction and before using the forge.
+   * It loads or generates keys, initializes storage, loads saved state, and
+   * establishes network connections. Safe to call multiple times (idempotent).
+   *
+   * @throws {Error} If keys cannot be initialized or storage fails
+   *
+   * @example
+   * ```typescript
+   * const forge = new MyForge(config);
+   * await forge.initialize();
+   * // Forge is now ready to handle requests
+   * ```
+   */
   public async initialize(): Promise<void> {
     await super.init();
     if (this.isInitialized) return;
     try {
+      // If signer is provided, get public key from it
+      if (this.signer) {
+        const signerPubkey = await this.signer.getPublicKey();
+        this.keys = { secretKey: "", publicKey: signerPubkey };
+        this.stateKey = `forge-state-${signerPubkey}`;
+        await this._loadState();
+        this.isInitialized = true;
+        return;
+      }
+
+      // Fall back to key-based initialization for backwards compatibility
       const forgeKeyId = `forge-keys-${this.keys?.publicKey ?? ""}`;
       let keys = this.keys;
       // Try to load keys from storage if not present
@@ -128,16 +247,20 @@ export abstract class ForgeBase extends NWPCServer {
       await this._loadState();
       this.isInitialized = true;
     } catch (error) {
-      console.error("Failed to initialize Forge:", error);
+      Debug.error("Failed to initialize Forge:" + error, "Forge");
       throw error;
     }
   }
 
   public getPublicKey(): string | undefined {
-    return this.keys.publicKey;
+    return this.publicKey || this.keys.publicKey;
   }
 
   public async sign(data: Uint8Array): Promise<Uint8Array> {
+    if (this.signer) {
+      const sigHex = await this.signer.sign(data);
+      return hexToBytes(sigHex);
+    }
     return signMessage(data, this.keys);
   }
 
@@ -177,6 +300,22 @@ export abstract class ForgeBase extends NWPCServer {
     return true;
   }
 
+  /**
+   * Grants authorization to mint tokens to a specific public key.
+   *
+   * Only the forge owner can add authorized forgers. Authorized forgers can mint
+   * new tokens within the configured supply limits. This is useful for delegating
+   * minting authority while maintaining control over the forge.
+   *
+   * @param pubkey - The public key to authorize for minting
+   * @throws {Error} If the forge is not initialized
+   *
+   * @example
+   * ```typescript
+   * await forge.addAuthorizedForger('delegatePubkey');
+   * // 'delegatePubkey' can now mint tokens
+   * ```
+   */
   public async addAuthorizedForger(pubkey: string): Promise<void> {
     if (!this.isInitialized) {
       throw new Error("Forge must be initialized");
@@ -185,6 +324,21 @@ export abstract class ForgeBase extends NWPCServer {
     await this._saveState();
   }
 
+  /**
+   * Revokes minting authorization from a public key.
+   *
+   * Only the forge owner can remove authorized forgers. The removed forger will
+   * no longer be able to mint new tokens, though previously minted tokens remain valid.
+   *
+   * @param pubkey - The public key to remove from authorized forgers
+   * @throws {Error} If the forge is not initialized
+   *
+   * @example
+   * ```typescript
+   * await forge.removeAuthorizedForger('delegatePubkey');
+   * // 'delegatePubkey' can no longer mint tokens
+   * ```
+   */
   public async removeAuthorizedForger(pubkey: string): Promise<void> {
     if (!this.isInitialized) {
       throw new Error("Forge must be initialized");
@@ -193,6 +347,17 @@ export abstract class ForgeBase extends NWPCServer {
     await this._saveState();
   }
 
+  /**
+   * Retrieves the list of public keys authorized to mint tokens.
+   *
+   * @returns Array of authorized forger public keys
+   *
+   * @example
+   * ```typescript
+   * const authorizedForgers = forge.getAuthorizedForgers();
+   * console.log('Authorized minters:', authorizedForgers);
+   * ```
+   */
   public getAuthorizedForgers(): string[] {
     return Array.from(this.state.authorizedForgers ?? []);
   }
@@ -204,13 +369,15 @@ export abstract class ForgeBase extends NWPCServer {
   public async _loadState(): Promise<void> {
     const savedState = await this.loadState(this.stateKey);
     if (savedState !== null) {
+      // Cast to ForgeState to access forge-specific properties
+      const forgeState = savedState as any;
       this.state = {
         ...this.state,
         ...savedState,
-        spentTokens: new Set(savedState.spentTokens || []),
-        pendingTxs: new Map(savedState.pendingTxs || []),
-        authorizedForgers: new Set(savedState.authorizedForgers || []),
-        tokenUsage: new Map(savedState.tokenUsage || []),
+        spentTokens: new Set(forgeState.spentTokens || []),
+        pendingTxs: new Map(forgeState.pendingTxs || []),
+        authorizedForgers: new Set(forgeState.authorizedForgers || []),
+        tokenUsage: new Map(forgeState.tokenUsage || []),
       };
     } else {
       this.state = {
@@ -246,7 +413,13 @@ export abstract class ForgeBase extends NWPCServer {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const { token } = JSON.parse(req.params);
+    let parsed: { token?: string };
+    try {
+      parsed = JSON.parse(req.params);
+    } catch (error) {
+      return await res.error(400, "Invalid request parameters");
+    }
+    const { token } = parsed;
     if (!token) {
       return await res.error(400, "Missing token JWT");
     }
@@ -258,23 +431,81 @@ export abstract class ForgeBase extends NWPCServer {
       }
       await this.publishSpentToken(tokenHash);
       return await res.send({ success: true }, context.sender);
-    } catch (error: any) {
-      return await res.error(500, error.message);
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "Unknown error occurred";
+      return await res.error(500, message);
     }
   }
 
+  /**
+   * Signs a token and converts it to JWT format.
+   *
+   * This method prepares the token for issuance by creating a signature using the
+   * forge's private key (or signer) and encoding the result as a JWT string. The JWT
+   * can then be sent to users or stored.
+   *
+   * @param token - The token to sign
+   * @returns The signed token as a JWT string
+   *
+   * @example
+   * ```typescript
+   * const token = new Token({ token_type: TokenType.FUNGIBLE, payload: {...} });
+   * const jwt = await forge.signAndCreateJWT(token);
+   * // Send jwt to the user
+   * ```
+   */
   public async signAndCreateJWT(token: Token): Promise<string> {
     const dataToSign = await token.data_to_sign();
-    const signature = await token.sign(dataToSign, this.keys);
-    return await token.toJWT(bytesToHex(signature));
+
+    let signatureHex: string;
+    if (this.signer) {
+      signatureHex = await this.signer.sign(dataToSign);
+    } else {
+      const signature = await token.sign(dataToSign, this.keys);
+      signatureHex = bytesToHex(signature);
+    }
+
+    return await token.toJWT(signatureHex);
   }
 
+  /**
+   * Validates all input tokens in a transaction.
+   *
+   * This method performs comprehensive validation of transaction inputs including:
+   * - Checking tokens haven't been spent (double-spend prevention)
+   * - Verifying tokens haven't expired
+   * - Validating P2PK lock signatures if present
+   * - Checking time locks haven't expired
+   * - Validating HTLC secrets if present
+   *
+   * @param tx - The transaction data containing input tokens
+   * @param witnessData - Optional witness signatures for P2PK locked tokens
+   * @param providedHTLCSecret - Optional secret for unlocking HTLC tokens
+   * @returns Tuple of [validated transaction, error message, error code, error details]
+   *          On success: [tx, null, null, undefined]
+   *          On failure: [null, errorMessage, errorCode, errorDetails]
+   *
+   * @example
+   * ```typescript
+   * const [validTx, error, code, details] = await forge.validateTXInputs(tx, witnessData);
+   * if (error) {
+   *   return res.error(code, error);
+   * }
+   * // Proceed with validated transaction
+   * ```
+   */
   public async validateTXInputs(
-    tx: any,
+    tx: TransactionData,
     witnessData?: string[],
     providedHTLCSecret?: string,
-  ): Promise<[any, string | null, number | null, string | undefined]> {
+  ): Promise<
+    [TransactionData | null, string | null, number | null, string | undefined]
+  > {
     const inputs = tx.ins;
+    if (!inputs) {
+      return [null, "Transaction inputs are required", 400, ""];
+    }
     for (const input of inputs) {
       const token = await new Token().restore(input);
       const tokenHash = await token.create_token_hash();
@@ -323,8 +554,24 @@ export abstract class ForgeBase extends NWPCServer {
         if (!validation.valid) {
           return [null, validation.error ?? null, 400, ""];
         }
-        if (!validation.canRedeem && !validation.canRefund) {
-          return [null, "Token is locked and cannot be used", 400, ""];
+        if (providedHTLCSecret) {
+          if (!validation.canRedeem) {
+            return [
+              null,
+              "HTLC cannot be redeemed with provided secret",
+              400,
+              "",
+            ];
+          }
+        } else {
+          if (!validation.canRefund) {
+            return [
+              null,
+              "HTLC secret required to redeem before expiry",
+              400,
+              "",
+            ];
+          }
         }
       }
     }

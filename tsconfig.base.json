@@ -42,8 +42,8 @@
     ],
   },
   "references": [
-    { "path": "packages/boxoffice" },
-    { "path": "packages/turnstile" },
+    { "path": "packages/types" },
+    { "path": "packages/signers" },
     { "path": "packages/hdkeys" },
     { "path": "packages/utils" },
     { "path": "packages/storage" },
@@ -52,6 +52,8 @@
     { "path": "packages/nwpc" },
     { "path": "packages/forge" },
     { "path": "packages/config" },
+    { "path": "packages/booth" },
+    { "path": "packages/gate" },
     { "path": "packages/tdk" }
   ],
   "exclude": [

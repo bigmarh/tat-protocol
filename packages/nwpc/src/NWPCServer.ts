@@ -1,5 +1,5 @@
 import { NDKEvent } from "@nostr-dev-kit/ndk";
-import { Unwrap, Wrap } from "@tat-protocol/utils";
+import { Unwrap, Wrap, UnwrapWithSigner, WrapWithSigner, DebugLogger } from "@tat-protocol/utils";
 import {
   NWPCResponse,
   NWPCResponseObject,
@@ -9,6 +9,8 @@ import {
 } from "./NWPCResponseTypes";
 import { NWPCBase } from "./NWPCBase";
 import { HandlerEngine } from "./HandlerEngine";
+
+const Debug = DebugLogger.getInstance();
 
 export class NWPCServer extends NWPCBase {
   private handlerEngine: HandlerEngine;
@@ -22,20 +24,26 @@ export class NWPCServer extends NWPCBase {
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
     try {
-      if (!this.keys) {
-        console.error("NWPCServer: Keys not initialized");
+      if (!this.signer && !this.keys) {
+        Debug.error("Signer or keys not initialized", 'NWPCServer');
         return;
       }
 
-      const unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
+      // Use signer-based unwrap if signer is available, otherwise fall back to keys
+      let unwrapped;
+      if (this.signer) {
+        unwrapped = await UnwrapWithSigner(event.content, this.signer, event.pubkey);
+      } else {
+        unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
+      }
       if (!unwrapped) {
-        console.log("NWPCServer: Failed to unwrap event:", event.id);
+        Debug.log("Failed to unwrap event:" + event.id, 'NWPCServer');
         return;
       }
 
       const request = JSON.parse(unwrapped.content);
       if (!unwrapped.verifiedSender) {
-        console.log("NWPCServer:Original Event is not valid:", event.id);
+        Debug.log("Original Event is not valid:" + event.id, 'NWPCServer');
         return;
       }
 
@@ -44,7 +52,7 @@ export class NWPCServer extends NWPCBase {
         event,
         poster: event.pubkey,
         sender: unwrapped.sender,
-        recipient: this.keys.publicKey as string,
+        recipient: this.publicKey || this.keys.publicKey as string,
       };
 
       // Apply beforeRequest hook if it exists
@@ -62,7 +70,7 @@ export class NWPCServer extends NWPCBase {
         await this.hooks.afterRequest(request, context);
       }
     } catch (error) {
-      console.error("NWPCServer: Error in handleEvent:", error);
+      Debug.error("Error in handleEvent:" + error, 'NWPCServer');
     }
   }
 
@@ -76,17 +84,26 @@ export class NWPCServer extends NWPCBase {
     response: NWPCResponse,
     recipientPubkey: string,
   ): Promise<void> {
-    const wrappedEvent = await Wrap(
-      this.ndk,
-      JSON.stringify(response),
-      this.keys,
-      recipientPubkey,
-    );
+    let wrappedEvent;
+    if (this.signer) {
+      wrappedEvent = await WrapWithSigner(
+        this.ndk,
+        JSON.stringify(response),
+        this.signer,
+        recipientPubkey,
+      );
+    } else {
+      wrappedEvent = await Wrap(
+        this.ndk,
+        JSON.stringify(response),
+        this.keys,
+        recipientPubkey,
+      );
+    }
 
-    console.log(
-      "NWPCServer: Send response:",
-      response,
-      ` - ${recipientPubkey.slice(0, 3)}...${recipientPubkey.slice(-3)}`,
+    Debug.log(
+      "Send response:" + response + ` - ${recipientPubkey.slice(0, 3)}...${recipientPubkey.slice(-3)}`,
+      'NWPCServer',
     );
     await wrappedEvent.publish();
   }
@@ -101,11 +118,9 @@ export class NWPCServer extends NWPCBase {
     response: NWPCResponse,
     recipientPubkeys: string[],
   ): Promise<void> {
-    console.log(
-      "NWPCServer: Broadcasting response to",
-      recipientPubkeys.length,
-      "recipients:",
-      recipientPubkeys,
+    Debug.log(
+      "Broadcasting response to " + recipientPubkeys.length + " recipients:" + recipientPubkeys,
+      'NWPCServer',
     );
     await Promise.all(
       recipientPubkeys.map((pubkey) => this.sendResponse(response, pubkey)),

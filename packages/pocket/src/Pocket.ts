@@ -1,7 +1,7 @@
-import { NWPCHandler, NWPCConfig, NWPCPeer, NWPCState, NWPCContext } from "@tat-protocol/nwpc";
+import { NWPCHandler, NWPCConfig, NWPCPeer, NWPCState, NWPCContext, NWPCMessageData } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap } from "@tat-protocol/utils";
-import { StorageInterface } from "@tat-protocol/storage";
+import { DebugLogger, Unwrap, UnwrapWithSigner } from "@tat-protocol/utils";
+import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
 import { Transaction } from "./Transaction";
@@ -11,11 +11,13 @@ import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
 import { validateMnemonic } from '@scure/bip39';
 import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
+import type { Signer } from "@tat-protocol/types";
+// import { KeySigner } from "@tat-protocol/signers";
 
 export type token_hash = string;
 export type issuerId = string;
 
-/** 
+/**
  * Interface for a single-use keypair
  */
 export interface SingleUseKeyPair {
@@ -26,14 +28,29 @@ export interface SingleUseKeyPair {
     used?: boolean;
 }
 
+/**
+ * Configuration for Pocket instances.
+ *
+ * Supports two key management approaches:
+ * 1. `signer` - A Signer interface for abstracted key management (recommended for browser)
+ * 2. `keys` - Direct KeyPair for backwards compatibility and server-side use
+ *
+ * If both are provided, `signer` takes precedence.
+ * If neither is provided, new keys will be generated automatically.
+ */
 export interface PocketConfig extends NWPCConfig {
     ndk?: unknown;
     relays?: string[];
     storage?: StorageInterface;
     storageType?: 'node' | 'browser';
-    keys: KeyPair;
+    /** Signer interface for abstracted key management (recommended) */
+    signer?: Signer;
+    /** Direct key pair for backwards compatibility */
+    keys?: KeyPair;
     keyID?: string;
     requestHandlers?: Map<string, NWPCHandler>;
+    /** Allow storing sensitive state in browser storage without encryption */
+    allowInsecureStorage?: boolean;
 }
 
 export interface PocketState extends NWPCState {
@@ -45,7 +62,7 @@ export interface PocketState extends NWPCState {
     tokenIndex: Map<string, Map<number, string[]>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
     tatIndex: Map<string, Map<string, string>>; //[issuerPubkey, identifier(tokenID, tokenID:derivative-tokenId), tokenhash], Hold the tokenhash for each tokenID
     connected: boolean;
-    activeSubscriptions: Map<string, any>;
+    activeSubscriptions: Map<string, unknown>;
 }
 
 export interface HDKeys {
@@ -53,6 +70,16 @@ export interface HDKeys {
 }
 
 const Debug = DebugLogger.getInstance();
+
+/**
+ * Transaction data structure
+ */
+interface TransactionData {
+  ins?: (string | { token: string })[];
+  outs?: unknown[];
+  witnessData?: string[];
+  [key: string]: unknown;
+}
 
 export class Pocket extends NWPCPeer {
     declare protected state: PocketState;
@@ -69,8 +96,15 @@ export class Pocket extends NWPCPeer {
         this.config = config || {};
         this.isInitialized = false;
         this.keys = config?.keys || { secretKey: '', publicKey: '' };
-        if (!config?.storage) {
-            this.storage = new Storage().create(config.storage);
+        if (config?.storage) {
+            this.storage = config.storage;
+        } else if (config?.storageType === 'browser') {
+            if (!config.allowInsecureStorage) {
+                throw new Error('Browser storage requires allowInsecureStorage to persist sensitive state.');
+            }
+            this.storage = new BrowserStore();
+        } else {
+            this.storage = new NodeStore();
         }
 
         this.handleEvent = this.handleEvent.bind(this);
@@ -80,7 +114,13 @@ export class Pocket extends NWPCPeer {
      * Async initialization for Pocket instance. Loads idKey if needed and initializes the NWPC client.
      */
     public async init(): Promise<void> {
-        if (this.config?.keyID) {
+        // Handle key initialization based on what was provided
+        if (this.config?.signer) {
+            // Signer provided - get public key from signer
+            // Keys will be empty but we use signer for all operations
+            const signerPubkey = await this.config.signer.getPublicKey();
+            this.keys = { secretKey: '', publicKey: signerPubkey };
+        } else if (this.config?.keyID) {
             await this.loadIdKey(this.config.keyID);
         } else if (this.config?.keys && this.config.keys.secretKey && this.config.keys.publicKey) {
             this.keys = this.config.keys;
@@ -93,11 +133,33 @@ export class Pocket extends NWPCPeer {
         }
         await super.init();
         this.state = { ...this.state } as PocketState;
-        this.stateKey = `pocket-state-${this.keys.publicKey}`;
+        // Use publicKey which was set from either signer, loaded key, or generated key
+        this.stateKey = `pocket-state-${this.publicKey || this.keys.publicKey}`;
         await this.loadPocketState();
         this.isInitialized = true;
     }
 
+    /**
+     * Creates and initializes a new Pocket instance.
+     *
+     * This is the primary factory method for creating a Pocket. It handles async initialization
+     * including loading or generating keys, setting up storage, and establishing connections.
+     *
+     * @param config - Configuration object containing keys, storage, relays, and other settings
+     * @returns A fully initialized Pocket instance ready to manage tokens
+     * @throws {Error} If storage is not provided in config
+     *
+     * @example
+     * ```typescript
+     * const pocket = await Pocket.create({
+     *   keys: myKeyPair,
+     *   storage: new NodeStorage(),
+     *   relays: ['wss://relay.example.com']
+     * });
+     * ```
+     *
+     * @see PocketConfig for configuration options
+     */
     static async create(config: PocketConfig): Promise<Pocket> {
         const pocket = new Pocket(config);
         await pocket.init();
@@ -129,7 +191,7 @@ export class Pocket extends NWPCPeer {
             const state = await this.loadState(this.stateKey);
             if (state === null) {
                 const mnemonic = HDKey.generateMnemonic(128);
-                console.log("Pocket: loadPocketState: mnemonic", mnemonic);
+                Debug.log("loadPocketState: generated new mnemonic", 'Pocket');
                 this.state = {
                     ...this.state,
                     favorites: [],
@@ -190,23 +252,23 @@ export class Pocket extends NWPCPeer {
             used: false,
         };
 
-        console.log("Pocket: deriveSingleUseKey subscribe:", keyPair.publicKey);
+        Debug.log("deriveSingleUseKey subscribe:" + keyPair.publicKey, 'Pocket');
         const handler = async (event: NDKEvent) => {
             try {
-                console.log("Pocket: sendRequestWithSingleUseKey response");
+                Debug.log("sendRequestWithSingleUseKey response", 'Pocket');
                 await this.handleEvent(event);
 
                 //unsubscribe from the single-use key after use
                 await this.unsubscribe(keyPair.publicKey);
                 this.state.singleUseKeys.delete(keyPair.publicKey);
-                console.log("Pocket: unsubscribe from single-use key", keyPair.publicKey);
+                Debug.log("unsubscribe from single-use key" + keyPair.publicKey, 'Pocket');
             } catch (e) {
                 // Ignore invalid responses
-                console.log("Pocket: sendRequestWithSingleUseKey error", e);
+                Debug.log("sendRequestWithSingleUseKey error" + e, 'Pocket');
             }
 
         };
-        console.log("Pocket: subscribe to single-use key", keyPair.publicKey);
+        Debug.log("subscribe to single-use key" + keyPair.publicKey, 'Pocket');
         // Subscribe to the single-use key immediately
         await this.subscribe(keyPair.publicKey, handler);
         await this.addSingleUseKey(singleUseKey.publicKey, singleUseKey);
@@ -244,7 +306,7 @@ export class Pocket extends NWPCPeer {
         const tokenHash = token.header.token_hash;
         const issuerTokens = this.state.tokens.get(issuer);
         if (issuerTokens && issuerTokens.has(tokenHash)) {
-            console.log(`Duplicate token received (hash: ${tokenHash}), ignoring.`);
+            Debug.log(`Duplicate token received (hash: ${tokenHash}), ignoring.`, 'Pocket');
             return;
         }
         const tokenID = String(token.payload.tokenID);
@@ -260,7 +322,7 @@ export class Pocket extends NWPCPeer {
         }
         else {
             const denomination = Number(token.payload.amount);
-            const setID = token.payload.ext?.setID ? token.payload.ext.setID : "-";
+            const setID = (token.payload.ext?.setID as string) || "-";
             const tokenIndex = this.state.tokenIndex.get(issuer);
             if (tokenIndex) {
                 let tokenHashes = tokenIndex.get(denomination);
@@ -328,27 +390,43 @@ export class Pocket extends NWPCPeer {
     protected async handleEvent(event: NDKEvent): Promise<void> {
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
-        console.log("Pocket: toKey", event.tags);
-        if (toKey === this.keys.publicKey) {
-            keys = this.keys;
+        let signerToUse: Signer | undefined = undefined;
+        Debug.log("toKey" + event.tags, 'Pocket');
+
+        // Determine which key/signer to use for unwrapping
+        const mainPubkey = this.publicKey || this.keys.publicKey;
+        if (toKey === mainPubkey) {
+            // Use main signer if available, otherwise use main keys
+            if (this.signer) {
+                signerToUse = this.signer;
+            } else {
+                keys = this.keys;
+            }
         }
         else if (toKey) {
             const singleUseKey = this.state.singleUseKeys.get(toKey);
             if (singleUseKey) {
+                // Single-use keys always have secret key, create a KeySigner for them
                 keys = singleUseKey;
             } else {
                 keys = await this.deriveSingleUseKey(toKey);
             }
         }
         try {
-            const unwrapped = await Unwrap(event.content, keys, event.pubkey);
+            // Use signer-based unwrap if signer is available, otherwise fall back to keys
+            let unwrapped;
+            if (signerToUse) {
+                unwrapped = await UnwrapWithSigner(event.content, signerToUse, event.pubkey);
+            } else {
+                unwrapped = await Unwrap(event.content, keys, event.pubkey);
+            }
             if (!unwrapped) {
-                console.log("Pocket: Failed to unwrap event:", event.id);
+                Debug.log("Failed to unwrap event:" + event.id, 'Pocket');
                 return;
             }
 
             if (!unwrapped.verifiedSender) {
-                console.log("Pocket:Original Event is not valid:", event.id);
+                Debug.log("Original Event is not valid:" + event.id, 'Pocket');
                 return;
             }
 
@@ -358,24 +436,24 @@ export class Pocket extends NWPCPeer {
                 event,
                 poster: event.pubkey,
                 sender: unwrapped.sender,
-                recipient: this.keys.publicKey as string,
+                recipient: mainPubkey as string,
             };
 
             const eventId = event.id;
             if (this.isEventProcessed(eventId)) {
-                console.log("Pocket: duplicate event detected", eventId);
+                Debug.log("duplicate event detected" + eventId, 'Pocket');
                 return;
             }
             this.markEventProcessed(eventId);
 
             //
             if (message.result?.token) {
-                console.log("Pocket: received token", message.result.token);
+                Debug.log("received token" + message.result.token, 'Pocket');
                 await this.storeToken(message.result.token);
             }
             //delete the token from the state if it is spent
             else if (message.result?.spent) {
-                console.log("Pocket: received spent token", message.result);
+                Debug.log("received spent token" + message.result, 'Pocket');
                 //delete the token from the state
                 const tokenHash = message.result.spent;
                 const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
@@ -397,18 +475,18 @@ export class Pocket extends NWPCPeer {
                         if (!shouldContinue) return;
                     }
 
-                    console.log(
-                        "NWPCPeer: Found response handler for message ID:",
-                        message.id,
+                    Debug.log(
+                        "Found response handler for message ID:" + message.id,
+                        'Pocket',
                     );
                     const handler = this.responseHandlers.get(message.id);
                     if (handler) {
                         clearTimeout(handler.timeoutId);
                         this.responseHandlers.delete(message.id);
                         handler.resolve(message);
-                        console.log("Pocket: handleEvent message", message);
+                        Debug.log("handleEvent message" + message, 'Pocket');
                         if (message.error?.code == 409) {
-                            console.log("Pocket: handleEvent error", message.error);
+                            Debug.log("handleEvent error" + message.error, 'Pocket');
                             //delete the token from the state
                             const tokenHash = message.result.spent;
                             const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
@@ -421,12 +499,12 @@ export class Pocket extends NWPCPeer {
                         }
                     }
                 }
-                console.log("Pocket: handleEvent messageID", message.id);
-                console.log("Pocket: handleEvent secondary message", message);
+                Debug.log("handleEvent messageID" + message.id, 'Pocket');
+                Debug.log("handleEvent secondary message" + message, 'Pocket');
             }
         }
         catch (error) {
-            console.error("Pocket: handleEvent error", error);
+            Debug.error("handleEvent error" + error, 'Pocket');
         }
         await this.savePocketState();
     }
@@ -434,10 +512,48 @@ export class Pocket extends NWPCPeer {
     // =============================
     // 5. Utility/Public Methods
     // =============================
+    /**
+     * Retrieves the complete internal state of the pocket.
+     *
+     * The state includes all tokens, balances, keys, favorites, and indices. This method
+     * is useful for debugging, state inspection, or implementing custom serialization.
+     * Note that the state contains sensitive information including private keys.
+     *
+     * @returns The complete pocket state object
+     *
+     * @example
+     * ```typescript
+     * const state = pocket.getState();
+     * console.log('Total issuers:', state.tokens.size);
+     * console.log('Single-use keys:', state.singleUseKeys.size);
+     * ```
+     *
+     * @see PocketState for the complete state structure
+     */
     public getState(): PocketState {
         return this.state;
     }
 
+    /**
+     * Retrieves a specific token by its hash.
+     *
+     * Each token has a unique hash derived from its payload. This method returns the
+     * raw JWT string of the token, which can be used for transfers or verification.
+     *
+     * @param issuer - The public key of the token issuer (forge)
+     * @param tokenHash - The unique hash identifier of the token
+     * @returns The token as a JWT string, or undefined if not found
+     *
+     * @example
+     * ```typescript
+     * // Retrieve a specific token
+     * const tokenJWT = pocket.getToken('issuerPubkey', 'token-hash-abc123');
+     * if (tokenJWT) {
+     *   const token = await new Token().restore(tokenJWT);
+     *   console.log('Token amount:', token.payload.amount);
+     * }
+     * ```
+     */
     public getToken(issuer: string, tokenHash: string) {
         return this.state.tokens.get(issuer)?.get(tokenHash);
     }
@@ -446,10 +562,51 @@ export class Pocket extends NWPCPeer {
         return this.state.tokenIndex.get(issuer)?.get(denomination);
     }
 
+    /**
+     * Retrieves the hash of a Transferable Access Token (TAT) by its tokenID.
+     *
+     * TATs are indexed by their unique tokenID for easy lookup. This method returns
+     * the token hash, which can then be used with getToken() to retrieve the full token.
+     *
+     * @param issuer - The public key of the token issuer (forge)
+     * @param tokenID - The unique identifier of the TAT
+     * @returns The token hash, or undefined if the TAT is not in this pocket
+     *
+     * @example
+     * ```typescript
+     * // Check if we own a specific TAT
+     * const tokenHash = pocket.getTAT('issuerPubkey', 'ticket-12345');
+     * if (tokenHash) {
+     *   const tokenJWT = pocket.getToken('issuerPubkey', tokenHash);
+     *   console.log('We own this TAT');
+     * }
+     * ```
+     */
     public getTAT(issuer: string, tokenID: string) {
         return this.state.tatIndex.get(issuer)?.get(tokenID);
     }
 
+    /**
+     * Retrieves the current balance for a specific issuer and token set.
+     *
+     * Balances are tracked separately for each issuer and setID. The setID allows
+     * issuers to create multiple independent token sets (e.g., different currencies,
+     * denominations, or token series). Use "-" as the setID for the default token set.
+     *
+     * @param issuer - The public key of the token issuer (forge)
+     * @param setID - The token set identifier. Use "-" for default set
+     * @returns The current balance, or undefined if no tokens exist for this issuer/setID
+     *
+     * @example
+     * ```typescript
+     * // Check balance for default set
+     * const balance = pocket.getBalance('issuerPubkey', '-');
+     * console.log('Balance:', balance);
+     *
+     * // Check balance for specific token set
+     * const premiumBalance = pocket.getBalance('issuerPubkey', 'premium-tokens');
+     * ```
+     */
     public getBalance(issuer: string, setID: string) {
         setID = setID || "-";
         return this.state.balances.get(issuer)?.get(setID);
@@ -522,7 +679,7 @@ export class Pocket extends NWPCPeer {
      * @returns The built transaction structure
      */
     private createTATTransferTx(issuer: string, to: string, tokenID: string) {
-        console.log("createTATTransferTx", issuer, to, tokenID);
+        Debug.log("createTATTransferTx" + issuer + to + tokenID, 'Pocket');
         const tx = new Transaction(
             'transferTAT',
             this.state
@@ -532,32 +689,75 @@ export class Pocket extends NWPCPeer {
 
 
     /**
-     * Send a TAT transfer transaction to the network.
-     * @param issuer The issuer of the TAT
-     * @param to Recipient address
-     * @param tokenID The TAT token ID
-     * @returns The response from the network
+     * Transfers a Transferable Access Token (TAT) to a recipient.
+     *
+     * TATs are non-fungible tokens identified by a unique tokenID. Unlike fungible tokens,
+     * each TAT is unique and indivisible. This method transfers ownership of the TAT from
+     * this pocket to the recipient's public key.
+     *
+     * @param issuer - The public key of the token issuer (forge)
+     * @param to - The recipient's public key
+     * @param tokenID - The unique identifier of the TAT to transfer
+     * @returns Response from the issuer's forge after processing the transaction
+     * @throws {Error} If the TAT doesn't exist, is already spent, or is locked
+     *
+     * @example
+     * ```typescript
+     * // Transfer a TAT (e.g., a ticket, membership, or access pass)
+     * const response = await pocket.sendTAT(
+     *   'issuerPubkey',
+     *   'recipientPubkey',
+     *   'unique-token-id-123'
+     * );
+     * ```
+     *
+     * @see getTAT to verify TAT ownership before transfer
      */
     public async sendTAT(issuer: string, to: string, tokenID: string) {
         const [method, tx] = this.createTATTransferTx(issuer, to, tokenID);
-        console.log("Pocket: sendTAT", tx);
+        Debug.log("sendTAT" + tx, 'Pocket');
         return this.sendTx(method, issuer, tx);
     }
 
     /**
-     * Send a fungible transfer transaction to the network.
-     * @param issuer The issuer of the token
-     * @param to Recipient address
-     * @param amount Amount to transfer
-     * @param changeKey Address to send change to (optional)
-     * @returns The response from the network
+     * Transfers fungible tokens from this pocket to a recipient.
+     *
+     * This method creates a transaction that combines input tokens to reach the desired amount,
+     * sends them to the recipient, and returns any change to a new single-use key. The transaction
+     * is signed with the appropriate witness data and sent to the issuer's forge for validation.
+     *
+     * @param issuer - The public key of the token issuer (forge)
+     * @param to - The recipient's public key
+     * @param amount - The amount to transfer (must be positive)
+     * @param changeKey - Optional public key for change output. If not provided, a new single-use key is generated
+     * @returns Response from the issuer's forge after processing the transaction
+     * @throws {Error} If insufficient balance or if tokens are locked/spent
+     *
+     * @example
+     * ```typescript
+     * // Transfer 100 tokens to a recipient
+     * const response = await pocket.transfer(
+     *   'issuerPubkey',
+     *   'recipientPubkey',
+     *   100
+     * );
+     *
+     * // Transfer with specific change address
+     * const response = await pocket.transfer(
+     *   'issuerPubkey',
+     *   'recipientPubkey',
+     *   50,
+     *   'myChangePubkey'
+     * );
+     * ```
+     *
+     * @see getBalance to check available balance before transfer
      */
     public async transfer(issuer: string, to: string, amount: number, changeKey?: string) {
         const [method, tx] = await this.createFungibleTransferTx(issuer, to, amount, changeKey);
-        console.log("Pocket: transfer", tx);
+        Debug.log("transfer" + tx, 'Pocket');
         return this.sendTx(method, issuer, tx);
     }
-
 
     /**
      * Send a transaction to the network.
@@ -566,17 +766,16 @@ export class Pocket extends NWPCPeer {
      * @param tx The transaction to send
      * @returns The response from the network
      */
-    public async sendTx(method: string, issuer: string, tx: any) {
+    public async sendTx(method: string, issuer: string, tx: TransactionData) {
         // Restore tokens from tx.inputs or tx.ins
         const inputs: Token[] = [];
-        console.log("Pocket: sendTx", method, tx);
+        Debug.log("sendTx" + method + tx, 'Pocket');
         if (tx.ins) {
             for (const input of tx.ins) {
                 // Support both { token: jwt } and raw jwt
-
-                const jwt = input.token || input;
+                const jwt = typeof input === 'string' ? input : input.token;
                 const token = await new Token().restore(jwt);
-                console.log("Pocket: sendTx token", token);
+                Debug.log("sendTx token" + token, 'Pocket');
                 inputs.push(token);
             }
         }
@@ -587,13 +786,30 @@ export class Pocket extends NWPCPeer {
             tx.witnessData = witnessData;
         }
 
-        console.log("Pocket: sendTx finalTx", tx);
+        Debug.log("sendTx finalTx" + tx, 'Pocket');
         return this.request(method, tx, issuer);
     }
 
     /**
-     * Generate a new single-use key and return its public key.
-     * The key is saved to state so you can later spend tokens sent to it.
+     * Generates a new single-use receiving address for enhanced privacy.
+     *
+     * Each address is derived from the wallet's HD key path and is intended for one-time use.
+     * Using unique addresses for each transaction improves privacy by preventing address reuse.
+     * The key is automatically saved to the pocket's state and will be monitored for incoming tokens.
+     *
+     * @returns The public key of the newly generated single-use address
+     *
+     * @example
+     * ```typescript
+     * // Generate a new address to receive tokens
+     * const receiveAddress = await pocket.getNewReceiveAddress();
+     * console.log('Send tokens to:', receiveAddress);
+     *
+     * // The pocket automatically monitors this address
+     * // Tokens sent to it will appear in your balance
+     * ```
+     *
+     * @see transfer to send tokens to a specific address
      */
     public async getNewReceiveAddress(): Promise<string> {
         const singleUseKey = await this.deriveSingleUseKey();
@@ -613,15 +829,15 @@ export class Pocket extends NWPCPeer {
      */
     public async sendRequestWithSingleUseKey(
         method: string,
-        tx: any,
+        tx: unknown,
         forgePubkey: string,
         responseTimeoutMs: number = 10000
-    ): Promise<any> {
+    ): Promise<unknown> {
         // 1. Generate a new single-use key
         const senderKeys = await this.deriveSingleUseKey();
 
         // 2. Subscribe for the response
-        let response: any = null;
+        let response: unknown = null;
         let responseReceived = false;
         const handler = async (event: NDKEvent) => {
             if (event.pubkey === forgePubkey) {
@@ -644,7 +860,7 @@ export class Pocket extends NWPCPeer {
         await this.subscribe(senderKeys.publicKey, handler);
 
         // 3. Send the request using the single-use key as sender
-        await this.request(method, tx, forgePubkey, senderKeys);
+        await this.request(method, tx as Record<string, unknown>, forgePubkey, senderKeys);
 
         // 4. Wait for response or timeout
         const start = Date.now();
@@ -666,7 +882,7 @@ export class Pocket extends NWPCPeer {
         const token = await new Token().restore(String(tokenJWT));
         const issuer = token.payload.iss;
         const denomination = Number(token.payload.amount);
-        const setID = token.payload.ext?.setID ? token.payload.ext.setID : "-";
+        const setID = (token.payload.ext?.setID as string) || "-";
         const tokenHash = token.header.token_hash;
 
         // Remove from tokenIndex
@@ -710,26 +926,27 @@ export class Pocket extends NWPCPeer {
     // Handle spent events from issuer
     private async handleIssuerSpentEvent(event: NDKEvent) {
         try {
-            let message: any;
+            let message: NWPCMessageData;
             try {
                 message = JSON.parse(event.content);
             } catch (e) {
                 // Not JSON, ignore or handle as needed
-                console.warn("Pocket: handleIssuerSpentEvent received non-JSON content, ignoring:", event.content);
+                Debug.warn("handleIssuerSpentEvent received non-JSON content, ignoring:" + event.content, 'Pocket');
                 return;
             }
-            if (message.result?.spent && message.result?.issuer) {
-                const tokenHash = message.result.spent;
-                const issuer = message.result.issuer;
+            const result = message.result as { spent?: string; issuer?: string } | undefined;
+            if (result?.spent && result?.issuer) {
+                const tokenHash = result.spent;
+                const issuer = result.issuer;
                 const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
                 if (tokenJWT) {
                     await this.deleteToken(tokenJWT);
                 }
                 await this.savePocketState();
-                console.log(`Pocket: Token spent event processed for issuer ${issuer}, tokenHash ${tokenHash}`);
+                Debug.log(`Token spent event processed for issuer ${issuer}, tokenHash ${tokenHash}`, 'Pocket');
             }
         } catch (error) {
-            console.error("Pocket: handleIssuerSpentEvent error", error);
+            Debug.error("handleIssuerSpentEvent error" + error, 'Pocket');
         }
     }
 }

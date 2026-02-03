@@ -26,7 +26,12 @@ export class NonFungibleForge extends ForgeBase {
     _context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const reqObj = JSON.parse(req.params);
+    let reqObj: { to?: string };
+    try {
+      reqObj = JSON.parse(req.params);
+    } catch (error) {
+      return await res.error(400, "Invalid request parameters");
+    }
     const { to } = reqObj;
     if (!to) {
       return await res.error(400, "Missing required parameters");
@@ -77,22 +82,34 @@ export class NonFungibleForge extends ForgeBase {
     res: NWPCResponseObject,
   ) {
     const sender = context.sender;
-    const tx = JSON.parse(req.params);
+    let tx: any;
+    try {
+      tx = JSON.parse(req.params);
+    } catch (error) {
+      return await res.error(400, "Invalid transaction parameters");
+    }
     // Validate transaction
     const [validTx, error] = await this.validateTXInputs(tx, tx.witnessData);
-    if (error) {
-      return await res.error(400, "Invalid transaction: " + error);
+    if (error || !validTx) {
+      return await res.error(400, "Invalid transaction: " + (error || "Validation failed"));
     }
 
-    validTx.ins = await Promise.all(
-      validTx.ins.map(async (input: string) => {
+    // Restore tokens from serialized inputs
+    const restoredInputs = await Promise.all(
+      (validTx.ins || []).map(async (input: string) => {
         return await new Token().restore(input);
       }),
     );
+
+    // Parse output recipients
+    const recipients = (validTx.outs || []).map((out: string) =>
+      typeof out === 'string' ? JSON.parse(out) : out
+    );
+
     // Use shared transfer logic
     return await this.handleNonFungibleTransfer(
-      validTx.ins,
-      validTx.outs,
+      restoredInputs,
+      recipients,
       res,
       sender,
     );

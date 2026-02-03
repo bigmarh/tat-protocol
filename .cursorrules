@@ -1,0 +1,170 @@
+# TAT Protocol - Cursor Rules
+
+## Project Overview
+TAT Protocol is an open source decentralized token system built on Nostr.
+This repo contains protocol specifications and reference implementations.
+
+## Key Documentation
+- `docs/TAT_PROTOCOL_EXTENSIONS.md` - Extension protocols (Agents, NWPC, Booth, Gate, HTLC)
+- `docs/PROTOCOL_SPEC.md` - Core protocol specification
+- `docs/GETTING_STARTED.md` - Quick start guide
+
+## Core Concepts
+
+### Agents
+Protocol participants are called **Agents**. An Agent is a Nostr account that responds to NWPC.
+
+**Agents communicate through NWPC** (Nostr Wrapped Procedure Calls). All inter-Agent communication uses NWPC messages over encrypted Nostr direct messages.
+
+There are four types of Agents:
+
+| Agent Type | Role |
+|------------|------|
+| **Forge** | Mints and manages tokens |
+| **Pocket** | Holds and spends tokens (wallet) |
+| **Booth** | Sells TATs, handles payments |
+| **Gate** | Verifies TAT ownership for access |
+
+### Agent Profiles
+Agents use **standard Nostr Kind 0 profiles** with an `agent` field:
+
+```typescript
+{
+  kind: 0,
+  content: JSON.stringify({
+    name: "My Forge",
+    about: "...",
+    agent: {
+      type: "forge",
+      version: "1.0.0",
+      methods: ["booth.catalog", "booth.invoice", "booth.pay"]
+    }
+  })
+}
+```
+
+### NWPC (Nostr Wrapped Procedure Calls)
+**NWPC is the communication protocol for Agents.** It's JSON-RPC over NIP-17 encrypted DMs (Kind 1059).
+
+Agents use NWPC to:
+- Send requests to other Agents (e.g., `booth.catalog`, `gate.challenge`)
+- Receive and respond to requests from other Agents
+- Exchange structured data in a standardized format
+
+## Code Conventions
+
+### TypeScript
+- Strict mode always
+- Export types from `index.ts`
+- Use interfaces for data structures
+- Async/await, never callbacks
+
+### Crypto Libraries (Browser Compatible!)
+```typescript
+// CORRECT
+import { schnorr } from '@noble/curves/secp256k1';
+import { sha256 } from '@noble/hashes/sha256';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+
+// WRONG - Not browser compatible
+import crypto from 'crypto';
+```
+
+### Nostr
+```typescript
+import { SimplePool, finalizeEvent, generateSecretKey, getPublicKey } from 'nostr-tools';
+```
+
+## Protocol Constants
+
+### Token Types
+- `FUNGIBLE` - Divisible tokens
+- `TAT` - Non-fungible access tokens
+
+### Nostr Event Kinds
+```typescript
+const EVENT_KINDS = {
+  PROFILE: 0,                    // Standard Nostr (Agents use this)
+  TAT_CATALOG_ITEM: 30100,
+  TAT_ACTIVITY: 30101,
+  HTLC_CLAIM: 30120,             // PUBLIC - for atomic swaps
+  FORGE_AUTHORIZATION: 30130,
+  AUTHORIZATION_REQUEST: 30131,
+};
+```
+
+### NWPC Methods
+```typescript
+// Booth (sales)
+'booth.catalog'
+'booth.invoice'
+'booth.pay'
+'booth.status'
+
+// Gate (verification)
+'gate.challenge'
+'gate.verify'
+
+// Forge
+'forge.mint_request'
+
+// HTLC
+'htlc.create'
+'htlc.claim'
+'htlc.refund'
+```
+
+## Key Implementation Rules
+
+### 1. Agents Are Nostr Accounts
+- Standard Kind 0 profile
+- Discoverable via NIP-05
+- Communicate via encrypted DMs
+
+### 2. Direct Sales (Forge as Booth)
+When Forge implements booth.* methods:
+- `booth.pubkey === forge.pubkey`
+- No authorization needed
+- Simplest deployment
+
+### 3. HTLC Claims MUST Be Public
+```typescript
+// kind 30120 reveals secret publicly
+// This enables atomic swaps
+{
+  kind: 30120,
+  tags: [
+    ['h', '<hash>'],
+    ['s', '<secret>'],  // PUBLIC!
+  ]
+}
+```
+
+### 4. HTLC Timeout Ordering
+```
+Payment timeout >= 2 × Delivery timeout
+```
+
+### 5. Gate Nonce
+- 32 bytes minimum
+- Single use
+- Time-limited
+
+## Package Structure
+```
+packages/
+  tdk/          # Complete development kit
+  forge/        # Forge implementation
+  pocket/       # Pocket implementation
+  booth/        # Booth implementation
+  gate/         # Gate implementation
+  nwpc/         # NWPC messaging
+  token/        # Token creation/validation
+  storage/      # Storage adapters
+```
+
+## Testing
+- Use Vitest
+- Mock NWPC for unit tests
+- Test crypto operations
+- Test happy path + errors

@@ -1,7 +1,7 @@
 import { HDKey as HDKeyLib } from "@scure/bip32";
 import { bytesToHex } from "@noble/hashes/utils";
 import { generateMnemonic, mnemonicToSeed } from "@scure/bip39";
-import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
+import { wordlist as englishWordlist } from "@scure/bip39/wordlists/english";
 
 export class HDKey {
   private hdKey: HDKeyLib;

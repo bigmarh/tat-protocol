@@ -28,18 +28,22 @@ export class HandlerEngine {
     // Patch: wrap res.send and res.error to detect if a response was sent
     const originalSend = res.send.bind(res);
     const originalError = res.error.bind(res);
-    res.send = async (...args: any[]) => {
+    res.send = async (...args: unknown[]) => {
       responseSent = true;
       // Ensure at least one argument (data)
       const [data, recipient] = args.length === 0 ? [{}] : args;
-      return originalSend(data, recipient);
+      return originalSend(data, recipient as string | string[] | undefined);
     };
-    res.error = async (...args: any[]) => {
+    res.error = async (...args: unknown[]) => {
       responseSent = true;
       // Ensure at least two arguments (code, message)
       const [code, message, recipient] =
         args.length < 2 ? [500, "Unknown error"] : args;
-      return originalError(code, message, recipient);
+      return originalError(
+        code as number,
+        message as string,
+        recipient as string | undefined,
+      );
     };
 
     const next = async (): Promise<void> => {

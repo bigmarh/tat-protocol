@@ -1,9 +1,17 @@
 import { TokenType } from "@tat-protocol/token";
 import { StorageInterface } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
+import type { Signer } from "@tat-protocol/types";
 
 /**
- * Configuration options for a Forge
+ * Configuration options for a Forge.
+ *
+ * Supports two key management approaches:
+ * 1. `signer` - A Signer interface for abstracted key management (recommended)
+ * 2. `keys` - Direct KeyPair for backwards compatibility
+ *
+ * If both are provided, `signer` takes precedence.
+ * If neither is provided, new keys will be generated automatically.
  */
 export interface ForgeConfig {
   /**
@@ -57,6 +65,12 @@ export interface ForgeConfig {
   assetIdStrategy?: "unique" | "sequential";
 
   /**
+   * Signer interface for abstracted key management (recommended)
+   * Takes precedence over keys if both are provided
+   */
+  signer?: Signer;
+
+  /**
    * Optional key pair for the forge
    * If not provided, will generate new keys during initialization
    */
@@ -67,4 +81,9 @@ export interface ForgeConfig {
    * If not provided, only the forge owner can mint tokens
    */
   authorizedForgers?: string[];
+
+  /**
+   * Allow arbitrary properties for NWPC compatibility
+   */
+  [key: string]: unknown;
 }

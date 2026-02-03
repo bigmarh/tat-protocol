@@ -2,6 +2,9 @@ import { sha256 } from "@noble/hashes/sha256";
 import { schnorr } from "@noble/curves/secp256k1";
 import { hexToBytes } from "@noble/hashes/utils";
 import { KeyPair } from "@tat-protocol/hdkeys";
+import { DebugLogger } from "./debug";
+
+const Debug = DebugLogger.getInstance();
 
 export function verifySignature(
   message: Uint8Array,
@@ -11,7 +14,7 @@ export function verifySignature(
   try {
     return schnorr.verify(signature, message, hexToBytes(pubkey));
   } catch (error) {
-    console.error("Signature verification error:", error);
+    Debug.error("Signature verification error:" + error, "CryptoHelpers");
     return false;
   }
 }

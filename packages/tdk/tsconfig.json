@@ -2,18 +2,21 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "./dist",
-    "rootDir": "./src"
+    "rootDir": "./src",
+    "composite": true,
+    "declaration": true,
+    "declarationDir": "./dist"
   },
   "include": ["src"],
   "references": [
+    { "path": "../types" },
+    { "path": "../signers" },
     { "path": "../token" },
     { "path": "../hdkeys" },
     { "path": "../storage" },
-    { "path": "../boxoffice" },
     { "path": "../forge" },
     { "path": "../nwpc" },
     { "path": "../pocket" },
-    { "path": "../turnstile" },
     { "path": "../utils" }
   ]
 }

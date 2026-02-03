@@ -1,9 +1,23 @@
 {
   "name": "@tat-protocol/token",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Token module for TAT Protocol",
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -b",
     "test": "jest",
@@ -24,6 +38,5 @@
     "@tat-protocol/utils": "workspace:*",
     "@tat-protocol/storage": "workspace:*"
   },
-  "devDependencies": {
-  }
+  "devDependencies": {}
 }

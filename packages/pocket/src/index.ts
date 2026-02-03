@@ -1,2 +1,2 @@
-import { Pocket } from './Pocket';
-export { Pocket };
+export { Pocket } from './Pocket';
+export type { PocketConfig, PocketState } from './Pocket';

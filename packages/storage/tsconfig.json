@@ -6,7 +6,7 @@
         "composite": true,
         "declaration": true
     },
-    "exclude": ["node_modules", "dist","**/.svelte2tsx-language-server-files","*.svelte"],
+    "exclude": ["node_modules", "dist","**/.svelte2tsx-language-server-files","*.svelte", "src/FireBaseRTDBStorage.ts"],
     "include": ["src"],
     "references": [
         { "path": "../utils" }

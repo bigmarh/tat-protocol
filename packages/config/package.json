@@ -1,7 +1,33 @@
 {
   "name": "@tat-protocol/config",
-  "version": "1.0.0",
-  "main": "defaultConfig.ts",
-  "types": "defaultConfig.ts",
-  "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
-} 
+  "version": "1.0.1",
+  "description": "Configuration module for TAT Protocol",
+  "type": "module",
+  "main": "dist/defaultConfig.js",
+  "types": "dist/defaultConfig.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/defaultConfig.js",
+      "types": "./dist/defaultConfig.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+  },
+  "keywords": [
+    "config",
+    "configuration",
+    "tat",
+    "protocol"
+  ],
+  "author": "TAT Protocol",
+  "license": "MIT"
+}

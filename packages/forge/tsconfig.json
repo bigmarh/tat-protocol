@@ -9,9 +9,10 @@
     "include": ["src"],
     "exclude": ["node_modules", "dist","*.svelte"],
     "references": [
+        { "path": "../types" },
         { "path": "../utils" },
         { "path": "../token" },
         { "path": "../nwpc" },
-        { "path": "../storage" },
+        { "path": "../storage" }
     ]
 } 

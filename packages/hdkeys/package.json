@@ -1,9 +1,20 @@
 {
     "name": "@tat-protocol/hdkeys",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "description": "HD Keys implementation for TAT Protocol",
+    "type": "module",
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
+    "exports": {
+        ".": {
+            "import": "./dist/index.js",
+            "types": "./dist/index.d.ts"
+        }
+    },
+    "files": [
+        "dist",
+        "README.md"
+    ],
     "scripts": {
         "build": "tsc -b",
         "test": "jest",
@@ -19,10 +30,12 @@
     ],
     "author": "TAT Protocol",
     "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
     "dependencies": {
         "@noble/hashes": "^1.0.0",
         "bip39": "^3.1.0"
     },
-    "devDependencies": {
-    }
+    "devDependencies": {}
 }

@@ -17,9 +17,6 @@ importers:
       '@scure/bip39':
         specifier: ^1.6.0
         version: 1.6.0
-      '@tat-protocol/boxoffice':
-        specifier: workspace:*
-        version: link:packages/boxoffice
       '@tat-protocol/forge':
         specifier: workspace:*
         version: link:packages/forge
@@ -41,9 +38,6 @@ importers:
       '@tat-protocol/token':
         specifier: workspace:*
         version: link:packages/token
-      '@tat-protocol/turnstile':
-        specifier: workspace:*
-        version: link:packages/turnstile
       '@tat-protocol/utils':
         specifier: workspace:*
         version: link:packages/utils
@@ -109,14 +103,20 @@ importers:
         specifier: ^8.14.2
         version: 8.18.2
 
-  packages/boxoffice:
+  packages/booth:
     dependencies:
+      '@tat-protocol/hdkeys':
+        specifier: workspace:*
+        version: link:../hdkeys
       '@tat-protocol/nwpc':
         specifier: workspace:*
         version: link:../nwpc
       '@tat-protocol/storage':
         specifier: workspace:*
         version: link:../storage
+      '@tat-protocol/token':
+        specifier: workspace:*
+        version: link:../token
       '@tat-protocol/utils':
         specifier: workspace:*
         version: link:../utils
@@ -137,6 +137,9 @@ importers:
       '@tat-protocol/token':
         specifier: workspace:*
         version: link:../token
+      '@tat-protocol/types':
+        specifier: workspace:*
+        version: link:../types
       '@tat-protocol/utils':
         specifier: workspace:*
         version: link:../utils
@@ -157,6 +160,21 @@ importers:
         specifier: ^9.15.0
         version: 9.28.0
 
+  packages/gate:
+    dependencies:
+      '@tat-protocol/hdkeys':
+        specifier: workspace:*
+        version: link:../hdkeys
+      '@tat-protocol/storage':
+        specifier: workspace:*
+        version: link:../storage
+      '@tat-protocol/types':
+        specifier: workspace:*
+        version: link:../types
+      '@tat-protocol/utils':
+        specifier: workspace:*
+        version: link:../utils
+
   packages/hdkeys:
     dependencies:
       '@noble/hashes':
@@ -169,11 +187,14 @@ importers:
   packages/nwpc:
     dependencies:
       '@tat-protocol/config':
-        specifier: file:../config
+        specifier: workspace:*
         version: link:../config
       '@tat-protocol/storage':
         specifier: workspace:*
         version: link:../storage
+      '@tat-protocol/types':
+        specifier: workspace:*
+        version: link:../types
       '@tat-protocol/utils':
         specifier: workspace:*
         version: link:../utils
@@ -187,7 +208,7 @@ importers:
   packages/pocket:
     dependencies:
       '@tat-protocol/config':
-        specifier: file:../config
+        specifier: workspace:*
         version: link:../config
       '@tat-protocol/hdkeys':
         specifier: workspace:*
@@ -195,12 +216,33 @@ importers:
       '@tat-protocol/nwpc':
         specifier: workspace:*
         version: link:../nwpc
+      '@tat-protocol/signers':
+        specifier: workspace:*
+        version: link:../signers
       '@tat-protocol/storage':
         specifier: workspace:*
         version: link:../storage
+      '@tat-protocol/types':
+        specifier: workspace:*
+        version: link:../types
       '@tat-protocol/utils':
         specifier: workspace:*
         version: link:../utils
+      nostr-tools:
+        specifier: ^2.12.0
+        version: 2.13.1(typescript@5.8.3)
+
+  packages/signers:
+    dependencies:
+      '@noble/curves':
+        specifier: ^1.4.0
+        version: 1.9.1
+      '@noble/hashes':
+        specifier: ^1.0.0
+        version: 1.8.0
+      '@tat-protocol/types':
+        specifier: workspace:*
+        version: link:../types
       nostr-tools:
         specifier: ^2.12.0
         version: 2.13.1(typescript@5.8.3)
@@ -219,9 +261,6 @@ importers:
       '@nostr-dev-kit/ndk':
         specifier: 2.14.15
         version: 2.14.15(nostr-tools@2.13.1(typescript@5.8.3))
-      '@tat-protocol/boxoffice':
-        specifier: workspace:*
-        version: link:../boxoffice
       '@tat-protocol/forge':
         specifier: workspace:*
         version: link:../forge
@@ -234,15 +273,18 @@ importers:
       '@tat-protocol/pocket':
         specifier: workspace:*
         version: link:../pocket
+      '@tat-protocol/signers':
+        specifier: workspace:*
+        version: link:../signers
       '@tat-protocol/storage':
         specifier: workspace:*
         version: link:../storage
       '@tat-protocol/token':
         specifier: workspace:*
         version: link:../token
-      '@tat-protocol/turnstile':
+      '@tat-protocol/types':
         specifier: workspace:*
-        version: link:../turnstile
+        version: link:../types
       '@tat-protocol/utils':
         specifier: workspace:*
         version: link:../utils
@@ -326,17 +368,7 @@ importers:
         specifier: ^2.12.0
         version: 2.13.1(typescript@5.8.3)
 
-  packages/turnstile:
-    dependencies:
-      '@tat-protocol/nwpc':
-        specifier: workspace:*
-        version: link:../nwpc
-      '@tat-protocol/storage':
-        specifier: workspace:*
-        version: link:../storage
-      '@tat-protocol/utils':
-        specifier: workspace:*
-        version: link:../utils
+  packages/types: {}
 
   packages/utils:
     dependencies:
@@ -346,6 +378,9 @@ importers:
       '@tat-protocol/hdkeys':
         specifier: workspace:*
         version: link:../hdkeys
+      '@tat-protocol/types':
+        specifier: workspace:*
+        version: link:../types
       nostr-tools:
         specifier: ^2.12.0
         version: 2.13.1(typescript@5.8.3)

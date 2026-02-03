@@ -6,10 +6,39 @@ import {
   NWPCResponseObject,
   NWPCConfig,
 } from "./NWPCResponseTypes";
-import { Wrap, Unwrap } from "@tat-protocol/utils";
+import { Wrap, Unwrap, WrapWithSigner, UnwrapWithSigner, DebugLogger } from "@tat-protocol/utils";
 import { NWPCBase } from "./NWPCBase";
 import { KeyPair } from "@tat-protocol/hdkeys";
+import type { Signer } from "@tat-protocol/types";
 
+const Debug = DebugLogger.getInstance();
+
+/**
+ * NWPC Peer implementation for client-side communication.
+ *
+ * NWPCPeer extends NWPCBase to provide client-side functionality for making
+ * requests to NWPC servers and handling responses. It manages request/response
+ * correlation, timeouts, and can also handle incoming requests (peer-to-peer).
+ *
+ * Key features:
+ * - Send requests and await responses
+ * - Automatic request/response matching by ID
+ * - Configurable timeouts
+ * - Support for both client and peer-to-peer modes
+ *
+ * @example
+ * ```typescript
+ * const peer = new NWPCPeer({
+ *   keys: myKeys,
+ *   storage: myStorage,
+ *   relays: ['wss://relay.example.com']
+ * });
+ * await peer.init();
+ *
+ * // Make a request
+ * const response = await peer.request('methodName', { param: 'value' }, 'serverPubkey');
+ * ```
+ */
 export class NWPCPeer extends NWPCBase {
   protected responseHandlers: Map<
     string,
@@ -22,7 +51,7 @@ export class NWPCPeer extends NWPCBase {
 
   constructor(config: NWPCConfig) {
     super(config);
-   
+
     this.responseHandlers = new Map();
     // Bind handleEvent to this instance
     this.handleEvent = this.handleEvent.bind(this);
@@ -30,9 +59,15 @@ export class NWPCPeer extends NWPCBase {
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
     try {
-      const unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
+      // Use signer-based unwrap if signer is available, otherwise fall back to keys
+      let unwrapped;
+      if (this.signer) {
+        unwrapped = await UnwrapWithSigner(event.content, this.signer, event.pubkey);
+      } else {
+        unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
+      }
       if (!unwrapped) {
-        console.log("NWPCPeer: Failed to unwrap event:", event.id);
+        Debug.log("Failed to unwrap event:" + event.id, 'NWPCPeer');
         return;
       }
 
@@ -42,7 +77,7 @@ export class NWPCPeer extends NWPCBase {
         event,
         poster: event.pubkey,
         sender: unwrapped.sender,
-        recipient: this.keys.publicKey as string,
+        recipient: this.publicKey || this.keys.publicKey as string,
       };
 
       // Check if it's a response to our request
@@ -80,41 +115,110 @@ export class NWPCPeer extends NWPCBase {
         if (handler) {
           const res = new NWPCResponseObject(request.id, this, context);
           const response = await this.router.handle(request, context, res);
-          console.log("NWPCPeer: handleEvent:", response);
+          Debug.log("handleEvent:" + response, 'NWPCPeer');
           await this.sendResponse(response, event.pubkey);
 
           if (this.hooks.afterRequest) {
             await this.hooks.afterRequest(message, context);
           }
         } else {
-          console.log("NWPCPeer: No handler found for method:", request.method);
+          Debug.log("No handler found for method:" + request.method, 'NWPCPeer');
         }
       } else {
-        console.log(
-          "NWPCPeer:handleEvent: Unknown message type:",
-          message.result,
+        Debug.log(
+          "handleEvent: Unknown message type:" + message.result,
+          'NWPCPeer',
         );
       }
     } catch (error) {
-      console.error("NWPCPeer: Error in handleEvent:", error);
+      Debug.error("Error in handleEvent:" + error, 'NWPCPeer');
     }
   }
 
+  /**
+   * Sends a request to a remote NWPC peer or server.
+   *
+   * Creates and sends an encrypted request, then waits for a response with the
+   * matching ID. The request is wrapped using Nostr's gift-wrap encryption and
+   * published to connected relays.
+   *
+   * @param method - The method name to invoke on the recipient
+   * @param params - Parameters to send with the request
+   * @param recipientPubkey - The public key of the recipient
+   * @param senderKeysOrSigner - Optional keys or signer to use as sender (defaults to this peer's signer/keys)
+   * @param timeout - Timeout in milliseconds (default 30000)
+   * @returns The response from the recipient
+   * @throws {Error} If the request times out or fails
+   *
+   * @example
+   * ```typescript
+   * const response = await peer.request(
+   *   'transfer',
+   *   { amount: 100, to: 'recipientPubkey' },
+   *   'forgePubkey',
+   *   undefined,
+   *   10000
+   * );
+   * if (response.error) {
+   *   console.error('Request failed:', response.error);
+   * } else {
+   *   console.log('Success:', response.result);
+   * }
+   * ```
+   */
   public async request(
     method: string,
-    params: Record<string, any>,
+    params: Record<string, unknown>,
     recipientPubkey: string,
-    senderKeys?: KeyPair,
+    senderKeysOrSigner?: KeyPair | Signer,
     timeout: number = 30000,
   ): Promise<NWPCResponse> {
     const request = this.createRequest(method, params);
-    const wrappedEvent = await Wrap(
-      this.ndk,
-      JSON.stringify(request),
-      senderKeys || this.keys,
-      recipientPubkey,
-    );
-    console.log("NWPCPeer: request:");
+
+    let wrappedEvent;
+
+    // Determine if the sender param is a Signer or KeyPair
+    const isSigner = (obj: unknown): obj is Signer =>
+      obj !== null &&
+      typeof obj === 'object' &&
+      'getPublicKey' in obj &&
+      'signEvent' in obj;
+
+    if (senderKeysOrSigner && isSigner(senderKeysOrSigner)) {
+      // Use provided signer
+      wrappedEvent = await WrapWithSigner(
+        this.ndk,
+        JSON.stringify(request),
+        senderKeysOrSigner,
+        recipientPubkey,
+      );
+    } else if (senderKeysOrSigner) {
+      // Use provided keys
+      wrappedEvent = await Wrap(
+        this.ndk,
+        JSON.stringify(request),
+        senderKeysOrSigner as KeyPair,
+        recipientPubkey,
+      );
+    } else if (this.signer) {
+      // Use instance signer
+      wrappedEvent = await WrapWithSigner(
+        this.ndk,
+        JSON.stringify(request),
+        this.signer,
+        recipientPubkey,
+      );
+    } else {
+      // Use instance keys
+      wrappedEvent = await Wrap(
+        this.ndk,
+        JSON.stringify(request),
+        this.keys,
+        recipientPubkey,
+      );
+    }
+
+    Debug.log("request:", 'NWPCPeer');
     await wrappedEvent.publish();
 
     return new Promise((resolve, reject) => {

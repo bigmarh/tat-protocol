@@ -7,6 +7,9 @@ import {
 } from "@tat-protocol/nwpc";
 import { ForgeConfig } from "./ForgeConfig";
 import { Recipient } from "./Types";
+import { DebugLogger } from "@tat-protocol/utils";
+
+const Debug = DebugLogger.getInstance();
 
 export class FungibleForge extends ForgeBase {
   constructor(config: ForgeConfig) {
@@ -18,7 +21,12 @@ export class FungibleForge extends ForgeBase {
     _context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const reqObj = JSON.parse(req.params);
+    let reqObj: { to?: string; amount?: number | string };
+    try {
+      reqObj = JSON.parse(req.params);
+    } catch (error) {
+      return await res.error(400, "Invalid request parameters");
+    }
 
     const { to, amount } = reqObj;
     if (!amount || !to) {
@@ -58,30 +66,42 @@ export class FungibleForge extends ForgeBase {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const tx = JSON.parse(req.params);
+    let tx: any;
+    try {
+      tx = JSON.parse(req.params);
+    } catch (error) {
+      return await res.error(400, "Invalid transaction parameters");
+    }
     const sender = context.sender;
     // Validate transaction
     const [validTx, error, code, params] = await this.validateTXInputs(
       tx,
       tx.witnessData,
     );
-    if (error) {
+    if (error || !validTx) {
       return await res.error(
         code ?? 400,
-        "Invalid transaction: " + error,
+        "Invalid transaction: " + (error || "Validation failed"),
         params,
       );
     }
-    validTx.ins = await Promise.all(
-      validTx.ins.map(async (input: string) => {
+
+    // Restore tokens from serialized inputs
+    const restoredInputs = await Promise.all(
+      (validTx.ins || []).map(async (input: string) => {
         return await new Token().restore(input);
       }),
     );
 
+    // Parse output recipients
+    const recipients = (validTx.outs || []).map((out: string) =>
+      typeof out === "string" ? JSON.parse(out) : out,
+    );
+
     // Use shared transfer logic
     return await this.handleFungibleTransfer(
-      validTx.ins,
-      validTx.outs,
+      restoredInputs,
+      recipients,
       res,
       sender,
     );
@@ -111,15 +131,15 @@ export class FungibleForge extends ForgeBase {
       }),
     );
 
-    console.log("recipientTokens:", recipientTokens.length);
+    Debug.log("recipientTokens:" + recipientTokens.length, "FungibleForge");
     // Send output tokens to recipients
     for (const { to, jwt } of recipientTokens) {
-      console.log("sending token to:", to);
+      Debug.log("sending token to:" + to, "FungibleForge");
       await res.send({ token: jwt }, to);
     }
     // Send change token to sender, if any
     if (changeTokenJWT) {
-      console.log("sending change token to SENDER:", sender);
+      Debug.log("sending change token to SENDER:" + sender, "FungibleForge");
       return await res.send({ token: changeTokenJWT }, sender);
     }
 
