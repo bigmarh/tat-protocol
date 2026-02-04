@@ -1,45 +1,45 @@
 {
-    "name": "@tat-protocol/gate",
-    "version": "1.0.1",
-    "description": "Gate Agent for TAT Protocol - Access verification and validation",
-    "type": "module",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "import": "./dist/index.js",
-            "types": "./dist/index.d.ts"
-        }
-    },
-    "files": [
-        "dist",
-        "README.md"
-    ],
-    "publishConfig": {
-        "access": "public"
-    },
-    "scripts": {
-        "build": "tsc -b",
-        "test": "jest",
-        "lint": "eslint .",
-        "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
-    },
-    "keywords": [
-        "tat-protocol",
-        "gate",
-        "access-control",
-        "verification",
-        "agent",
-        "nwpc"
-    ],
-    "author": "TAT Protocol",
-    "license": "MIT",
-    "dependencies": {
-        "@tat-protocol/hdkeys": "workspace:*",
-        "@tat-protocol/storage": "workspace:*",
-        "@tat-protocol/types": "workspace:*",
-        "@tat-protocol/utils": "workspace:*"
-    },
-    "devDependencies": {}
+  "name": "@tat-protocol/gate",
+  "version": "1.0.2",
+  "description": "Gate Agent for TAT Protocol - Access verification and validation",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.ts\"",
+    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+  },
+  "keywords": [
+    "tat-protocol",
+    "gate",
+    "access-control",
+    "verification",
+    "agent",
+    "nwpc"
+  ],
+  "author": "TAT Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "@tat-protocol/hdkeys": "workspace:*",
+    "@tat-protocol/storage": "workspace:*",
+    "@tat-protocol/types": "workspace:*",
+    "@tat-protocol/utils": "workspace:*"
+  },
+  "devDependencies": {}
 }

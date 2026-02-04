@@ -6,6 +6,7 @@ import {
   NWPCResponse,
   NWPCConfig,
 } from "@tat-protocol/nwpc";
+import { NWPCPeer } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger } from "@tat-protocol/utils";
 import { randomBytes } from "crypto";
@@ -81,6 +82,8 @@ export class BoothAgent {
   private nwpcServer: NWPCServer;
   /** Cached public key resolved from signer or keys */
   private resolvedPubkey: string = "";
+  private forgeClient?: NWPCPeer;
+  private forgeClientReady?: Promise<void>;
 
   constructor(config: BoothAgentConfig) {
     if (!config.storage) {
@@ -115,7 +118,7 @@ export class BoothAgent {
     if (this.isInitialized) return;
 
     // Resolve and cache public key from signer or keys
-    this.resolvedPubkey = await this.resolvePublicKey() || "default";
+    this.resolvedPubkey = (await this.resolvePublicKey()) || "default";
     this.stateKey = `booth-spec-${this.resolvedPubkey}`;
     await this._loadState();
     this.isInitialized = true;
@@ -167,7 +170,7 @@ export class BoothAgent {
   private async handleCatalog(
     req: NWPCRequest,
     context: NWPCContext,
-    res: NWPCResponseObject
+    res: NWPCResponseObject,
   ): Promise<NWPCResponse | void> {
     try {
       const params = req.params ? JSON.parse(req.params) : {};
@@ -202,7 +205,7 @@ export class BoothAgent {
           total,
           offset,
         },
-        context.sender
+        context.sender,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -216,7 +219,7 @@ export class BoothAgent {
   private async handleInvoice(
     req: NWPCRequest,
     context: NWPCContext,
-    res: NWPCResponseObject
+    res: NWPCResponseObject,
   ): Promise<NWPCResponse | void> {
     try {
       const params = JSON.parse(req.params);
@@ -240,7 +243,7 @@ export class BoothAgent {
       // Build payment options
       const paymentOptions = await this.buildPaymentOptions(
         catalogItem,
-        quantity
+        quantity,
       );
 
       const invoice: Invoice = {
@@ -263,7 +266,7 @@ export class BoothAgent {
           expiresAt,
           paymentOptions,
         },
-        context.sender
+        context.sender,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -277,7 +280,7 @@ export class BoothAgent {
   private async handlePay(
     req: NWPCRequest,
     context: NWPCContext,
-    res: NWPCResponseObject
+    res: NWPCResponseObject,
   ): Promise<NWPCResponse | void> {
     try {
       const params = JSON.parse(req.params);
@@ -303,7 +306,7 @@ export class BoothAgent {
       // Check already paid
       if (invoice.status === "paid") {
         const receipt = Array.from(this.state.receipts.values()).find(
-          (r) => r.invoiceId === invoiceId
+          (r) => r.invoiceId === invoiceId,
         );
         if (receipt) {
           return res.send(
@@ -311,7 +314,7 @@ export class BoothAgent {
               success: true,
               receipt,
             },
-            context.sender
+            context.sender,
           );
         }
       }
@@ -320,7 +323,7 @@ export class BoothAgent {
       const result = await this.processPayment(
         invoice,
         payment,
-        context.sender
+        context.sender,
       );
 
       if (!result.success) {
@@ -345,7 +348,7 @@ export class BoothAgent {
           tat: result.tat,
           receipt: result.receipt,
         },
-        context.sender
+        context.sender,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -359,7 +362,7 @@ export class BoothAgent {
   private async handleStatus(
     req: NWPCRequest,
     context: NWPCContext,
-    res: NWPCResponseObject
+    res: NWPCResponseObject,
   ): Promise<NWPCResponse | void> {
     try {
       const params = JSON.parse(req.params);
@@ -376,7 +379,7 @@ export class BoothAgent {
 
       if (invoice.status === "paid") {
         receipt = Array.from(this.state.receipts.values()).find(
-          (r) => r.invoiceId === invoiceId
+          (r) => r.invoiceId === invoiceId,
         );
       }
 
@@ -388,7 +391,7 @@ export class BoothAgent {
           receipt,
           expiresAt: invoice.expiresAt,
         },
-        context.sender
+        context.sender,
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -405,16 +408,19 @@ export class BoothAgent {
    */
   private async buildPaymentOptions(
     catalogItem: CatalogItem,
-    quantity: number
+    quantity: number,
   ): Promise<PaymentOptions> {
     const totalAmount = catalogItem.price.amount * quantity;
     const options: PaymentOptions = {};
 
-    // TATUSD payment (always available)
-    options.tatusd = {
-      amount: totalAmount,
-      payTo: this.resolvedPubkey,
-    };
+    if (this.config.supportedPaymentMethods?.includes("token")) {
+      options.token = {
+        amount: catalogItem.tokenType === "FUNGIBLE" ? totalAmount : undefined,
+        payTo: this.resolvedPubkey,
+        issuer: catalogItem.issuer,
+        tokenType: catalogItem.tokenType,
+      };
+    }
 
     // Add other payment methods based on configuration
     if (this.config.supportedPaymentMethods?.includes("lightning")) {
@@ -441,7 +447,7 @@ export class BoothAgent {
   private async processPayment(
     invoice: Invoice,
     payment: PaymentSubmission,
-    buyerPubkey: string
+    buyerPubkey: string,
   ): Promise<{
     success: boolean;
     tat?: string;
@@ -449,31 +455,61 @@ export class BoothAgent {
     error?: string;
   }> {
     try {
-      if (payment.method === "tatusd") {
-        // Verify TATUSD tokens
+      if (payment.method === "token") {
         const tokens = payment.tokens;
-        let totalAmount = 0;
+        if (!tokens?.length) {
+          return { success: false, error: "No tokens provided" };
+        }
 
+        let totalAmount = 0;
+        const tokenHashes: string[] = [];
         for (const tokenJWT of tokens) {
           const token = await new Token().restore(tokenJWT);
 
           if (!(await token.validate())) {
-            return { success: false, error: "Invalid TATUSD token" };
+            return { success: false, error: "Invalid token" };
           }
 
-          if (token.payload.P2PKlock !== this.resolvedPubkey) {
+          if (token.payload.iss !== invoice.catalogItem.issuer) {
+            return { success: false, error: "Token issuer mismatch" };
+          }
+
+          if (token.header.typ !== invoice.catalogItem.tokenType) {
+            return { success: false, error: "Token type mismatch" };
+          }
+
+          if (token.payload.P2PKlock && token.payload.P2PKlock !== this.resolvedPubkey) {
             return { success: false, error: "Token not locked to Booth" };
           }
 
-          totalAmount += token.payload.amount || 0;
+          if (invoice.catalogItem.tokenType === "FUNGIBLE") {
+            const amount = token.payload.amount;
+            if (typeof amount !== "number" || amount <= 0) {
+              return { success: false, error: "Invalid token amount" };
+            }
+            totalAmount += amount;
+          } else if (!token.payload.tokenID) {
+            return { success: false, error: "Missing tokenID" };
+          }
+
+          tokenHashes.push(token.header.token_hash);
         }
 
-        const expectedAmount = invoice.catalogItem.price.amount;
-        if (totalAmount < expectedAmount) {
-          return { success: false, error: "Insufficient payment amount" };
+        const spentTokens = await this.verifyTokensNotSpent(
+          Array.from(new Set(tokenHashes)),
+          invoice.catalogItem.issuer,
+        );
+        if (spentTokens.length > 0) {
+          return { success: false, error: "Token already spent" };
         }
 
-        // Create receipt
+        if (invoice.catalogItem.tokenType === "FUNGIBLE") {
+          const expectedAmount = invoice.catalogItem.price.amount;
+          if (totalAmount < expectedAmount) {
+            return { success: false, error: "Insufficient payment amount" };
+          }
+        }
+
         const receipt: Receipt = {
           id: this._generateReceiptId(),
           invoiceId: invoice.invoiceId,
@@ -484,15 +520,16 @@ export class BoothAgent {
             issuer: invoice.catalogItem.issuer,
           },
           payment: {
-            method: "tatusd",
-            grossAmount: expectedAmount,
-            currency: "TATUSD",
+            method: "token",
+            grossAmount: invoice.catalogItem.price.amount,
+            currency: invoice.catalogItem.price.currency,
             fees: {
-              boxOffice: expectedAmount * this.config.fee,
+              boxOffice: invoice.catalogItem.price.amount * this.config.fee,
               platform: 0,
               payment: 0,
             },
-            netToCreator: expectedAmount * (1 - this.config.fee),
+            netToCreator:
+              invoice.catalogItem.price.amount * (1 - this.config.fee),
           },
           tat: {
             tokenID: "placeholder",
@@ -509,6 +546,14 @@ export class BoothAgent {
         };
       }
 
+      if (payment.method === "lightning") {
+        return { success: false, error: "Lightning payments not implemented" };
+      }
+
+      if (payment.method === "card") {
+        return { success: false, error: "Card payments not implemented" };
+      }
+
       return { success: false, error: "Payment method not implemented" };
     } catch (error) {
       return {
@@ -517,6 +562,44 @@ export class BoothAgent {
           error instanceof Error ? error.message : "Payment processing failed",
       };
     }
+  }
+
+  private async verifyTokensNotSpent(
+    tokenHashes: string[],
+    forgePubkey: string,
+  ): Promise<string[]> {
+    if (!forgePubkey) {
+      throw new Error("Missing forge public key for verification");
+    }
+    if (!tokenHashes.length) return [];
+    const client = await this.getForgeClient();
+    const response = await client.request(
+      "verify",
+      { token_hashes: tokenHashes },
+      forgePubkey,
+    );
+    if (response.error) {
+      throw new Error(response.error.message);
+    }
+    const result = response.result as {
+      spent?: Record<string, boolean>;
+    };
+    const spent = tokenHashes.filter((hash) => result?.spent?.[hash]);
+    return spent;
+  }
+
+  private async getForgeClient(): Promise<NWPCPeer> {
+    if (!this.forgeClient) {
+      this.forgeClient = new NWPCPeer({
+        ...this.config,
+        storage: this.storage,
+      });
+      this.forgeClientReady = this.forgeClient.init();
+    }
+    if (this.forgeClientReady) {
+      await this.forgeClientReady;
+    }
+    return this.forgeClient;
   }
 
   // =============================
@@ -537,7 +620,7 @@ export class BoothAgent {
 
   async updateCatalogItem(
     itemId: string,
-    updates: Partial<CatalogItem>
+    updates: Partial<CatalogItem>,
   ): Promise<void> {
     const item = this.state.catalog.get(itemId);
     if (!item) {

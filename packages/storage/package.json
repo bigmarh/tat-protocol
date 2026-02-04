@@ -1,52 +1,52 @@
 {
-    "name": "@tat-protocol/storage",
-    "version": "1.0.1",
-    "description": "Storage module for TAT Protocol",
-    "type": "module",
-    "main": "./node.js",
-    "browser": "./browser.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "node": {
-                "import": "./node.js",
-                "types": "./dist/index.d.ts"
-            },
-            "browser": {
-                "import": "./browser.js",
-                "types": "./dist/index.d.ts"
-            },
-            "default": {
-                "import": "./node.js",
-                "types": "./dist/index.d.ts"
-            }
-        }
-    },
-    "files": [
-        "dist",
-        "node.js",
-        "browser.js",
-        "README.md"
-    ],
-    "publishConfig": {
-        "access": "public"
-    },
-    "scripts": {
-        "build": "tsc -b",
-        "test": "jest",
-        "lint": "eslint . --ext .ts",
-        "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
-    },
-    "keywords": [
-        "storage",
-        "tat",
-        "protocol"
-    ],
-    "author": "TAT Protocol",
-    "license": "MIT",
-    "dependencies": {
-        "@tat-protocol/utils": "workspace:*"
-    },
-    "devDependencies": {}
+  "name": "@tat-protocol/storage",
+  "version": "1.0.2",
+  "description": "Storage module for TAT Protocol",
+  "type": "module",
+  "main": "./node.js",
+  "browser": "./browser.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "node": {
+        "import": "./node.js",
+        "types": "./dist/index.d.ts"
+      },
+      "browser": {
+        "import": "./browser.js",
+        "types": "./dist/index.d.ts"
+      },
+      "default": {
+        "import": "./node.js",
+        "types": "./dist/index.d.ts"
+      }
+    }
+  },
+  "files": [
+    "dist",
+    "node.js",
+    "browser.js",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.ts\"",
+    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+  },
+  "keywords": [
+    "storage",
+    "tat",
+    "protocol"
+  ],
+  "author": "TAT Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "@tat-protocol/utils": "workspace:*"
+  },
+  "devDependencies": {}
 }

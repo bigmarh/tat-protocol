@@ -95,7 +95,10 @@ export class NWPCResponseObject {
     };
   }
 
-  async send(data: unknown, recipient?: string | string[]): Promise<NWPCResponse> {
+  async send(
+    data: unknown,
+    recipient?: string | string[],
+  ): Promise<NWPCResponse> {
     this.response.result = data;
     let targetRecipient = recipient || this.context.poster;
 

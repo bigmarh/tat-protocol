@@ -15,7 +15,7 @@ console.log("Secret Key:", secretKey);
 console.log("Public Key:", publicKey);
 console.log("-------------KEYS-------------------\n");
 
-// Create forge config for TATUSD fungible token
+// Create forge config for a fungible token
 const config: ForgeConfig = {
   owner: "aaa266a87d1c24a11b9509cc74e1eaf2db8ca2a563be0c1a429917acd4d1f37d",
   keys: {
@@ -35,7 +35,7 @@ async function runFungibleForge() {
     await forge.initialize(); // Wait for initialization to complete
 
     console.log("\n-------------FORGE-------------------");
-    console.log("Asset Name: TATUSD");
+    console.log("Asset Name: Example Fungible Token");
     console.log("Owner:", forge.owner);
     console.log("Authorized forgers:", forge.getAuthorizedForgers());
     console.log("-------------FORGE-------------------\n");
@@ -44,7 +44,7 @@ async function runFungibleForge() {
 
     // Keep the process running
     process.on("SIGINT", () => {
-      console.log("\nShutting down TATUSD forge...");
+      console.log("\nShutting down fungible forge...");
       process.exit(0);
     });
 
@@ -53,7 +53,7 @@ async function runFungibleForge() {
       // Keep the event loop running
     }, 1000);
   } catch (error) {
-    console.error("Failed to initialize TATUSD forge:", error);
+    console.error("Failed to initialize fungible forge:", error);
     process.exit(1);
   }
 }

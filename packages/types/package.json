@@ -1,37 +1,37 @@
 {
-    "name": "@tat-protocol/types",
-    "version": "1.0.1",
-    "description": "Type definitions for TAT Protocol",
-    "type": "module",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "import": "./dist/index.js",
-            "types": "./dist/index.d.ts"
-        }
-    },
-    "files": [
-        "dist",
-        "README.md"
-    ],
-    "scripts": {
-        "build": "tsc -b",
-        "test": "jest --passWithNoTests",
-        "lint": "eslint . --ext .ts",
-        "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist && rm -f tsconfig.tsbuildinfo"
-    },
-    "keywords": [
-        "types",
-        "tat",
-        "protocol"
-    ],
-    "author": "TAT Protocol",
-    "license": "MIT",
-    "publishConfig": {
-        "access": "public"
-    },
-    "dependencies": {},
-    "devDependencies": {}
+  "name": "@tat-protocol/types",
+  "version": "1.0.2",
+  "description": "Type definitions for TAT Protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b",
+    "test": "jest --passWithNoTests",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.ts\"",
+    "clean": "rm -rf dist && rm -f tsconfig.tsbuildinfo"
+  },
+  "keywords": [
+    "types",
+    "tat",
+    "protocol"
+  ],
+  "author": "TAT Protocol",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {},
+  "devDependencies": {}
 }

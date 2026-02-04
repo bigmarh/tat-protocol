@@ -1,42 +1,42 @@
 {
-    "name": "@tat-protocol/utils",
-    "version": "1.0.1",
-    "description": "Utility functions for TAT Protocol",
-    "type": "module",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "import": "./dist/index.js",
-            "types": "./dist/index.d.ts"
-        }
-    },
-    "files": [
-        "dist",
-        "README.md"
-    ],
-    "publishConfig": {
-        "access": "public"
-    },
-    "scripts": {
-        "build": "tsc -b",
-        "test": "jest",
-        "lint": "eslint . --ext .ts",
-        "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
-    },
-    "keywords": [
-        "utils",
-        "tat",
-        "protocol"
-    ],
-    "author": "TAT Protocol",
-    "license": "MIT",
-    "dependencies": {
-        "@noble/hashes": "^1.0.0",
-        "@tat-protocol/hdkeys": "workspace:*",
-        "@tat-protocol/types": "workspace:*",
-        "nostr-tools": "^2.12.0"
-    },
-    "devDependencies": {}
+  "name": "@tat-protocol/utils",
+  "version": "1.0.2",
+  "description": "Utility functions for TAT Protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "jest",
+    "lint": "eslint . --ext .ts",
+    "format": "prettier --write \"**/*.ts\"",
+    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+  },
+  "keywords": [
+    "utils",
+    "tat",
+    "protocol"
+  ],
+  "author": "TAT Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/hashes": "^1.0.0",
+    "@tat-protocol/hdkeys": "workspace:*",
+    "@tat-protocol/types": "workspace:*",
+    "nostr-tools": "^2.12.0"
+  },
+  "devDependencies": {}
 }

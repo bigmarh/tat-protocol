@@ -6,7 +6,13 @@ import {
   NWPCResponseObject,
   NWPCConfig,
 } from "./NWPCResponseTypes";
-import { Wrap, Unwrap, WrapWithSigner, UnwrapWithSigner, DebugLogger } from "@tat-protocol/utils";
+import {
+  Wrap,
+  Unwrap,
+  WrapWithSigner,
+  UnwrapWithSigner,
+  DebugLogger,
+} from "@tat-protocol/utils";
 import { NWPCBase } from "./NWPCBase";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import type { Signer } from "@tat-protocol/types";
@@ -62,12 +68,16 @@ export class NWPCPeer extends NWPCBase {
       // Use signer-based unwrap if signer is available, otherwise fall back to keys
       let unwrapped;
       if (this.signer) {
-        unwrapped = await UnwrapWithSigner(event.content, this.signer, event.pubkey);
+        unwrapped = await UnwrapWithSigner(
+          event.content,
+          this.signer,
+          event.pubkey,
+        );
       } else {
         unwrapped = await Unwrap(event.content, this.keys, event.pubkey);
       }
       if (!unwrapped) {
-        Debug.log("Failed to unwrap event:" + event.id, 'NWPCPeer');
+        Debug.log("Failed to unwrap event:" + event.id, "NWPCPeer");
         return;
       }
 
@@ -77,7 +87,7 @@ export class NWPCPeer extends NWPCBase {
         event,
         poster: event.pubkey,
         sender: unwrapped.sender,
-        recipient: this.publicKey || this.keys.publicKey as string,
+        recipient: this.publicKey || (this.keys.publicKey as string),
       };
 
       // Check if it's a response to our request
@@ -115,23 +125,26 @@ export class NWPCPeer extends NWPCBase {
         if (handler) {
           const res = new NWPCResponseObject(request.id, this, context);
           const response = await this.router.handle(request, context, res);
-          Debug.log("handleEvent:" + response, 'NWPCPeer');
+          Debug.log("handleEvent:" + response, "NWPCPeer");
           await this.sendResponse(response, event.pubkey);
 
           if (this.hooks.afterRequest) {
             await this.hooks.afterRequest(message, context);
           }
         } else {
-          Debug.log("No handler found for method:" + request.method, 'NWPCPeer');
+          Debug.log(
+            "No handler found for method:" + request.method,
+            "NWPCPeer",
+          );
         }
       } else {
         Debug.log(
           "handleEvent: Unknown message type:" + message.result,
-          'NWPCPeer',
+          "NWPCPeer",
         );
       }
     } catch (error) {
-      Debug.error("Error in handleEvent:" + error, 'NWPCPeer');
+      Debug.error("Error in handleEvent:" + error, "NWPCPeer");
     }
   }
 
@@ -180,9 +193,9 @@ export class NWPCPeer extends NWPCBase {
     // Determine if the sender param is a Signer or KeyPair
     const isSigner = (obj: unknown): obj is Signer =>
       obj !== null &&
-      typeof obj === 'object' &&
-      'getPublicKey' in obj &&
-      'signEvent' in obj;
+      typeof obj === "object" &&
+      "getPublicKey" in obj &&
+      "signEvent" in obj;
 
     if (senderKeysOrSigner && isSigner(senderKeysOrSigner)) {
       // Use provided signer
@@ -218,7 +231,7 @@ export class NWPCPeer extends NWPCBase {
       );
     }
 
-    Debug.log("request:", 'NWPCPeer');
+    Debug.log("request:", "NWPCPeer");
     await wrappedEvent.publish();
 
     return new Promise((resolve, reject) => {

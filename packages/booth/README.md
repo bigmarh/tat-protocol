@@ -43,7 +43,7 @@ const boxoffice = await BoxofficeServerSpec.create({
   boxOfficeName: 'TATpay',
   fee: 0.025, // 2.5% fee
   relays: ['wss://relay.damus.io'],
-  supportedPaymentMethods: ['tatusd', 'lightning', 'card']
+  supportedPaymentMethods: ['lightning', 'card']
 });
 
 // Add catalog items (per spec section 4.4)
@@ -53,8 +53,8 @@ const catalogItem: CatalogItem = {
   name: 'Premium Membership',
   description: 'Monthly premium access',
   price: {
-    amount: 500, // 500 TATUSD = $5.00
-    currency: 'TATUSD'
+    amount: 5.0,
+    currency: 'USD'
   },
   tokenType: 'TAT',
   duration: 2592000, // 30 days in seconds

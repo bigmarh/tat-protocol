@@ -29,7 +29,7 @@ export async function WrapWithSigner(
   ndk: NDK,
   message: string,
   signer: Signer,
-  to: string
+  to: string,
 ): Promise<NDKEvent> {
   const fromPubkey = await signer.getPublicKey();
   const timestamp = Math.floor(Date.now() / 1000);
@@ -73,13 +73,10 @@ export async function WrapWithSigner(
 
   // Use nostr-tools nip44 for the postman encryption (we have the key)
   const { nip44 } = await import("nostr-tools");
-  const postmanConversationKey = nip44.getConversationKey(
-    postmanSecretKey,
-    to
-  );
+  const postmanConversationKey = nip44.getConversationKey(postmanSecretKey, to);
   giftwrap.content = nip44.encrypt(
     JSON.stringify(envelope),
-    postmanConversationKey
+    postmanConversationKey,
   );
 
   // Sign the giftwrap using NDK's signer (we have the postman key)
@@ -120,17 +117,17 @@ export interface UnwrapResult {
 export async function UnwrapWithSigner(
   wrapped: string,
   signer: Signer,
-  wrappedPubKey: string
+  wrappedPubKey: string,
 ): Promise<UnwrapResult | false | null> {
   try {
     // Unwrap gift
     const unwrapped = JSON.parse(
-      await signer.nip44.decrypt(wrappedPubKey, wrapped)
+      await signer.nip44.decrypt(wrappedPubKey, wrapped),
     );
 
     // Open envelope
     const openEnv = JSON.parse(
-      await signer.nip44.decrypt(unwrapped.pubkey, unwrapped.content)
+      await signer.nip44.decrypt(unwrapped.pubkey, unwrapped.content),
     );
 
     const ndk = new NDK();

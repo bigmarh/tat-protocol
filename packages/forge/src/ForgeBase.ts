@@ -157,6 +157,7 @@ export abstract class ForgeBase extends NWPCServer {
     this.use("forge", this.forgeToken.bind(this));
     this.use("transfer", this.transferToken.bind(this));
     this.use("burn", this.burnToken.bind(this));
+    this.use("verify", this.handleVerify.bind(this));
   }
 
   public onlyAuthorized(
@@ -436,6 +437,34 @@ export abstract class ForgeBase extends NWPCServer {
         error instanceof Error ? error.message : "Unknown error occurred";
       return await res.error(500, message);
     }
+  }
+
+  public async handleVerify(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
+    let parsed: { token_hashes?: string[] };
+    try {
+      parsed = JSON.parse(req.params);
+    } catch (error) {
+      return await res.error(400, "Invalid request parameters");
+    }
+    const tokenHashes = parsed.token_hashes;
+    if (!Array.isArray(tokenHashes) || tokenHashes.length === 0) {
+      return await res.error(400, "token_hashes is required");
+    }
+    const spent: Record<string, boolean> = {};
+    const valid: Record<string, boolean> = {};
+    for (const hash of tokenHashes) {
+      if (typeof hash !== "string") {
+        return await res.error(400, "token_hashes must be strings");
+      }
+      const isSpent = this.state.spentTokens.has(hash);
+      spent[hash] = isSpent;
+      valid[hash] = !isSpent;
+    }
+    return await res.send({ valid, spent }, context.sender);
   }
 
   /**

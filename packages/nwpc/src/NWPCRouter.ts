@@ -61,7 +61,7 @@ export class NWPCRouter {
     context: NWPCContext,
     res: NWPCResponseObject,
   ): Promise<NWPCResponse> {
-    Debug.log("handle" + request.method, 'NWPCRouter');
+    Debug.log("handle" + request.method, "NWPCRouter");
     const route = this.routes.get(request.method);
 
     if (!route) {

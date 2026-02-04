@@ -104,9 +104,7 @@ export class GateServerSpec {
   /**
    * Create and initialize GateServerSpec
    */
-  static async create(
-    config: GateServerSpecConfig,
-  ): Promise<GateServerSpec> {
+  static async create(config: GateServerSpecConfig): Promise<GateServerSpec> {
     const turnstile = new GateServerSpec(config);
     await turnstile.nwpcServer.init();
     await turnstile.initialize();

@@ -103,7 +103,7 @@ export interface PaymentProvider {
   refundPayment(
     paymentId: string,
     amount: Price,
-    reason: string
+    reason: string,
   ): Promise<RefundResult>;
 
   /**

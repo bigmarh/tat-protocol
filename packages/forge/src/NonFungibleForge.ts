@@ -91,7 +91,10 @@ export class NonFungibleForge extends ForgeBase {
     // Validate transaction
     const [validTx, error] = await this.validateTXInputs(tx, tx.witnessData);
     if (error || !validTx) {
-      return await res.error(400, "Invalid transaction: " + (error || "Validation failed"));
+      return await res.error(
+        400,
+        "Invalid transaction: " + (error || "Validation failed"),
+      );
     }
 
     // Restore tokens from serialized inputs
@@ -103,7 +106,7 @@ export class NonFungibleForge extends ForgeBase {
 
     // Parse output recipients
     const recipients = (validTx.outs || []).map((out: string) =>
-      typeof out === 'string' ? JSON.parse(out) : out
+      typeof out === "string" ? JSON.parse(out) : out,
     );
 
     // Use shared transfer logic

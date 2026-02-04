@@ -35,7 +35,4 @@ export type {
   RefundResult,
 } from "./PaymentProviderInterface";
 
-export type {
-  PricingEngine,
-  PriceCalculation,
-} from "./PricingEngineInterface";
+export type { PricingEngine, PriceCalculation } from "./PricingEngineInterface";

@@ -133,7 +133,7 @@ All four agent types (Forge, Pocket, Booth, Gate) are Agents—Nostr accounts th
 agent: {
   type: "forge",
   methods: ["booth.catalog", "booth.invoice", "booth.pay", "forge.mint_request"],
-  acceptedPayments: ["TATUSD", "lightning"]
+  acceptedPayments: ["lightning"]
 }
 ```
 
@@ -417,7 +417,7 @@ Submit payment for an invoice.
   method: "booth.pay",
   params: {
     invoiceId: string,
-    payment: TATUSDPayment | LightningPayment | HTLCPayment
+    payment: LightningPayment | HTLCPayment
   }
 }
 ```
@@ -473,7 +473,7 @@ interface CatalogItem {
   
   price: {
     amount: number;
-    currency: string;            // "TATUSD" | "sats" | etc.
+    currency: string;            // "USD" | "sats" | etc.
   };
   
   tokenType: "TAT" | "FUNGIBLE";
@@ -492,10 +492,6 @@ interface CatalogItem {
 
 ```typescript
 interface PaymentOptions {
-  tatusd?: {
-    amount: number;
-    payTo: string;               // Pubkey to pay
-  };
   lightning?: {
     bolt11: string;
     amountSats: number;
@@ -960,7 +956,7 @@ Public listing of a TAT available for purchase.
   tags: [
     ["d", "<catalog-item-id>"],
     ["name", "Premium Membership"],
-    ["price", "500", "TATUSD"],
+    ["price", "500", "USD"],
     ["duration", "2592000"],         // 30 days in seconds
     ["category", "membership"]
   ],

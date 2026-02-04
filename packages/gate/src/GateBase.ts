@@ -83,7 +83,7 @@ export abstract class GateBase {
   constructor(config: GateConfig) {
     if (!config.storage) {
       throw new Error(
-        "A StorageInterface implementation must be provided in config.storage"
+        "A StorageInterface implementation must be provided in config.storage",
       );
     }
 
@@ -150,7 +150,7 @@ export abstract class GateBase {
    */
   async validateToken(
     tokenJWT: string,
-    context?: ValidationContext
+    context?: ValidationContext,
   ): Promise<ValidationResult> {
     const timestamp = Date.now();
 
@@ -184,7 +184,7 @@ export abstract class GateBase {
       if (this.validationStrategy) {
         const strategyResult = await this.validationStrategy.validate(
           token,
-          context
+          context,
         );
         if (!strategyResult.valid) {
           await this.recordAttempt(token, strategyResult, context);
@@ -209,7 +209,7 @@ export abstract class GateBase {
         } catch (error) {
           Debug.warn(
             `Forge validation failed, falling back to offline mode: ${error}`,
-            "Gate"
+            "Gate",
           );
         }
       }
@@ -239,7 +239,7 @@ export abstract class GateBase {
    * Checks signature, expiration, and blacklist.
    */
   protected async performBasicValidation(
-    token: Token
+    token: Token,
   ): Promise<ValidationResult> {
     const timestamp = Date.now();
 
@@ -264,10 +264,7 @@ export abstract class GateBase {
     }
 
     // Verify signature (if required)
-    if (
-      !this.accessPolicy ||
-      this.accessPolicy.policy.requireValidSignature
-    ) {
+    if (!this.accessPolicy || this.accessPolicy.policy.requireValidSignature) {
       const isValidSignature = await token.verifyTokenSignature();
       if (!isValidSignature) {
         return {
@@ -310,7 +307,7 @@ export abstract class GateBase {
    */
   async grantAccess(
     tokenJWT: string,
-    context?: ValidationContext
+    context?: ValidationContext,
   ): Promise<boolean> {
     // First validate
     const validation = await this.validateToken(tokenJWT, context);
@@ -341,7 +338,7 @@ export abstract class GateBase {
 
     Debug.log(
       `Access granted for token: ${validation.token?.header.token_hash}`,
-      "Gate"
+      "Gate",
     );
     return true;
   }
@@ -358,7 +355,7 @@ export abstract class GateBase {
    */
   async verifyToken(
     tokenJWT: string,
-    context?: ValidationContext
+    context?: ValidationContext,
   ): Promise<boolean> {
     const result = await this.validateToken(tokenJWT, context);
     return result.valid;
@@ -376,7 +373,7 @@ export abstract class GateBase {
   protected async recordAttempt(
     token: Token,
     result: ValidationResult,
-    context?: ValidationContext
+    context?: ValidationContext,
   ): Promise<void> {
     const attempt: AccessAttempt = {
       attemptId: this._generateAttemptId(),
@@ -402,11 +399,11 @@ export abstract class GateBase {
    */
   async getAttempts(
     startTime: number,
-    endTime: number
+    endTime: number,
   ): Promise<AccessAttempt[]> {
     return Array.from(this.state.attempts.values()).filter(
       (attempt) =>
-        attempt.timestamp >= startTime && attempt.timestamp <= endTime
+        attempt.timestamp >= startTime && attempt.timestamp <= endTime,
     );
   }
 
@@ -419,7 +416,7 @@ export abstract class GateBase {
    */
   async getAnalytics(
     startTime: number,
-    endTime: number
+    endTime: number,
   ): Promise<AccessAnalytics> {
     const attempts = await this.getAttempts(startTime, endTime);
 

@@ -1,52 +1,52 @@
 {
-    "name": "@tat-protocol/forge",
-    "version": "1.0.1",
-    "description": "Forge module for TAT Protocol",
-    "type": "module",
-    "main": "dist/index.js",
-    "types": "dist/index.d.ts",
-    "exports": {
-        ".": {
-            "import": "./dist/index.js",
-            "types": "./dist/index.d.ts"
-        }
-    },
-    "files": [
-        "dist",
-        "README.md"
-    ],
-    "publishConfig": {
-        "access": "public"
-    },
-    "scripts": {
-        "build": "tsc -b",
-        "test": "jest",
-        "lint": "eslint .",
-        "format": "prettier --write \"**/*.ts\"",
-        "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
-    },
-    "keywords": [
-        "forge",
-        "token",
-        "minting"
-    ],
-    "author": "TAT Protocol",
-    "license": "MIT",
-    "dependencies": {
-        "@noble/hashes": "^1.0.0",
-        "@tat-protocol/types": "workspace:*",
-        "@tat-protocol/utils": "workspace:*",
-        "nostr-tools": "^2.12.0"
-    },
-    "devDependencies": {
-        "@typescript-eslint/eslint-plugin": "^8.18.0",
-        "@typescript-eslint/parser": "^8.18.0",
-        "eslint": "^9.15.0",
-        "@eslint/js": "^9.15.0"
-    },
-    "peerDependencies": {
-        "@tat-protocol/token": "workspace:*",
-        "@tat-protocol/nwpc": "workspace:*",
-        "@tat-protocol/storage": "workspace:*"
+  "name": "@tat-protocol/forge",
+  "version": "1.0.2",
+  "description": "Forge module for TAT Protocol",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
     }
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "tsc -b",
+    "test": "jest",
+    "lint": "eslint .",
+    "format": "prettier --write \"**/*.ts\"",
+    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+  },
+  "keywords": [
+    "forge",
+    "token",
+    "minting"
+  ],
+  "author": "TAT Protocol",
+  "license": "MIT",
+  "dependencies": {
+    "@noble/hashes": "^1.0.0",
+    "@tat-protocol/types": "workspace:*",
+    "@tat-protocol/utils": "workspace:*",
+    "nostr-tools": "^2.12.0"
+  },
+  "devDependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.15.0",
+    "@eslint/js": "^9.15.0"
+  },
+  "peerDependencies": {
+    "@tat-protocol/token": "workspace:*",
+    "@tat-protocol/nwpc": "workspace:*",
+    "@tat-protocol/storage": "workspace:*"
+  }
 }

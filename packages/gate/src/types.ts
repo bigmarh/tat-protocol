@@ -53,7 +53,10 @@ export interface AccessPolicy {
   requireNotSpent?: boolean; // Check with forge if token is spent
   customRules?: Array<{
     name: string;
-    check: (token: Token, context?: Record<string, unknown>) => Promise<boolean>;
+    check: (
+      token: Token,
+      context?: Record<string, unknown>,
+    ) => Promise<boolean>;
   }>;
   maxCapacity?: number; // Maximum simultaneous access
   operatingHours?: {

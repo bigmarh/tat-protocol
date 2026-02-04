@@ -81,7 +81,7 @@ export interface PricingEngine {
    */
   calculatePrice(
     order: Partial<TokenOrder>,
-    context?: Record<string, unknown>
+    context?: Record<string, unknown>,
   ): PriceCalculation;
 
   /**

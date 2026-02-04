@@ -19,7 +19,7 @@ export interface CatalogItem {
 
   price: {
     amount: number; // Base amount
-    currency: string; // "TATUSD" | "USD" | "sats"
+    currency: string; // "USD" | "sats" | etc.
   };
 
   tokenType: "TAT" | "FUNGIBLE";
@@ -89,9 +89,11 @@ export interface Receipt {
  * Payment options in invoice response (per spec section 3.3.2)
  */
 export interface PaymentOptions {
-  tatusd?: {
-    amount: number;
+  token?: {
+    amount?: number;
     payTo: string; // Booth pubkey
+    issuer: string; // Token issuer (forge pubkey)
+    tokenType: "TAT" | "FUNGIBLE";
   };
   lightning?: {
     bolt11: string;
@@ -136,8 +138,8 @@ export interface Invoice {
  */
 export type PaymentSubmission =
   | {
-      method: "tatusd";
-      tokens: string[]; // TATUSD token JWTs
+      method: "token";
+      tokens: string[]; // Token JWTs
     }
   | {
       method: "lightning";
@@ -164,7 +166,7 @@ export interface ForgeAuthorization {
     maxTotal?: number; // Total cap
   };
   settlement: {
-    currency: "TATUSD";
+    currency: string;
     frequency: "instant" | "daily" | "weekly";
     minimumAmount?: number;
   };
@@ -179,10 +181,10 @@ export interface ForgeMintRequest {
   buyerPubkey: string;
 
   payment: {
-    type: "TATUSD";
+    type: string;
     amount: number;
-    transferId: string;
-    tokenHashes: string[];
+    referenceId: string;
+    details?: Record<string, unknown>;
   };
 
   fees?: {

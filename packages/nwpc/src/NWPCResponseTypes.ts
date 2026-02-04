@@ -117,7 +117,10 @@ export class NWPCResponseObject {
     };
   }
 
-  async send(data: unknown, recipient?: string | string[]): Promise<NWPCResponse> {
+  async send(
+    data: unknown,
+    recipient?: string | string[],
+  ): Promise<NWPCResponse> {
     this.response.result = data;
     // If recipient is not specified, send it back to the entity who sent the request
     let targetRecipient = recipient || this.context.poster;
@@ -178,7 +181,10 @@ export class NWPCResponseObject {
           );
         }
       } else {
-        Debug.log("sending error response to" + targetRecipient, 'NWPCResponseObject');
+        Debug.log(
+          "sending error response to" + targetRecipient,
+          "NWPCResponseObject",
+        );
         await this.sender.sendResponse(this.response, targetRecipient);
       }
     }
