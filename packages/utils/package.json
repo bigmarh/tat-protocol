@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/utils",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Utility functions for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",
@@ -33,6 +33,7 @@
   "author": "TAT Protocol",
   "license": "MIT",
   "dependencies": {
+    "@noble/curves": "^1.4.0",
     "@noble/hashes": "^1.0.0",
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/types": "workspace:*",

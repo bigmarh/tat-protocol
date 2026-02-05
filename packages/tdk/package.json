@@ -1,7 +1,7 @@
 {
   "name": "@tat-protocol/tdk",
   "private": false,
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
   "type": "module",
   "main": "dist/index.js",

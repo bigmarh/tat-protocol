@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/token",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Token module for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",

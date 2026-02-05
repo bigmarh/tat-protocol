@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/gate",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "Gate Agent for TAT Protocol - Access verification and validation",
   "type": "module",
   "main": "dist/index.js",

@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/hdkeys",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "description": "HD Keys implementation for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",
