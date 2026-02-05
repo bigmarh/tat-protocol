@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/pocket",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Pocket module for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",

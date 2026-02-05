@@ -1,12 +1,16 @@
 {
   "name": "@tat-protocol/config",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Configuration module for TAT Protocol",
   "type": "module",
   "main": "dist/defaultConfig.js",
   "types": "dist/defaultConfig.d.ts",
   "exports": {
     ".": {
+      "import": "./dist/defaultConfig.js",
+      "types": "./dist/defaultConfig.d.ts"
+    },
+    "./defaultConfig": {
       "import": "./dist/defaultConfig.js",
       "types": "./dist/defaultConfig.d.ts"
     }

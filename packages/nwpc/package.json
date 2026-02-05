@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/nwpc",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "NWPC (Nostr Wrapped Procedure Call) implementation for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",

@@ -1,5 +1,5 @@
 import NDK from "@nostr-dev-kit/ndk";
-import { defaultConfig } from "@tat-protocol/config/defaultConfig";
+import { defaultConfig } from "@tat-protocol/config";
 import { NWPCRouter } from "./NWPCRouter";
 import { HandlerEngine } from "./HandlerEngine";
 import { deserializeData, serializeData, Wrap, WrapWithSigner, DebugLogger, } from "@tat-protocol/utils";

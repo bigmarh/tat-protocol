@@ -1,7 +1,7 @@
 import NDK, { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { StorageInterface } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
-import { defaultConfig } from "@tat-protocol/config/defaultConfig";
+import { defaultConfig } from "@tat-protocol/config";
 import { NWPCRouter } from "./NWPCRouter";
 import { HandlerEngine } from "./HandlerEngine";
 import {

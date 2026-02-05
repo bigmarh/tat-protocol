@@ -478,7 +478,10 @@ export class BoothAgent {
             return { success: false, error: "Token type mismatch" };
           }
 
-          if (token.payload.P2PKlock && token.payload.P2PKlock !== this.resolvedPubkey) {
+          if (
+            token.payload.P2PKlock &&
+            token.payload.P2PKlock !== this.resolvedPubkey
+          ) {
             return { success: false, error: "Token not locked to Booth" };
           }
 

@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/utils",
-  "version": "1.0.2",
+  "version": "1.0.3",
   "description": "Utility functions for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",

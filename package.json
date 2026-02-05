@@ -1,7 +1,7 @@
 {
   "name": "@tat-protocol/base",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.0.3",
   "description": "TAT Protocol Monorepo - Core Protocol Packages",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -60,6 +60,7 @@
     "prettier": "^3.2.5",
     "ts-jest": "^29.3.4",
     "tsx": "^4.19.4",
+    "turbo": "^2.8.3",
     "typescript": "^5.8.3",
     "ws": "^8.14.2"
   },
