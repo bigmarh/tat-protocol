@@ -15,6 +15,7 @@ coverage/
 # Production
 build/
 dist/
+dist-cjs/
 out/
 
 # Development
