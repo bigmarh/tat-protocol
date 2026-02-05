@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/forge",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Forge module for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",

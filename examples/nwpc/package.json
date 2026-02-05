@@ -2,6 +2,7 @@
   "name": "nwpc-examples",
   "version": "1.0.0",
   "description": "Example implementations of the NWPC protocol",
+  "type": "module",
   "private": true,
   "scripts": {
     "build": "tsc",

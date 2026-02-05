@@ -38,6 +38,12 @@ await peer.subscribe('somePublicKey', (event) => {
 const response = await peer.request('method', { data: 'payload' }, 'recipientPubKey');
 ```
 
+## CommonJS Usage
+
+```js
+const { NWPCPeer } = require("@tat-protocol/nwpc");
+```
+
 ## Development
 
 This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.

@@ -1,6 +1,6 @@
 {
   "name": "@tat-protocol/config",
-  "version": "1.0.4",
+  "version": "1.1.0",
   "description": "Configuration module for TAT Protocol",
   "type": "module",
   "main": "dist/defaultConfig.js",

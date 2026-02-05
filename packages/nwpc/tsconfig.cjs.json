@@ -1,0 +1,18 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "CommonJS",
+    "outDir": "./dist-cjs",
+    "declaration": true,
+    "declarationDir": "./dist-cjs",
+    "declarationMap": false,
+    "composite": false,
+    "emitDeclarationOnly": false,
+    "baseUrl": "../..",
+    "paths": {
+      "@tat-protocol/*": ["packages/*/dist"],
+      "*": ["node_modules/*"]
+    }
+  },
+  "include": ["src"]
+}
