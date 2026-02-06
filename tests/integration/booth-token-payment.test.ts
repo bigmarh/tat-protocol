@@ -43,7 +43,7 @@ function createFungibleTokenJWT(
   });
 }
 
-describe("Booth token payments with forge spent checks", () => {
+describe("Booth TAT payments with forge spent checks", () => {
   let boothKeys: { secretKey: string; publicKey: string };
   let forgeKeys: { secretKey: string; publicKey: string };
 
@@ -60,7 +60,7 @@ describe("Booth token payments with forge spent checks", () => {
       relays: [],
       boxOfficeName: "Test Booth",
       fee: 0.05,
-      supportedPaymentMethods: ["token"],
+      supportedPaymentMethods: ["tat"],
     });
     await booth.initialize();
     (booth as any).nwpcServer.publicKey = boothKeys.publicKey;
@@ -96,7 +96,7 @@ describe("Booth token payments with forge spent checks", () => {
 
     const result = await (booth as any).processPayment(
       invoice,
-      { method: "token", tokens: [jwt] },
+      { method: "tat", tokens: [jwt] },
       "buyer",
     );
 
@@ -113,7 +113,7 @@ describe("Booth token payments with forge spent checks", () => {
       relays: [],
       boxOfficeName: "Test Booth",
       fee: 0.05,
-      supportedPaymentMethods: ["token"],
+      supportedPaymentMethods: ["tat"],
     });
     await booth.initialize();
     (booth as any).nwpcServer.publicKey = boothKeys.publicKey;
@@ -147,7 +147,7 @@ describe("Booth token payments with forge spent checks", () => {
 
     const result = await (booth as any).processPayment(
       invoice,
-      { method: "token", tokens: [jwt] },
+      { method: "tat", tokens: [jwt] },
       "buyer",
     );
 

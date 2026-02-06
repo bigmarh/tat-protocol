@@ -2,12 +2,10 @@ import { StorageInterface } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { DebugLogger } from "@tat-protocol/utils";
 import { randomBytes } from "crypto";
-// import { Token } from "@tat-protocol/token";
 import {
   TokenOrder,
   OrderStatus,
   Payment,
-  PaymentStatus,
   Receipt,
   InventoryItem,
   Price,
@@ -172,7 +170,7 @@ export abstract class BoothBase {
     const order: TokenOrder = {
       ...orderData,
       orderId: this._generateOrderId(),
-      status: OrderStatus.PENDING,
+      status: "pending",
       createdAt: Date.now(),
       updatedAt: Date.now(),
     };
@@ -223,9 +221,9 @@ export abstract class BoothBase {
     order.status = status;
     order.updatedAt = Date.now();
 
-    if (status === OrderStatus.PAID) {
+    if (status === "paid") {
       order.paidAt = Date.now();
-    } else if (status === OrderStatus.FULFILLED) {
+    } else if (status === "fulfilled") {
       order.fulfilledAt = Date.now();
     }
 
@@ -247,11 +245,11 @@ export abstract class BoothBase {
       throw new Error(`Order not found: ${orderId}`);
     }
 
-    if (order.status === OrderStatus.FULFILLED) {
+    if (order.status === "fulfilled") {
       throw new Error("Cannot cancel fulfilled order");
     }
 
-    order.status = OrderStatus.CANCELLED;
+    order.status = "cancelled";
     order.updatedAt = Date.now();
     order.metadata = {
       ...order.metadata,
@@ -282,7 +280,7 @@ export abstract class BoothBase {
       throw new Error(`Order not found: ${orderId}`);
     }
 
-    if (order.status !== OrderStatus.PENDING) {
+    if (order.status !== "pending") {
       throw new Error(`Order is not pending: ${order.status}`);
     }
 
@@ -299,7 +297,7 @@ export abstract class BoothBase {
       paymentId: this._generatePaymentId(),
       orderId: order.orderId,
       method: order.paymentMethod,
-      status: PaymentStatus.PENDING,
+      status: "pending",
       amount: order.price,
       provider: provider.name,
       createdAt: Date.now(),
@@ -354,8 +352,8 @@ export abstract class BoothBase {
     this.state.payments.set(paymentId, payment);
 
     // If payment completed, update order
-    if (result.status === PaymentStatus.COMPLETED) {
-      await this.updateOrderStatus(payment.orderId, OrderStatus.PAID);
+    if (result.status === "completed") {
+      await this.updateOrderStatus(payment.orderId, "paid");
 
       // Auto-fulfill if configured
       const order = this.state.orders.get(payment.orderId);
@@ -377,22 +375,26 @@ export abstract class BoothBase {
    * @param order - Order to fulfill
    */
   protected async processOrderFulfillment(order: TokenOrder): Promise<Receipt> {
-    if (order.status !== OrderStatus.PAID) {
+    if (order.status !== "paid") {
       throw new Error(`Order is not paid: ${order.status}`);
     }
 
     // Mark as confirmed while processing
-    await this.updateOrderStatus(order.orderId, OrderStatus.CONFIRMED);
+    await this.updateOrderStatus(order.orderId, "confirmed");
 
     try {
       // Fulfill order (implemented by subclass)
       const receipt = await this.fulfillOrder(order);
 
-      // Store receipt
-      this.state.receipts.set(receipt.receiptId, receipt);
+      // Store receipt - handle both new (id) and legacy (receiptId) fields
+      const receiptKey = receipt.id || receipt.receiptId;
+      if (!receiptKey) {
+        throw new Error("Receipt must have an id");
+      }
+      this.state.receipts.set(receiptKey, receipt);
 
       // Update order status
-      await this.updateOrderStatus(order.orderId, OrderStatus.FULFILLED);
+      await this.updateOrderStatus(order.orderId, "fulfilled");
 
       await this._saveState();
 
@@ -401,7 +403,7 @@ export abstract class BoothBase {
       return receipt;
     } catch (error) {
       // Fulfillment failed, mark order as failed
-      await this.updateOrderStatus(order.orderId, OrderStatus.FAILED);
+      await this.updateOrderStatus(order.orderId, "failed");
       order.metadata = {
         ...order.metadata,
         fulfillmentError:
@@ -493,7 +495,8 @@ export abstract class BoothBase {
    */
   async getReceiptByOrderId(orderId: string): Promise<Receipt | undefined> {
     for (const receipt of this.state.receipts.values()) {
-      if (receipt.orderId === orderId) {
+      // Check both new (invoiceId) and legacy (orderId) fields
+      if (receipt.invoiceId === orderId || receipt.orderId === orderId) {
         return receipt;
       }
     }
@@ -522,7 +525,7 @@ export abstract class BoothBase {
       throw new Error(`Order not found: ${orderId}`);
     }
 
-    if (order.status !== OrderStatus.FULFILLED) {
+    if (order.status !== "fulfilled") {
       throw new Error(`Order is not fulfilled: ${order.status}`);
     }
 
@@ -531,7 +534,7 @@ export abstract class BoothBase {
       orderId,
       amount,
       reason,
-      status: "PENDING",
+      status: "pending",
       requestedAt: Date.now(),
     };
 
@@ -575,21 +578,21 @@ export abstract class BoothBase {
             refund.reason,
           );
 
-          payment.status = PaymentStatus.REFUNDED;
+          payment.status = "refunded";
           this.state.payments.set(payment.paymentId, payment);
         }
       }
 
-      refund.status = "COMPLETED";
+      refund.status = "completed";
 
       // Update order status
       const order = this.state.orders.get(refund.orderId);
       if (order) {
-        order.status = OrderStatus.REFUNDED;
+        order.status = "refunded";
         this.state.orders.set(order.orderId, order);
       }
     } else {
-      refund.status = "REJECTED";
+      refund.status = "rejected";
     }
 
     refund.processedAt = Date.now();
@@ -622,13 +625,13 @@ export abstract class BoothBase {
     );
 
     const ordersByStatus: Record<OrderStatus, number> = {
-      [OrderStatus.PENDING]: 0,
-      [OrderStatus.PAID]: 0,
-      [OrderStatus.CONFIRMED]: 0,
-      [OrderStatus.FULFILLED]: 0,
-      [OrderStatus.CANCELLED]: 0,
-      [OrderStatus.REFUNDED]: 0,
-      [OrderStatus.FAILED]: 0,
+      pending: 0,
+      paid: 0,
+      confirmed: 0,
+      fulfilled: 0,
+      cancelled: 0,
+      refunded: 0,
+      failed: 0,
     };
 
     let totalRevenue = 0;
@@ -636,7 +639,7 @@ export abstract class BoothBase {
 
     for (const order of orders) {
       ordersByStatus[order.status]++;
-      if (order.status === OrderStatus.FULFILLED) {
+      if (order.status === "fulfilled") {
         totalRevenue += order.price.amount;
       }
     }

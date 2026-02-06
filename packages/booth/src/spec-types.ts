@@ -89,7 +89,7 @@ export interface Receipt {
  * Payment options in invoice response (per spec section 3.3.2)
  */
 export interface PaymentOptions {
-  token?: {
+  tat?: {
     amount?: number;
     payTo: string; // Booth pubkey
     issuer: string; // Token issuer (forge pubkey)
@@ -138,8 +138,8 @@ export interface Invoice {
  */
 export type PaymentSubmission =
   | {
-      method: "token";
-      tokens: string[]; // Token JWTs
+      method: "tat";
+      tokens: string[]; // TAT JWTs
     }
   | {
       method: "lightning";

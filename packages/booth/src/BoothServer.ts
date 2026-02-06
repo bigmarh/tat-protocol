@@ -8,6 +8,15 @@ import {
 } from "@tat-protocol/nwpc";
 // import { Token, TokenType } from "@tat-protocol/token";
 import { DebugLogger } from "@tat-protocol/utils";
+
+// Local error codes (aligned with PROTOCOL_SPEC.md 1000/2000/3000 series)
+// TODO: Import from @tat-protocol/nwpc once package is rebuilt
+const NWPC_ERRORS = {
+  INVALID_PARAMS: { code: 1003, message: "Invalid Params" },
+  NOT_FOUND: { code: 1005, message: "Not Found" },
+  UNAUTHORIZED: { code: 2004, message: "Unauthorized" },
+  INTERNAL_ERROR: { code: 3000, message: "Internal Error" },
+} as const;
 import { BoothBase, BoothConfig } from "./BoothBase";
 import {
   TokenOrder,
@@ -153,7 +162,7 @@ export class BoothServer extends BoothBase {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(500, message);
+      return res.error(NWPC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -169,19 +178,19 @@ export class BoothServer extends BoothBase {
       const { itemId } = JSON.parse(req.params);
 
       if (!itemId) {
-        return res.error(400, "Item ID is required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Item ID is required");
       }
 
       const item = await this.getInventoryItem(itemId);
 
       if (!item) {
-        return res.error(404, "Item not found");
+        return res.error(NWPC_ERRORS.NOT_FOUND.code, "Item not found");
       }
 
       return res.send({ item }, context.sender);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(500, message);
+      return res.error(NWPC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -215,7 +224,7 @@ export class BoothServer extends BoothBase {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(400, message);
+      return res.error(NWPC_ERRORS.INVALID_PARAMS.code, message);
     }
   }
 
@@ -231,24 +240,24 @@ export class BoothServer extends BoothBase {
       const { orderId } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(400, "Order ID is required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
       }
 
       const order = await this.getOrder(orderId);
 
       if (!order) {
-        return res.error(404, "Order not found");
+        return res.error(NWPC_ERRORS.NOT_FOUND.code, "Order not found");
       }
 
       // Verify buyer
       if (order.buyer !== context.sender) {
-        return res.error(403, "Unauthorized");
+        return res.error(NWPC_ERRORS.UNAUTHORIZED.code, "Unauthorized");
       }
 
       return res.send({ order }, context.sender);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(500, message);
+      return res.error(NWPC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -264,18 +273,18 @@ export class BoothServer extends BoothBase {
       const { orderId } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(400, "Order ID is required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
       }
 
       const order = await this.getOrder(orderId);
 
       if (!order) {
-        return res.error(404, "Order not found");
+        return res.error(NWPC_ERRORS.NOT_FOUND.code, "Order not found");
       }
 
       // Verify buyer
       if (order.buyer !== context.sender) {
-        return res.error(403, "Unauthorized");
+        return res.error(NWPC_ERRORS.UNAUTHORIZED.code, "Unauthorized");
       }
 
       const paymentInit = await this.initializePayment(orderId);
@@ -294,7 +303,7 @@ export class BoothServer extends BoothBase {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(500, message);
+      return res.error(NWPC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -310,7 +319,7 @@ export class BoothServer extends BoothBase {
       const { paymentId } = JSON.parse(req.params);
 
       if (!paymentId) {
-        return res.error(400, "Payment ID is required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Payment ID is required");
       }
 
       const result = await this.verifyPayment(paymentId);
@@ -325,7 +334,7 @@ export class BoothServer extends BoothBase {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(500, message);
+      return res.error(NWPC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -341,24 +350,24 @@ export class BoothServer extends BoothBase {
       const { orderId } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(400, "Order ID is required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
       }
 
       const receipt = await this.getReceiptByOrderId(orderId);
 
       if (!receipt) {
-        return res.error(404, "Receipt not found");
+        return res.error(NWPC_ERRORS.NOT_FOUND.code, "Receipt not found");
       }
 
       // Verify buyer
       if (receipt.buyer !== context.sender) {
-        return res.error(403, "Unauthorized");
+        return res.error(NWPC_ERRORS.UNAUTHORIZED.code, "Unauthorized");
       }
 
       return res.send({ receipt }, context.sender);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(500, message);
+      return res.error(NWPC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -374,18 +383,18 @@ export class BoothServer extends BoothBase {
       const { orderId, reason } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(400, "Order ID is required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
       }
 
       const order = await this.getOrder(orderId);
 
       if (!order) {
-        return res.error(404, "Order not found");
+        return res.error(NWPC_ERRORS.NOT_FOUND.code, "Order not found");
       }
 
       // Verify buyer
       if (order.buyer !== context.sender) {
-        return res.error(403, "Unauthorized");
+        return res.error(NWPC_ERRORS.UNAUTHORIZED.code, "Unauthorized");
       }
 
       await this.cancelOrder(orderId, reason);
@@ -393,7 +402,7 @@ export class BoothServer extends BoothBase {
       return res.send({ success: true }, context.sender);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(400, message);
+      return res.error(NWPC_ERRORS.INVALID_PARAMS.code, message);
     }
   }
 
@@ -409,18 +418,18 @@ export class BoothServer extends BoothBase {
       const { orderId, amount, reason } = JSON.parse(req.params);
 
       if (!orderId || !reason) {
-        return res.error(400, "Order ID and reason are required");
+        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID and reason are required");
       }
 
       const order = await this.getOrder(orderId);
 
       if (!order) {
-        return res.error(404, "Order not found");
+        return res.error(NWPC_ERRORS.NOT_FOUND.code, "Order not found");
       }
 
       // Verify buyer
       if (order.buyer !== context.sender) {
-        return res.error(403, "Unauthorized");
+        return res.error(NWPC_ERRORS.UNAUTHORIZED.code, "Unauthorized");
       }
 
       const refund = await this.requestRefund(
@@ -441,7 +450,7 @@ export class BoothServer extends BoothBase {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(400, message);
+      return res.error(NWPC_ERRORS.INVALID_PARAMS.code, message);
     }
   }
 
@@ -478,18 +487,60 @@ export class BoothServer extends BoothBase {
   protected async fulfillOrder(order: TokenOrder): Promise<Receipt> {
     Debug.log(`Fulfilling order: ${order.orderId}`, "Booth");
 
+    // Find the payment for this order
+    let orderPayment;
+    for (const payment of this.state.payments.values()) {
+      if (payment.orderId === order.orderId) {
+        orderPayment = payment;
+        break;
+      }
+    }
+
+    const timestamp = Date.now();
+
     // TODO: Integration with Forge to mint tokens
-    // For now, create a placeholder receipt
+    // For now, create a placeholder receipt using new spec-aligned structure
     const receipt: Receipt = {
-      receiptId: `receipt-${order.orderId}`,
-      orderId: order.orderId,
+      // New spec-aligned fields
+      id: `receipt-${order.orderId}`,
+      invoiceId: order.orderId,
+      timestamp,
+
+      item: {
+        id: order.orderId,
+        name: order.tokenType === "FUNGIBLE" ? "Fungible Tokens" : "TAT",
+        issuer: order.forgePubkey,
+      },
+
+      payment: {
+        method: order.paymentMethod,
+        grossAmount: order.price.amount,
+        currency: order.price.currency,
+        fees: {
+          boxOffice: 0,
+          platform: 0,
+          payment: 0,
+        },
+        netToCreator: order.price.amount,
+      },
+
+      tat: {
+        tokenID: order.tokenIDs?.[0] || `token-${order.orderId}`,
+        tokenHash: "", // Placeholder - should be actual token hash
+      },
+
       buyer: order.buyer,
-      payment: this.state.payments.get(order.orderId)!,
+      boxOffice: this.getPublicKey() || "",
+
+      // Legacy fields for backward compatibility
       tokens: [], // Placeholder - should contain actual token JWTs
-      issuedAt: Date.now(),
       metadata: {
         note: "Token minting not yet implemented - integrate with Forge",
+        originalPayment: orderPayment,
       },
+      receiptId: `receipt-${order.orderId}`,
+      orderId: order.orderId,
+      issuedAt: timestamp,
     };
 
     // In production, this would be something like:

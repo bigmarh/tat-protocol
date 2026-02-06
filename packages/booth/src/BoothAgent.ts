@@ -413,8 +413,8 @@ export class BoothAgent {
     const totalAmount = catalogItem.price.amount * quantity;
     const options: PaymentOptions = {};
 
-    if (this.config.supportedPaymentMethods?.includes("token")) {
-      options.token = {
+    if (this.config.supportedPaymentMethods?.includes("tat")) {
+      options.tat = {
         amount: catalogItem.tokenType === "FUNGIBLE" ? totalAmount : undefined,
         payTo: this.resolvedPubkey,
         issuer: catalogItem.issuer,
@@ -455,7 +455,7 @@ export class BoothAgent {
     error?: string;
   }> {
     try {
-      if (payment.method === "token") {
+      if (payment.method === "tat") {
         const tokens = payment.tokens;
         if (!tokens?.length) {
           return { success: false, error: "No tokens provided" };
@@ -523,7 +523,7 @@ export class BoothAgent {
             issuer: invoice.catalogItem.issuer,
           },
           payment: {
-            method: "token",
+            method: "tat",
             grossAmount: invoice.catalogItem.price.amount,
             currency: invoice.catalogItem.price.currency,
             fees: {

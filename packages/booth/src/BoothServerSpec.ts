@@ -388,8 +388,8 @@ export class BoothServerSpec {
     const totalAmount = catalogItem.price.amount * quantity;
     const options: PaymentOptions = {};
 
-    if (this.config.supportedPaymentMethods?.includes("token")) {
-      options.token = {
+    if (this.config.supportedPaymentMethods?.includes("tat")) {
+      options.tat = {
         amount: catalogItem.tokenType === "FUNGIBLE" ? totalAmount : undefined,
         payTo: this.nwpcServer.getPublicKey() || "",
         issuer: catalogItem.issuer,
@@ -432,7 +432,7 @@ export class BoothServerSpec {
     error?: string;
   }> {
     try {
-      if (payment.method === "token") {
+      if (payment.method === "tat") {
         const tokens = payment.tokens;
         if (!tokens?.length) {
           return { success: false, error: "No tokens provided" };
@@ -500,7 +500,7 @@ export class BoothServerSpec {
             issuer: invoice.catalogItem.issuer,
           },
           payment: {
-            method: "token",
+            method: "tat",
             grossAmount: invoice.catalogItem.price.amount,
             currency: invoice.catalogItem.price.currency,
             fees: {
