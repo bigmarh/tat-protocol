@@ -178,7 +178,10 @@ export class BoothServer extends BoothBase {
       const { itemId } = JSON.parse(req.params);
 
       if (!itemId) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Item ID is required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Item ID is required",
+        );
       }
 
       const item = await this.getInventoryItem(itemId);
@@ -240,7 +243,10 @@ export class BoothServer extends BoothBase {
       const { orderId } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Order ID is required",
+        );
       }
 
       const order = await this.getOrder(orderId);
@@ -273,7 +279,10 @@ export class BoothServer extends BoothBase {
       const { orderId } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Order ID is required",
+        );
       }
 
       const order = await this.getOrder(orderId);
@@ -319,7 +328,10 @@ export class BoothServer extends BoothBase {
       const { paymentId } = JSON.parse(req.params);
 
       if (!paymentId) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Payment ID is required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Payment ID is required",
+        );
       }
 
       const result = await this.verifyPayment(paymentId);
@@ -350,7 +362,10 @@ export class BoothServer extends BoothBase {
       const { orderId } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Order ID is required",
+        );
       }
 
       const receipt = await this.getReceiptByOrderId(orderId);
@@ -383,7 +398,10 @@ export class BoothServer extends BoothBase {
       const { orderId, reason } = JSON.parse(req.params);
 
       if (!orderId) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID is required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Order ID is required",
+        );
       }
 
       const order = await this.getOrder(orderId);
@@ -418,7 +436,10 @@ export class BoothServer extends BoothBase {
       const { orderId, amount, reason } = JSON.parse(req.params);
 
       if (!orderId || !reason) {
-        return res.error(NWPC_ERRORS.INVALID_PARAMS.code, "Order ID and reason are required");
+        return res.error(
+          NWPC_ERRORS.INVALID_PARAMS.code,
+          "Order ID and reason are required",
+        );
       }
 
       const order = await this.getOrder(orderId);

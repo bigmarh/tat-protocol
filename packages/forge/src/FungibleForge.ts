@@ -4,6 +4,7 @@ import {
   NWPCRequest,
   NWPCContext,
   NWPCResponseObject,
+  NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { ForgeConfig } from "./ForgeConfig";
 import { Recipient } from "./Types";
@@ -25,16 +26,25 @@ export class FungibleForge extends ForgeBase {
     try {
       reqObj = JSON.parse(req.params);
     } catch (error) {
-      return await res.error(400, "Invalid request parameters");
+      return await res.error(
+        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+      );
     }
 
     const { to, amount } = reqObj;
     if (!amount || !to) {
-      return await res.error(400, "Missing required parameters");
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "Missing required parameters",
+      );
     }
     const amountToForge = Number(amount);
     if (amountToForge <= 0) {
-      return await res.error(400, "Amount must be positive");
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "Amount must be positive",
+      );
     }
     if (
       this.state.totalSupply > 0 &&
@@ -42,7 +52,7 @@ export class FungibleForge extends ForgeBase {
         this.state.totalSupply
     ) {
       return await res.error(
-        400,
+        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
         `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
       );
     }
@@ -70,7 +80,10 @@ export class FungibleForge extends ForgeBase {
     try {
       tx = JSON.parse(req.params);
     } catch (error) {
-      return await res.error(400, "Invalid transaction parameters");
+      return await res.error(
+        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+      );
     }
     const sender = context.sender;
     // Validate transaction
@@ -80,7 +93,7 @@ export class FungibleForge extends ForgeBase {
     );
     if (error || !validTx) {
       return await res.error(
-        code ?? 400,
+        code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
         "Invalid transaction: " + (error || "Validation failed"),
         params,
       );
@@ -115,11 +128,19 @@ export class FungibleForge extends ForgeBase {
     sender: string,
   ) {
     if (!inputs || !outs) {
-      return await res.error(400, "Missing required parameters: inputs, outs");
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "Missing required parameters: inputs, outs",
+      );
     }
     // 1. Validate
     const validationError = await this.validateFungibleTransfer(inputs, outs);
-    if (validationError) return await res.error(400, validationError);
+    if (validationError) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        validationError,
+      );
+    }
     // 2. Prepare
     const { recipientTokens, changeTokenJWT } =
       await this.prepareFungibleTransfer(inputs, outs, sender);

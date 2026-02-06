@@ -5,6 +5,7 @@ import {
   NWPCResponseObject,
   NWPCResponse,
   NWPCConfig,
+  NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger, verifySignature } from "@tat-protocol/utils";
@@ -163,7 +164,10 @@ export class GateServerSpec {
         requirements?.tokenIdPattern &&
         !this.isSafeTokenIdPattern(requirements.tokenIdPattern)
       ) {
-        return res.error(400, "Unsafe tokenIdPattern");
+        return res.error(
+          NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "Unsafe tokenIdPattern",
+        );
       }
 
       // Generate challenge
@@ -308,7 +312,7 @@ export class GateServerSpec {
       );
     } catch (error) {
       const message = error instanceof Error ? error.message : "Unknown error";
-      return res.error(5000, message);
+      return res.error(NWPC_SPEC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 

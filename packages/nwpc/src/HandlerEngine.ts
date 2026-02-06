@@ -5,6 +5,7 @@ import {
   NWPCHandler,
   NWPCResponseObject,
 } from "./NWPCResponseTypes";
+import { NWPC_SPEC_ERRORS } from "./errors";
 
 /**
  * Engine for executing middleware chains and handlers
@@ -38,7 +39,12 @@ export class HandlerEngine {
       responseSent = true;
       // Ensure at least two arguments (code, message)
       const [code, message, recipient] =
-        args.length < 2 ? [500, "Unknown error"] : args;
+        args.length < 2
+          ? [
+              NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+              NWPC_SPEC_ERRORS.INTERNAL_ERROR.message,
+            ]
+          : args;
       return originalError(
         code as number,
         message as string,
@@ -72,5 +78,16 @@ export class HandlerEngine {
       error: { code, message },
       timestamp: Date.now(),
     };
+  }
+
+  public createMethodNotFoundResponse(
+    id: string,
+    method: string,
+  ): NWPCResponse {
+    return this.createErrorResponse(
+      id,
+      NWPC_SPEC_ERRORS.METHOD_NOT_FOUND.code,
+      `Method ${method} not found`,
+    );
   }
 }

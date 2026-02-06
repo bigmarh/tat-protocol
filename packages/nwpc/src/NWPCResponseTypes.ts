@@ -5,6 +5,7 @@ import { KeyPair } from "@tat-protocol/hdkeys";
 import { StorageInterface } from "@tat-protocol/storage";
 import { DebugLogger } from "@tat-protocol/utils";
 import type { Signer } from "@tat-protocol/types";
+import { NWPC_SPEC_ERRORS } from "./errors";
 
 const Debug = DebugLogger.getInstance();
 
@@ -28,6 +29,8 @@ export interface NWPCConfig {
   storage?: StorageInterface;
   requestHandlers?: Map<string, NWPCHandler>;
   type?: "client" | "server";
+  /** Introspection configuration (opt-in, disabled by default) */
+  introspection?: NWPCIntrospectionConfig;
   [key: string]: unknown;
 }
 
@@ -69,6 +72,15 @@ export interface NWPCContext {
   poster: string;
   sender: string;
   recipient: string;
+
+  /** Validated token set by auth middleware (bearer or payment) */
+  validatedToken?: unknown;
+
+  /** Payment token to be spent after successful handler execution */
+  paymentToken?: unknown;
+
+  /** Amount to deduct from payment token */
+  paymentCost?: number;
 }
 
 export interface NWPCRequest {
@@ -90,9 +102,110 @@ export interface NWPCResponse {
   timestamp: number; // Response timestamp
 }
 
+export interface NWPCParamSchema {
+  type: "string" | "number" | "boolean" | "object" | "array";
+  description?: string;
+  required?: boolean;
+  properties?: Record<string, NWPCParamSchema>;
+  items?: NWPCParamSchema;
+  enum?: (string | number | boolean)[];
+  default?: unknown;
+}
+
+export type NWPCAuthLevel = "public" | "authenticated" | "admin";
+
+/**
+ * Token-based authentication configuration for a method
+ */
+export interface NWPCTokenAuth {
+  /** Authentication mode */
+  mode: "bearer" | "payment";
+
+  /** Pubkey of the forge that issues valid tokens (required for payment) */
+  issuerPubkey?: string;
+
+  /** Server pubkey binding for replay protection */
+  audience?: string;
+
+  /** Required access scopes (bearer mode) */
+  scopes?: string[];
+
+  /** Cost per call in token units (payment mode) */
+  cost?: number;
+
+  /** Allow overpayment up to this amount, return change (payment mode) */
+  maxAmount?: number;
+
+  /** Method to call to acquire a token (e.g., "auth.getToken") */
+  acquireMethod?: string;
+
+  /** Human-readable hint for token acquisition */
+  acquireHint?: string;
+
+  /** Relay hints for discovering external forge */
+  relays?: string[];
+
+  /** Parameter name for token in request params (default: "_token") */
+  paramName?: string;
+}
+
+/**
+ * Example request/response pair for documentation
+ */
+export interface NWPCMethodExample {
+  name?: string;
+  params: Record<string, unknown>;
+  result?: unknown;
+}
+
+/**
+ * Error documentation for a method
+ */
+export interface NWPCMethodError {
+  code: number;
+  message: string;
+  when: string;
+}
+
+export interface NWPCRouteMetadata {
+  description?: string;
+  paramsSchema?: Record<string, NWPCParamSchema>;
+  resultSchema?: NWPCParamSchema;
+  auth?: NWPCAuthLevel;
+  deprecated?: boolean;
+  tags?: string[];
+  hidden?: boolean;
+
+  /** Token authentication requirements */
+  tokenAuth?: NWPCTokenAuth;
+
+  /** Whether this method is idempotent (important for payment retry safety) */
+  idempotent?: boolean;
+
+  /** Rate limiting configuration */
+  rateLimit?: {
+    requests: number;
+    windowMs: number;
+  };
+
+  /** Example request/response pairs */
+  examples?: NWPCMethodExample[];
+
+  /** Documented error conditions */
+  errors?: NWPCMethodError[];
+}
+
+export interface NWPCIntrospectionConfig {
+  enabled: boolean;
+  serverName?: string;
+  serverVersion?: string;
+  serverDescription?: string;
+}
+
 export interface NWPCRoute {
   method: string;
   handlers: NWPCHandler[];
+  metadata?: NWPCRouteMetadata;
 }
 export type NWPCHandler = (
   request: NWPCRequest,
@@ -196,21 +309,36 @@ export class NWPCResponseObject {
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(404, message || "Not found", undefined, recipient);
+    return this.error(
+      NWPC_SPEC_ERRORS.NOT_FOUND.code,
+      message || NWPC_SPEC_ERRORS.NOT_FOUND.message,
+      undefined,
+      recipient,
+    );
   }
 
   async badRequest(
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(400, message || "Bad request", undefined, recipient);
+    return this.error(
+      NWPC_SPEC_ERRORS.INVALID_REQUEST.code,
+      message || NWPC_SPEC_ERRORS.INVALID_REQUEST.message,
+      undefined,
+      recipient,
+    );
   }
 
   async unauthorized(
     message?: string,
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
-    return this.error(401, message || "Unauthorized", undefined, recipient);
+    return this.error(
+      NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+      message || NWPC_SPEC_ERRORS.UNAUTHORIZED.message,
+      undefined,
+      recipient,
+    );
   }
 
   async internalError(
@@ -218,8 +346,8 @@ export class NWPCResponseObject {
     recipient?: string | string[],
   ): Promise<NWPCResponse> {
     return this.error(
-      500,
-      message || "Internal server error",
+      NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+      message || NWPC_SPEC_ERRORS.INTERNAL_ERROR.message,
       undefined,
       recipient,
     );

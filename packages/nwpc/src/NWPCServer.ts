@@ -13,8 +13,10 @@ import {
   NWPCRequest,
   NWPCContext,
 } from "./NWPCResponseTypes";
+import { NWPC_SPEC_ERRORS } from "./errors";
 import { NWPCBase } from "./NWPCBase";
 import { HandlerEngine } from "./HandlerEngine";
+import { registerIntrospection } from "./introspection";
 
 const Debug = DebugLogger.getInstance();
 
@@ -26,6 +28,13 @@ export class NWPCServer extends NWPCBase {
     this.handlerEngine = new HandlerEngine();
     // Bind handleEvent to this instance
     this.handleEvent = this.handleEvent.bind(this);
+
+    // Register introspection handler if enabled
+    if (config.introspection?.enabled) {
+      registerIntrospection(this.router, config.introspection, () =>
+        this.getPublicKey(),
+      );
+    }
   }
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
@@ -150,7 +159,10 @@ export class NWPCServer extends NWPCBase {
     try {
       await this.handlerEngine.execute(request, context, res);
     } catch (error) {
-      res.send({ error: { code: 500, message: "Internal server error" } });
+      await res.error(
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.message,
+      );
     }
   }
 }

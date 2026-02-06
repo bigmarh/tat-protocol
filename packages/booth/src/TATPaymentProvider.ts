@@ -27,7 +27,9 @@ export interface TATPaymentConfig {
   minimumAmount?: number;
 
   /** Custom token validation function */
-  customValidator?: (token: Token) => Promise<{ valid: boolean; reason?: string }>;
+  customValidator?: (
+    token: Token,
+  ) => Promise<{ valid: boolean; reason?: string }>;
 }
 
 /**
@@ -72,10 +74,14 @@ export class TATPaymentProvider implements PaymentProvider {
 
   constructor(config: TATPaymentConfig) {
     if (!config.acceptedIssuers || config.acceptedIssuers.length === 0) {
-      throw new Error("TATPaymentProvider requires at least one accepted issuer");
+      throw new Error(
+        "TATPaymentProvider requires at least one accepted issuer",
+      );
     }
     if (!config.acceptedTokenTypes || config.acceptedTokenTypes.length === 0) {
-      throw new Error("TATPaymentProvider requires at least one accepted token type");
+      throw new Error(
+        "TATPaymentProvider requires at least one accepted token type",
+      );
     }
     if (!config.receiverPubkey) {
       throw new Error("TATPaymentProvider requires a receiver pubkey");
@@ -145,7 +151,7 @@ export class TATPaymentProvider implements PaymentProvider {
    */
   async processTATPayment(
     paymentId: string,
-    tokens: string[]
+    tokens: string[],
   ): Promise<PaymentVerificationResult> {
     const pending = this.pendingPayments.get(paymentId);
     if (!pending) {
@@ -220,7 +226,9 @@ export class TATPaymentProvider implements PaymentProvider {
    *
    * @param tokens - Array of token JWTs to validate
    */
-  async validateTokens(tokens: string[]): Promise<{ valid: boolean; reason?: string }> {
+  async validateTokens(
+    tokens: string[],
+  ): Promise<{ valid: boolean; reason?: string }> {
     if (!tokens || tokens.length === 0) {
       return { valid: false, reason: "No tokens provided" };
     }
@@ -234,19 +242,28 @@ export class TATPaymentProvider implements PaymentProvider {
         try {
           await token.validate();
         } catch (validationError) {
-          return { valid: false, reason: `Invalid token: ${validationError instanceof Error ? validationError.message : String(validationError)}` };
+          return {
+            valid: false,
+            reason: `Invalid token: ${validationError instanceof Error ? validationError.message : String(validationError)}`,
+          };
         }
 
         // Check issuer
         const issuer = token.payload.iss;
         if (!this.config.acceptedIssuers.includes(issuer)) {
-          return { valid: false, reason: `Token issuer not accepted: ${issuer}` };
+          return {
+            valid: false,
+            reason: `Token issuer not accepted: ${issuer}`,
+          };
         }
 
         // Check token type
         const tokenType = token.getTokenType();
         if (!this.config.acceptedTokenTypes.includes(tokenType)) {
-          return { valid: false, reason: `Token type not accepted: ${tokenType}` };
+          return {
+            valid: false,
+            reason: `Token type not accepted: ${tokenType}`,
+          };
         }
 
         // Check expiration
@@ -265,7 +282,10 @@ export class TATPaymentProvider implements PaymentProvider {
         // Verify signature
         const sigValid = await token.verifyTokenSignature();
         if (!sigValid) {
-          return { valid: false, reason: "Token signature verification failed" };
+          return {
+            valid: false,
+            reason: "Token signature verification failed",
+          };
         }
       } catch (error) {
         return {
@@ -286,7 +306,7 @@ export class TATPaymentProvider implements PaymentProvider {
   async refundPayment(
     paymentId: string,
     _amount: Price,
-    _reason: string
+    _reason: string,
   ): Promise<RefundResult> {
     const pending = this.pendingPayments.get(paymentId);
     if (!pending) {

@@ -20,8 +20,62 @@ const SERVER_KEYS = {
   publicKey: getPublicKey(hexToBytes(secretKey)),
 };
 console.log(SERVER_KEYS.publicKey);
+const RELAYS = defaultConfig.relays;
+const METHOD_INFO = [
+  {
+    name: "nwpc.info",
+    description: "Describe available methods and server metadata",
+    params: null,
+    returns: "Server info and methods list",
+  },
+  {
+    name: "ping",
+    description: "Health check",
+    params: null,
+    returns: "\"pong\"",
+  },
+  {
+    name: "add",
+    description: "Add two numbers",
+    params: "{ a: number, b: number }",
+    returns: "number",
+  },
+  {
+    name: "subtract",
+    description: "Subtract two numbers",
+    params: "{ a: number, b: number }",
+    returns: "number",
+  },
+  {
+    name: "multiply",
+    description: "Multiply two numbers",
+    params: "{ a: number, b: number }",
+    returns: "number",
+  },
+  {
+    name: "divide",
+    description: "Divide two numbers",
+    params: "{ a: number, b: number }",
+    returns: "number",
+  },
+];
 // Calculator handlers
 const handlers = {
+  "nwpc.info": async (
+    _req: NWPCRequest,
+    _ctx: NWPCContext,
+    _res: NWPCResponseObject,
+  ) => {
+    return await _res.send(
+      {
+        name: "NWPC Calculator Server",
+        publicKey: SERVER_KEYS.publicKey,
+        relays: RELAYS,
+        methods: METHOD_INFO,
+      },
+      "sender",
+    );
+  },
   ping: async (_req: NWPCRequest, _: NWPCContext, _res: NWPCResponseObject) => {
     return await _res.send("pong", "sender");
   },
@@ -84,7 +138,7 @@ class CalculatorServer {
     this.server = new NWPCServer({
       keys: SERVER_KEYS,
       type: "server",
-      relays: defaultConfig.relays,
+      relays: RELAYS,
       storage: new NodeStore(),
     });
 
@@ -104,9 +158,10 @@ class CalculatorServer {
       console.log("\n🔢 NWPC Calculator Server");
       console.log("------------------------");
       console.log("Public Key:", SERVER_KEYS.publicKey);
-      console.log("Relay URLs:", ["ws://localhost:8080"]);
+      console.log("Relay URLs:", RELAYS);
       console.log("------------------------\n");
 
+      console.log("Introspection: nwpc.info");
       console.log("Waiting for client requests...\n");
     } catch (error) {
       console.error("Failed to start server:", error);

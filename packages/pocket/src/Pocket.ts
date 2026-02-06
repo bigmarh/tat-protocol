@@ -1,4 +1,12 @@
-import { NWPCHandler, NWPCConfig, NWPCPeer, NWPCState, NWPCContext, NWPCMessageData } from "@tat-protocol/nwpc";
+import {
+  NWPCHandler,
+  NWPCConfig,
+  NWPCPeer,
+  NWPCState,
+  NWPCContext,
+  NWPCMessageData,
+  NWPC_SPEC_ERRORS,
+} from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger, Unwrap, UnwrapWithSigner } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
@@ -485,7 +493,7 @@ export class Pocket extends NWPCPeer {
                         this.responseHandlers.delete(message.id);
                         handler.resolve(message);
                         Debug.log("handleEvent message" + message, 'Pocket');
-                        if (message.error?.code == 409) {
+                        if (message.error?.code == NWPC_SPEC_ERRORS.TOKEN_SPENT.code) {
                             Debug.log("handleEvent error" + message.error, 'Pocket');
                             //delete the token from the state
                             const tokenHash = message.result.spent;

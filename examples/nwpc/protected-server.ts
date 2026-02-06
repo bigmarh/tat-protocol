@@ -16,6 +16,29 @@ const SERVER_KEYS = {
   secretKey: secretKey,
   publicKey: getPublicKey(hexToBytes(secretKey)),
 };
+const RELAYS = ["ws://localhost:8080"];
+const METHOD_INFO = [
+  {
+    name: "nwpc.info",
+    description: "Describe available methods and server metadata",
+    auth: "public",
+  },
+  {
+    name: "admin",
+    description: "Admin action (auth + rate limiting)",
+    auth: "required",
+  },
+  {
+    name: "user",
+    description: "User action (auth + rate limiting)",
+    auth: "required",
+  },
+  {
+    name: "public",
+    description: "Public action (no auth)",
+    auth: "public",
+  },
+];
 
 class ProtectedServer extends NWPCServer {
   private logger!: NWPCHandler;
@@ -26,7 +49,7 @@ class ProtectedServer extends NWPCServer {
     super({
       keys: SERVER_KEYS,
       type: "server",
-      relays: ["ws://localhost:8080"],
+      relays: RELAYS,
       storage: new NodeStore(),
     });
     this.initializeMiddleware();
@@ -127,7 +150,22 @@ class ProtectedServer extends NWPCServer {
     );
   };
 
+  private infoAction: NWPCHandler = async (_request, _context, _res) => {
+    return await _res.send(
+      {
+        name: "Protected NWPC Server",
+        publicKey: this.getPublicKey() || SERVER_KEYS.publicKey,
+        relays: RELAYS,
+        methods: METHOD_INFO,
+      },
+      "sender",
+    );
+  };
+
   private registerHandlers() {
+    // Public introspection
+    this.use("nwpc.info", this.logger, this.infoAction);
+
     // Admin action with all middleware
     this.use(
       "admin",
@@ -149,12 +187,13 @@ class ProtectedServer extends NWPCServer {
       console.log("\n🔒 Protected NWPC Server");
       console.log("------------------------");
       console.log("Public Key:", SERVER_KEYS.publicKey);
-      console.log("Relay URLs:", ["ws://localhost:8080"]);
+      console.log("Relay URLs:", RELAYS);
       console.log("------------------------\n");
       console.log("Available actions:");
       console.log("- admin: Requires authentication and rate limiting");
       console.log("- user: Requires authentication");
       console.log("- public: No authentication required");
+      console.log("- nwpc.info: Introspection (public)");
       console.log("\nWaiting for client requests...\n");
     } catch (error) {
       console.error("Failed to start server:", error);

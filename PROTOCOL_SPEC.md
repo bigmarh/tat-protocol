@@ -450,12 +450,18 @@ Standard NWPC error codes:
 | 1001 | Invalid Request | Missing required fields |
 | 1002 | Method Not Found | Unknown method name |
 | 1003 | Invalid Params | Parameter validation failed |
+| 1004 | Rate Limited | Too many requests in a time window |
+| 1005 | Not Found | Requested resource not found |
 | 2000 | Token Invalid | Token signature or format invalid |
 | 2001 | Token Expired | Token past expiration time |
 | 2002 | Token Spent | Token already spent (double-spend) |
-| 2003 | Insufficient Balance | Not enough tokens to transfer |
+| 2003 | Insufficient Balance | Not enough tokens to transfer or pay |
 | 2004 | Unauthorized | Signature verification failed |
 | 2005 | Supply Limit | Would exceed total supply |
+| 2006 | Token Required | Missing required token |
+| 2007 | Insufficient Scope | Token lacks required scope |
+| 2008 | Token Wrong Audience | Token bound to different server |
+| 2009 | Token Wrong Issuer | Token issued by untrusted issuer |
 | 3000 | Internal Error | Server-side processing error |
 
 ---

@@ -8,6 +8,7 @@ import {
   NWPCContext,
   NWPCResponseObject,
   NWPCResponse,
+  NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import {
   signMessage,
@@ -173,7 +174,10 @@ export abstract class ForgeBase extends NWPCServer {
     ) {
       return next();
     }
-    return res.error(403, "Forbidden");
+    return res.error(
+      NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+      NWPC_SPEC_ERRORS.UNAUTHORIZED.message,
+    );
   }
 
   public onlyOwner(
@@ -185,7 +189,10 @@ export abstract class ForgeBase extends NWPCServer {
     if (this.state.owner === context.sender) {
       return next();
     }
-    return res.error(403, "Forbidden");
+    return res.error(
+      NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+      NWPC_SPEC_ERRORS.UNAUTHORIZED.message,
+    );
   }
 
   /**
@@ -418,24 +425,33 @@ export abstract class ForgeBase extends NWPCServer {
     try {
       parsed = JSON.parse(req.params);
     } catch (error) {
-      return await res.error(400, "Invalid request parameters");
+      return await res.error(
+        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+      );
     }
     const { token } = parsed;
     if (!token) {
-      return await res.error(400, "Missing token JWT");
+      return await res.error(
+        NWPC_SPEC_ERRORS.TOKEN_REQUIRED.code,
+        NWPC_SPEC_ERRORS.TOKEN_REQUIRED.message,
+      );
     }
     try {
       const restoredToken = await new Token().restore(token);
       const tokenHash = await restoredToken.create_token_hash();
       if (this.state.spentTokens.has(tokenHash)) {
-        return await res.error(400, "Token already spent");
+        return await res.error(
+          NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+          NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+        );
       }
       await this.publishSpentToken(tokenHash);
       return await res.send({ success: true }, context.sender);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "Unknown error occurred";
-      return await res.error(500, message);
+      return await res.error(NWPC_SPEC_ERRORS.INTERNAL_ERROR.code, message);
     }
   }
 
@@ -448,17 +464,26 @@ export abstract class ForgeBase extends NWPCServer {
     try {
       parsed = JSON.parse(req.params);
     } catch (error) {
-      return await res.error(400, "Invalid request parameters");
+      return await res.error(
+        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+      );
     }
     const tokenHashes = parsed.token_hashes;
     if (!Array.isArray(tokenHashes) || tokenHashes.length === 0) {
-      return await res.error(400, "token_hashes is required");
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "token_hashes is required",
+      );
     }
     const spent: Record<string, boolean> = {};
     const valid: Record<string, boolean> = {};
     for (const hash of tokenHashes) {
       if (typeof hash !== "string") {
-        return await res.error(400, "token_hashes must be strings");
+        return await res.error(
+          NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "token_hashes must be strings",
+        );
       }
       const isSpent = this.state.spentTokens.has(hash);
       spent[hash] = isSpent;
@@ -533,7 +558,12 @@ export abstract class ForgeBase extends NWPCServer {
   > {
     const inputs = tx.ins;
     if (!inputs) {
-      return [null, "Transaction inputs are required", 400, ""];
+      return [
+        null,
+        "Transaction inputs are required",
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
     }
     for (const input of inputs) {
       const token = await new Token().restore(input);
@@ -542,17 +572,27 @@ export abstract class ForgeBase extends NWPCServer {
         return [
           null,
           "Token is already spent",
-          409,
+          NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
           JSON.stringify({ spent: tokenHash, issuer: token.payload.iss }),
         ];
       }
       if (token.isExpired()) {
-        return [null, "Token has expired", 400, ""];
+        return [
+          null,
+          "Token has expired",
+          NWPC_SPEC_ERRORS.TOKEN_EXPIRED.code,
+          "",
+        ];
       }
       if (token.payload.P2PKlock) {
         const witness = witnessData?.[inputs.indexOf(input)];
         if (!witness) {
-          return [null, "Witness for input not found", 400, ""];
+          return [
+            null,
+            "Witness for input not found",
+            NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+            "",
+          ];
         }
         const isValid = verifySignature(
           hexToBytes(token.header.token_hash),
@@ -560,11 +600,21 @@ export abstract class ForgeBase extends NWPCServer {
           token.payload.P2PKlock,
         );
         if (!isValid) {
-          return [null, "Witness signature is not valid", 400, ""];
+          return [
+            null,
+            "Witness signature is not valid",
+            NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+            "",
+          ];
         }
       }
       if (token.payload.timeLock && token.payload.timeLock > Date.now()) {
-        return [null, "The TimeLock has not passed", 400, ""];
+        return [
+          null,
+          "The TimeLock has not passed",
+          NWPC_SPEC_ERRORS.INVALID_REQUEST.code,
+          "",
+        ];
       }
       if (token.payload.HTLC) {
         const htlc =
@@ -581,14 +631,19 @@ export abstract class ForgeBase extends NWPCServer {
           providedHTLCSecret,
         );
         if (!validation.valid) {
-          return [null, validation.error ?? null, 400, ""];
+          return [
+            null,
+            validation.error ?? null,
+            NWPC_SPEC_ERRORS.INVALID_REQUEST.code,
+            "",
+          ];
         }
         if (providedHTLCSecret) {
           if (!validation.canRedeem) {
             return [
               null,
               "HTLC cannot be redeemed with provided secret",
-              400,
+              NWPC_SPEC_ERRORS.INVALID_REQUEST.code,
               "",
             ];
           }
@@ -597,7 +652,7 @@ export abstract class ForgeBase extends NWPCServer {
             return [
               null,
               "HTLC secret required to redeem before expiry",
-              400,
+              NWPC_SPEC_ERRORS.INVALID_REQUEST.code,
               "",
             ];
           }
