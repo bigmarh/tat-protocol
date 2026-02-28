@@ -4,7 +4,7 @@ Uncomment this to use S3Storage
 
 
 import { S3Client, GetObjectCommand, PutObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { StorageInterface } from "./StorageInterface";
+import { StorageInterface } from "./StorageInterface.js";
 
 export class S3Storage implements StorageInterface {
   private client: S3Client;

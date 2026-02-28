@@ -1,5 +1,5 @@
-import { ForgeConfig } from "./ForgeConfig";
-import { ForgeState } from "./ForgeState";
+import { ForgeConfig } from "./ForgeConfig.js";
+import { ForgeState } from "./ForgeState.js";
 import { Token } from "@tat-protocol/token";
 import { TokenValidator } from "@tat-protocol/token";
 import {
@@ -439,7 +439,22 @@ export abstract class ForgeBase extends NWPCServer {
     }
     try {
       const restoredToken = await new Token().restore(token);
-      const tokenHash = await restoredToken.create_token_hash();
+
+      // Verify token integrity before accepting burn
+      if (!(await restoredToken.verifyTokenHash())) {
+        return await res.error(
+          NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+          "Token hash does not match payload",
+        );
+      }
+      if (!(await restoredToken.verifyTokenSignature())) {
+        return await res.error(
+          NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+          "Invalid token signature",
+        );
+      }
+
+      const tokenHash = restoredToken.header.token_hash;
       if (this.state.spentTokens.has(tokenHash)) {
         return await res.error(
           NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
@@ -567,7 +582,26 @@ export abstract class ForgeBase extends NWPCServer {
     }
     for (const input of inputs) {
       const token = await new Token().restore(input);
-      const tokenHash = await token.create_token_hash();
+
+      // Verify token integrity before accepting as input
+      if (!(await token.verifyTokenHash())) {
+        return [
+          null,
+          "Token hash does not match payload",
+          NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+          "",
+        ];
+      }
+      if (!(await token.verifyTokenSignature())) {
+        return [
+          null,
+          "Invalid token signature",
+          NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+          "",
+        ];
+      }
+
+      const tokenHash = token.header.token_hash;
       if (this.state.spentTokens.has(tokenHash)) {
         return [
           null,

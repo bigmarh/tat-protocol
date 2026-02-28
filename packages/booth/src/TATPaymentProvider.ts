@@ -3,8 +3,8 @@ import {
   PaymentInitResult,
   PaymentVerificationResult,
   RefundResult,
-} from "./PaymentProviderInterface";
-import { Payment, PaymentMethod, PaymentStatus, Price } from "./types";
+} from "./PaymentProviderInterface.js";
+import { Payment, PaymentMethod, PaymentStatus, Price } from "./types.js";
 import { Token } from "@tat-protocol/token";
 
 /**

@@ -1,6 +1,6 @@
 import { NDKEvent } from "@nostr-dev-kit/ndk";
-import { NWPCResponse } from "./NWPCResponseTypes";
-import { NWPCRouter } from "./NWPCRouter";
+import { NWPCResponse } from "./NWPCResponseTypes.js";
+import { NWPCRouter } from "./NWPCRouter.js";
 
 export interface INWPCBase {
   router: NWPCRouter;

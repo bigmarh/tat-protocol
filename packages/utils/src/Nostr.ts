@@ -13,7 +13,7 @@ import NDK, {
   NDKTag,
 } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
-import { DebugLogger } from "./debug";
+import { DebugLogger } from "./debug.js";
 
 const Debug = DebugLogger.getInstance();
 

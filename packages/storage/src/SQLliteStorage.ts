@@ -1,4 +1,4 @@
-import { StorageInterface } from './StorageInterface';
+import { StorageInterface } from './StorageInterface.js';
 import { DebugLogger } from '@tat-protocol/utils';
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'crypto';
 

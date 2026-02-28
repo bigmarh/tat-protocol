@@ -5,8 +5,8 @@ import {
   NWPCResponse,
   NWPCIntrospectionConfig,
   NWPCHandler,
-} from "./NWPCResponseTypes";
-import { NWPCRouter } from "./NWPCRouter";
+} from "./NWPCResponseTypes.js";
+import { NWPCRouter } from "./NWPCRouter.js";
 
 /**
  * Token auth info exposed in introspection

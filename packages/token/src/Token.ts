@@ -216,7 +216,11 @@ export default class Token {
       throw new Error("Invalid JWT format");
     }
 
-    DebugLogger.getInstance().log("From JWT", "[TOKEN]", { parts });
+    DebugLogger.getInstance().log("From JWT", "[TOKEN]", {
+      headerLength: parts[0]?.length,
+      payloadLength: parts[1]?.length,
+      hasSignature: !!parts[2],
+    });
     const [header, payload, signature] = parts;
     if (!header || !payload || !signature) {
       throw new Error("Invalid JWT format");

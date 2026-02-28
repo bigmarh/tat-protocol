@@ -1,11 +1,11 @@
-import { NWPCBase } from "./NWPCBase";
-import { NWPCServer } from "./NWPCServer";
+import { NWPCBase } from "./NWPCBase.js";
+import { NWPCServer } from "./NWPCServer.js";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { StorageInterface } from "@tat-protocol/storage";
 import { DebugLogger } from "@tat-protocol/utils";
 import type { Signer } from "@tat-protocol/types";
-import { NWPC_SPEC_ERRORS } from "./errors";
+import { NWPC_SPEC_ERRORS } from "./errors.js";
 
 const Debug = DebugLogger.getInstance();
 

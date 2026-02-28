@@ -23,7 +23,7 @@ import {
   ChallengeEntry,
   VerificationMode,
   TurnstileRequirements,
-} from "./spec-types";
+} from "./spec-types.js";
 
 const Debug = DebugLogger.getInstance();
 

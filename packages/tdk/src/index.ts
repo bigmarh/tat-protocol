@@ -6,6 +6,8 @@ export * from "@tat-protocol/pocket";
 export * from "@tat-protocol/utils";
 export * from "@tat-protocol/storage";
 export * from "@tat-protocol/token";
+export * from "@tat-protocol/gate";
+export * from "@tat-protocol/booth";
 
 // Signer types and implementations
 export type { Signer, UnsignedNostrEvent, NostrEvent } from "@tat-protocol/types";
@@ -19,4 +21,4 @@ export {
   createFungibleForgeWithKey,
   createTATForgeWithKey,
   detectSigner,
-} from "./factories";
+} from "./factories.js";

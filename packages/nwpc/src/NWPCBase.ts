@@ -2,8 +2,8 @@ import NDK, { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { StorageInterface } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { defaultConfig } from "@tat-protocol/config";
-import { NWPCRouter } from "./NWPCRouter";
-import { HandlerEngine } from "./HandlerEngine";
+import { NWPCRouter } from "./NWPCRouter.js";
+import { HandlerEngine } from "./HandlerEngine.js";
 import {
   NWPCConfig,
   NWPCRequest,
@@ -11,7 +11,7 @@ import {
   NWPCRoute,
   NWPCHandler,
   MessageHookOptions,
-} from "./NWPCResponseTypes";
+} from "./NWPCResponseTypes.js";
 import {
   deserializeData,
   serializeData,
@@ -19,8 +19,8 @@ import {
   WrapWithSigner,
   DebugLogger,
 } from "@tat-protocol/utils";
-import { INWPCBase } from "./NWPCBaseInterface";
-import { NWPCState, SerializableData } from "./NWPCState";
+import { INWPCBase } from "./NWPCBaseInterface.js";
+import { NWPCState, SerializableData } from "./NWPCState.js";
 import { v4 as uuidv4 } from "uuid";
 import { LRUCache } from "lru-cache";
 import { BloomFilter } from "@tat-protocol/utils";

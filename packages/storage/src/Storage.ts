@@ -1,4 +1,4 @@
-import { StorageInterface } from './StorageInterface';
+import { StorageInterface } from './StorageInterface.js';
 
 /**
  * Universal Storage class. Requires explicit backend injection.

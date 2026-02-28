@@ -1,4 +1,4 @@
-import { PocketState } from './Pocket';
+import { PocketState } from './Pocket.js';
 
 export interface FungibleOut {
     issuer: string,

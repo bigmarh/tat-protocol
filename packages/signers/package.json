@@ -1,6 +1,13 @@
 {
   "name": "@tat-protocol/signers",
-  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigmarh/tat-protocol.git",
+    "directory": "packages/signers"
+  },
+  "homepage": "https://github.com/bigmarh/tat-protocol#readme",
+  "bugs": "https://github.com/bigmarh/tat-protocol/issues",
+  "version": "1.1.1",
   "description": "Signer implementations for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",
@@ -23,11 +30,12 @@
     "clean": "rm -rf dist && rm -f tsconfig.tsbuildinfo"
   },
   "keywords": [
-    "signers",
-    "tat",
-    "protocol",
+    "tat-protocol",
     "nostr",
-    "nip07"
+    "token",
+    "signer",
+    "nip07",
+    "cryptography"
   ],
   "author": "TAT Protocol",
   "license": "MIT",

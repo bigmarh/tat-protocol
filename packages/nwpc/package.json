@@ -1,6 +1,13 @@
 {
   "name": "@tat-protocol/nwpc",
-  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigmarh/tat-protocol.git",
+    "directory": "packages/nwpc"
+  },
+  "homepage": "https://github.com/bigmarh/tat-protocol#readme",
+  "bugs": "https://github.com/bigmarh/tat-protocol/issues",
+  "version": "1.1.1",
   "description": "NWPC (Nostr Wrapped Procedure Call) implementation for TAT Protocol",
   "type": "module",
   "main": "dist-cjs/index.js",
@@ -30,11 +37,12 @@
     "clean": "rm -rf dist dist-cjs && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
-    "nwpc",
+    "tat-protocol",
     "nostr",
+    "token",
     "rpc",
-    "tat",
-    "protocol"
+    "encrypted",
+    "nostr-relay"
   ],
   "author": "TAT Protocol",
   "license": "MIT",

@@ -108,7 +108,7 @@ export async function createFungibleForgeWithNIP07(options: {
     relays: options.relays,
     totalSupply: options.totalSupply,
   });
-  await forge.init();
+  await forge.initialize();
   return forge;
 }
 
@@ -146,7 +146,7 @@ export async function createFungibleForgeWithKey(options: {
     relays: options.relays,
     totalSupply: options.totalSupply,
   });
-  await forge.init();
+  await forge.initialize();
   return forge;
 }
 
@@ -181,7 +181,7 @@ export async function createTATForgeWithKey(options: {
     storage: options.storage,
     relays: options.relays,
   });
-  await forge.init();
+  await forge.initialize();
   return forge;
 }
 

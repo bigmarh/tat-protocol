@@ -11,15 +11,15 @@ import {
   // ValidationStrategy,
   GateConfig as GateMetadata,
   AccessAnalytics,
-} from "./types";
+} from "./types.js";
 import {
   ValidationStrategyInterface,
   ValidationContext,
-} from "./ValidationStrategyInterface";
+} from "./ValidationStrategyInterface.js";
 import {
   AccessPolicyInterface,
   // PolicyEvaluationResult,
-} from "./AccessPolicyInterface";
+} from "./AccessPolicyInterface.js";
 
 const Debug = DebugLogger.getInstance();
 

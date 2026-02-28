@@ -5,7 +5,7 @@ import {
   NWPCContext,
   NWPCResponseObject,
   NWPCConfig,
-} from "./NWPCResponseTypes";
+} from "./NWPCResponseTypes.js";
 import {
   Wrap,
   Unwrap,
@@ -13,7 +13,7 @@ import {
   UnwrapWithSigner,
   DebugLogger,
 } from "@tat-protocol/utils";
-import { NWPCBase } from "./NWPCBase";
+import { NWPCBase } from "./NWPCBase.js";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import type { Signer } from "@tat-protocol/types";
 

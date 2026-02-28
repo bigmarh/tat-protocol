@@ -1,6 +1,13 @@
 {
   "name": "@tat-protocol/utils",
-  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigmarh/tat-protocol.git",
+    "directory": "packages/utils"
+  },
+  "homepage": "https://github.com/bigmarh/tat-protocol#readme",
+  "bugs": "https://github.com/bigmarh/tat-protocol/issues",
+  "version": "1.1.1",
   "description": "Utility functions for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",
@@ -26,9 +33,11 @@
     "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
-    "utils",
-    "tat",
-    "protocol"
+    "tat-protocol",
+    "nostr",
+    "token",
+    "crypto",
+    "utilities"
   ],
   "author": "TAT Protocol",
   "license": "MIT",

@@ -4,7 +4,7 @@ Uncomment this to use RedisStorage
 
 
 import { createClient, RedisClientType } from "redis";
-import { StorageInterface } from "./StorageInterface";
+import { StorageInterface } from "./StorageInterface.js";
 import { DebugLogger } from "@tat-protocol/utils";
 
 const Debug = DebugLogger.getInstance();

@@ -1,5 +1,5 @@
 import { Storage, Bucket } from '@google-cloud/storage';
-import { StorageInterface } from './StorageInterface';
+import { StorageInterface } from './StorageInterface.js';
 import { DebugLogger } from '@tat-protocol/utils';
 
 const Debug = DebugLogger.getInstance();

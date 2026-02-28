@@ -2,7 +2,7 @@ import { sha256 } from "@noble/hashes/sha256";
 import { schnorr } from "@noble/curves/secp256k1.js";
 import { hexToBytes } from "@noble/hashes/utils";
 import { KeyPair } from "@tat-protocol/hdkeys";
-import { DebugLogger } from "./debug";
+import { DebugLogger } from "./debug.js";
 
 const Debug = DebugLogger.getInstance();
 

@@ -1,11 +1,11 @@
-export * from "./src/NWPCBase";
-export * from "./src/NWPCServer";
-export * from "./src/NWPCPeer";
-export * from "./src/NWPCRouter";
-export * from "./src/HandlerEngine";
-export * from "./src/introspection";
-export * from "./src/errors";
-export * from "./src/tokenAuth";
+export * from "./src/NWPCBase.js";
+export * from "./src/NWPCServer.js";
+export * from "./src/NWPCPeer.js";
+export * from "./src/NWPCRouter.js";
+export * from "./src/HandlerEngine.js";
+export * from "./src/introspection.js";
+export * from "./src/errors.js";
+export * from "./src/tokenAuth.js";
 export type {
   NWPCRequest,
   NWPCResponse,
@@ -24,4 +24,4 @@ export type {
   MessageHookOptions,
   NWPCError,
   NWPCConfig,
-} from "./src/NWPCResponseTypes";
+} from "./src/NWPCResponseTypes.js";

@@ -3,7 +3,7 @@
 Uncomment this code block to use FirebaseRTDBStorage
 
 import { getDatabase, ref, set, get, remove } from "firebase/database";
-import { StorageInterface } from "./StorageInterface";
+import { StorageInterface } from "./StorageInterface.js";
 import { DebugLogger } from "@tat-protocol/utils";
 
 const Debug = DebugLogger.getInstance();

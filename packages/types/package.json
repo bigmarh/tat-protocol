@@ -1,6 +1,13 @@
 {
   "name": "@tat-protocol/types",
-  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigmarh/tat-protocol.git",
+    "directory": "packages/types"
+  },
+  "homepage": "https://github.com/bigmarh/tat-protocol#readme",
+  "bugs": "https://github.com/bigmarh/tat-protocol/issues",
+  "version": "1.1.1",
   "description": "Type definitions for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",
@@ -23,9 +30,11 @@
     "clean": "rm -rf dist && rm -f tsconfig.tsbuildinfo"
   },
   "keywords": [
+    "tat-protocol",
+    "nostr",
+    "token",
     "types",
-    "tat",
-    "protocol"
+    "typescript"
   ],
   "author": "TAT Protocol",
   "license": "MIT",

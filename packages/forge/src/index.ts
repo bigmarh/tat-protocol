@@ -1,8 +1,8 @@
-export { ForgeBase } from "./ForgeBase";
-export { FungibleForge } from "./FungibleForge";
-export { NonFungibleForge } from "./NonFungibleForge";
-export type { ForgeConfig } from "./ForgeConfig";
-export type { ForgeState } from "./ForgeState";
+export { ForgeBase } from "./ForgeBase.js";
+export { FungibleForge } from "./FungibleForge.js";
+export { NonFungibleForge } from "./NonFungibleForge.js";
+export type { ForgeConfig } from "./ForgeConfig.js";
+export type { ForgeState } from "./ForgeState.js";
 
 // Alias for backwards compatibility
-export { NonFungibleForge as TATForge } from "./NonFungibleForge";
+export { NonFungibleForge as TATForge } from "./NonFungibleForge.js";

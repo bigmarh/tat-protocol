@@ -1,2 +1,2 @@
-export { Pocket } from './Pocket';
-export type { PocketConfig, PocketState } from './Pocket';
+export { Pocket } from './Pocket.js';
+export type { PocketConfig, PocketState } from './Pocket.js';

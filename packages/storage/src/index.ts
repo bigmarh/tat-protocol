@@ -1,5 +1,5 @@
-export * from './StorageInterface';
-export { Storage } from './Storage';
-export { BrowserStore } from './BrowserStorage';
-export { NodeStore } from './DiskStorage';
-/* export * from './src/PearStorage'; */
+export * from './StorageInterface.js';
+export { Storage } from './Storage.js';
+export { BrowserStore } from './BrowserStorage.js';
+export { NodeStore } from './DiskStorage.js';
+/* export * from './src/PearStorage.js'; */

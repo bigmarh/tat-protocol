@@ -12,11 +12,11 @@ import {
   NWPCConfig,
   NWPCRequest,
   NWPCContext,
-} from "./NWPCResponseTypes";
-import { NWPC_SPEC_ERRORS } from "./errors";
-import { NWPCBase } from "./NWPCBase";
-import { HandlerEngine } from "./HandlerEngine";
-import { registerIntrospection } from "./introspection";
+} from "./NWPCResponseTypes.js";
+import { NWPC_SPEC_ERRORS } from "./errors.js";
+import { NWPCBase } from "./NWPCBase.js";
+import { HandlerEngine } from "./HandlerEngine.js";
+import { registerIntrospection } from "./introspection.js";
 
 const Debug = DebugLogger.getInstance();
 

@@ -1,3 +1,3 @@
-export { Storage } from './src/Storage';
-export { BrowserStore } from './src/BrowserStorage';
-export * from './src/StorageInterface';
+export { Storage } from './src/Storage.js';
+export { BrowserStore } from './src/BrowserStorage.js';
+export * from './src/StorageInterface.js';

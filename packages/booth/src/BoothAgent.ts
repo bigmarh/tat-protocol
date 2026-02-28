@@ -21,7 +21,7 @@ import {
   BoothInfo,
   // ForgeMintRequest,
   ForgeAuthorization,
-} from "./spec-types";
+} from "./spec-types.js";
 
 const Debug = DebugLogger.getInstance();
 

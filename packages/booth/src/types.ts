@@ -10,7 +10,7 @@ export type {
   BoothInfo,
   ForgeAuthorization,
   ForgeMintRequest,
-} from "./spec-types";
+} from "./spec-types.js";
 
 /**
  * Order status - lowercase to align with TAT Protocol spec

@@ -4,8 +4,8 @@ import {
   NWPCContext,
   NWPCHandler,
   NWPCResponseObject,
-} from "./NWPCResponseTypes";
-import { NWPC_SPEC_ERRORS } from "./errors";
+} from "./NWPCResponseTypes.js";
+import { NWPC_SPEC_ERRORS } from "./errors.js";
 
 /**
  * Engine for executing middleware chains and handlers

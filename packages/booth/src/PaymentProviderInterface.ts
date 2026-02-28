@@ -1,4 +1,4 @@
-import { Payment, PaymentStatus, Price, PaymentMethod } from "./types";
+import { Payment, PaymentStatus, Price, PaymentMethod } from "./types.js";
 
 /**
  * Payment provider initialization result

@@ -6,8 +6,8 @@ import {
   NWPCRoute,
   NWPCRouteMetadata,
   NWPCResponseObject,
-} from "./NWPCResponseTypes";
-import { HandlerEngine } from "./HandlerEngine";
+} from "./NWPCResponseTypes.js";
+import { HandlerEngine } from "./HandlerEngine.js";
 import { DebugLogger } from "@tat-protocol/utils";
 
 const Debug = DebugLogger.getInstance();

@@ -1,4 +1,4 @@
-import { Payload, Header } from "./Token";
+import { Payload, Header } from "./Token.js";
 
 /**
  * Convert a string to base64url

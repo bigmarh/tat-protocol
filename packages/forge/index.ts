@@ -1,2 +1,2 @@
-export * from "./src";
-export type { ForgeConfig, ForgeState } from "./src";
+export * from "./src/index.js";
+export type { ForgeConfig, ForgeState } from "./src/index.js";

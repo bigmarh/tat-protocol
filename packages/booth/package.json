@@ -1,6 +1,13 @@
 {
   "name": "@tat-protocol/booth",
-  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigmarh/tat-protocol.git",
+    "directory": "packages/booth"
+  },
+  "homepage": "https://github.com/bigmarh/tat-protocol#readme",
+  "bugs": "https://github.com/bigmarh/tat-protocol/issues",
+  "version": "1.1.1",
   "description": "Booth Agent for TAT Protocol - Purchase and sales protocol",
   "type": "module",
   "main": "dist/index.js",
@@ -27,11 +34,11 @@
   },
   "keywords": [
     "tat-protocol",
-    "booth",
-    "sales",
+    "nostr",
+    "token",
     "commerce",
-    "agent",
-    "nwpc"
+    "payments",
+    "invoice"
   ],
   "author": "TAT Protocol",
   "license": "MIT",

@@ -10,7 +10,7 @@ import { NWPCPeer } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
 import { DebugLogger } from "@tat-protocol/utils";
 import { randomBytes } from "crypto";
-// import { BoothBase, BoothConfig } from "./BoothBase";
+// import { BoothBase, BoothConfig } from "./BoothBase.js";
 import {
   CatalogItem,
   Receipt,
@@ -21,7 +21,7 @@ import {
   BoothInfo,
   // ForgeMintRequest,
   ForgeAuthorization,
-} from "./spec-types";
+} from "./spec-types.js";
 import { StorageInterface } from "@tat-protocol/storage";
 
 const Debug = DebugLogger.getInstance();

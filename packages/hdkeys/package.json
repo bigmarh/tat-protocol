@@ -1,6 +1,13 @@
 {
   "name": "@tat-protocol/hdkeys",
-  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bigmarh/tat-protocol.git",
+    "directory": "packages/hdkeys"
+  },
+  "homepage": "https://github.com/bigmarh/tat-protocol#readme",
+  "bugs": "https://github.com/bigmarh/tat-protocol/issues",
+  "version": "1.1.1",
   "description": "HD Keys implementation for TAT Protocol",
   "type": "module",
   "main": "dist/index.js",
@@ -24,9 +31,12 @@
     "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
-    "hdkeys",
-    "tat",
-    "protocol"
+    "tat-protocol",
+    "nostr",
+    "token",
+    "hd-wallet",
+    "bip39",
+    "key-derivation"
   ],
   "author": "TAT Protocol",
   "license": "MIT",

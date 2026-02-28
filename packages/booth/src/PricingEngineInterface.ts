@@ -1,4 +1,4 @@
-import { Price, PricingConfig, TokenOrder } from "./types";
+import { Price, PricingConfig, TokenOrder } from "./types.js";
 
 /**
  * Price calculation result

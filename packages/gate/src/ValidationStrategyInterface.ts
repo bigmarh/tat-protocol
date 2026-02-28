@@ -1,5 +1,5 @@
 import { Token } from "@tat-protocol/token";
-import { ValidationResult, ValidationStrategy } from "./types";
+import { ValidationResult, ValidationStrategy } from "./types.js";
 
 /**
  * Validation context

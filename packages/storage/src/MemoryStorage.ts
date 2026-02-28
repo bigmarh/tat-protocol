@@ -1,4 +1,4 @@
-import { StorageInterface } from './StorageInterface';
+import { StorageInterface } from './StorageInterface.js';
 
 export class MemoryStorage implements StorageInterface {
   private storage: Map<string, string>;

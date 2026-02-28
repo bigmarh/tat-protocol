@@ -1,1 +1,1 @@
-export * from "./src/core/Pocket";
+export * from "./src/index.js";

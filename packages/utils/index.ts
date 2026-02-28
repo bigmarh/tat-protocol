@@ -3,9 +3,9 @@ import {
   verifySignature,
   createHash,
   removeBase64Padding,
-} from "./src/CryptoHelpers";
-import { postToFeed, Wrap, Unwrap } from "./src/Nostr";
-import { DebugLogger } from "./src/debug";
+} from "./src/CryptoHelpers.js";
+import { postToFeed, Wrap, Unwrap } from "./src/Nostr.js";
+import { DebugLogger } from "./src/debug.js";
 
 export {
   signMessage,

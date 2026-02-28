@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
-    "module": "ESNext",
+    "module": "NodeNext",
     "target": "ESNext",
-    "moduleResolution": "Node",
+    "moduleResolution": "NodeNext",
     "lib": [
       "ES2020",
       "DOM"
@@ -28,7 +28,7 @@
     "baseUrl": ".",
     "paths": {
       "@tat-protocol/*": [
-        "./packages/*/src"
+        "./packages/*/src/index.ts"
       ],
       "*": [
         "node_modules/*"

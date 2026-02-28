@@ -17,14 +17,14 @@ const NWPC_ERRORS = {
   UNAUTHORIZED: { code: 2004, message: "Unauthorized" },
   INTERNAL_ERROR: { code: 3000, message: "Internal Error" },
 } as const;
-import { BoothBase, BoothConfig } from "./BoothBase";
+import { BoothBase, BoothConfig } from "./BoothBase.js";
 import {
   TokenOrder,
   // OrderStatus,
   Receipt,
   // Payment,
   // PaymentMethod,
-} from "./types";
+} from "./types.js";
 
 const Debug = DebugLogger.getInstance();
 

@@ -1,6 +1,6 @@
 /// <reference lib="dom" />
 
-import { StorageInterface } from './StorageInterface';
+import { StorageInterface } from './StorageInterface.js';
 
 declare global {
   interface Window {

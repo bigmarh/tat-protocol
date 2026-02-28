@@ -1,5 +1,5 @@
 import { NDKEvent } from "@nostr-dev-kit/ndk";
-import { NWPCBase } from "./NWPCBase";
+import { NWPCBase } from "./NWPCBase.js";
 
 export interface MessageHookOptions {
   beforeRequest?: MessageHook;

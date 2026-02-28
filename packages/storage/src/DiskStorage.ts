@@ -1,4 +1,4 @@
-import { StorageInterface } from './StorageInterface';
+import { StorageInterface } from './StorageInterface.js';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { DebugLogger } from '@tat-protocol/utils';

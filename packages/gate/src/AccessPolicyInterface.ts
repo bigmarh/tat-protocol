@@ -1,5 +1,5 @@
 import { Token } from "@tat-protocol/token";
-import { AccessPolicy } from "./types";
+import { AccessPolicy } from "./types.js";
 
 /**
  * Policy evaluation result

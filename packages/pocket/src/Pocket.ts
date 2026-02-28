@@ -12,7 +12,7 @@ import { DebugLogger, Unwrap, UnwrapWithSigner } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
-import { Transaction } from "./Transaction";
+import { Transaction } from "./Transaction.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { SingleUseKey } from "@tat-protocol/hdkeys";
 import { NDKEvent } from "@nostr-dev-kit/ndk";

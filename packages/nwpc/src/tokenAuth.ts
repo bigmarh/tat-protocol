@@ -6,8 +6,8 @@ import {
   NWPCHandler,
   NWPCTokenAuth,
   NWPCRouteMetadata,
-} from "./NWPCResponseTypes";
-import { NWPC_SPEC_ERRORS } from "./errors";
+} from "./NWPCResponseTypes.js";
+import { NWPC_SPEC_ERRORS } from "./errors.js";
 
 /**
  * Validated token information returned by the validation function

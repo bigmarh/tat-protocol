@@ -7,7 +7,7 @@ import {
 import { bytesToHex } from "@noble/hashes/utils";
 import NDK, { NDKEvent, NDKPrivateKeySigner } from "@nostr-dev-kit/ndk";
 import type { Signer } from "@tat-protocol/types";
-import { DebugLogger } from "./debug";
+import { DebugLogger } from "./debug.js";
 
 const Debug = DebugLogger.getInstance();
 

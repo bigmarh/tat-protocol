@@ -12,9 +12,9 @@ import {
   PaymentMethod,
   SalesAnalytics,
   RefundRequest,
-} from "./types";
-import { PaymentProvider } from "./PaymentProviderInterface";
-import { PricingEngine } from "./PricingEngineInterface";
+} from "./types.js";
+import { PaymentProvider } from "./PaymentProviderInterface.js";
+import { PricingEngine } from "./PricingEngineInterface.js";
 
 const Debug = DebugLogger.getInstance();
 

@@ -1,4 +1,4 @@
-import { ForgeBase } from "./ForgeBase";
+import { ForgeBase } from "./ForgeBase.js";
 import { Token, TokenType } from "@tat-protocol/token";
 import {
   NWPCRequest,
@@ -6,8 +6,8 @@ import {
   NWPCResponseObject,
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
-import { ForgeConfig } from "./ForgeConfig";
-import { Recipient } from "./Types";
+import { ForgeConfig } from "./ForgeConfig.js";
+import { Recipient } from "./Types.js";
 import { v4 as uuidv4 } from "uuid";
 
 export class NonFungibleForge extends ForgeBase {
