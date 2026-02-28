@@ -632,27 +632,33 @@ export class Pocket extends NWPCPeer {
      */
     private async buildWitnessData(inputs: Token[]): Promise<string[]> {
         const witnessData: string[] = [];
+        const mainPubkey = this.publicKey || this.keys.publicKey;
         for (const token of inputs) {
             if (token.payload.P2PKlock) {
-                let keyPair: KeyPair | undefined;
-                // Use main key if matches, else look up in singleUseKeys
-                if (token.payload.P2PKlock === this.keys.publicKey) {
-                    keyPair = this.keys;
+                const dataToSign = hexToBytes(token.header.token_hash);
+                const lockKey = token.payload.P2PKlock;
+
+                if (lockKey === mainPubkey) {
+                    // Main key — use signer if available (avoids empty secretKey issue)
+                    if (this.signer) {
+                        const sig = await this.signer.sign(dataToSign);
+                        witnessData.push(sig);
+                    } else if (this.keys.secretKey) {
+                        const sig = await token.sign(dataToSign, this.keys);
+                        witnessData.push(bytesToHex(sig));
+                    } else {
+                        witnessData.push("");
+                    }
                 } else {
-                    const singleUseKey = this.state.singleUseKeys.get(token.payload.P2PKlock);
+                    // Single-use key
+                    const singleUseKey = this.state.singleUseKeys.get(lockKey);
                     if (singleUseKey) {
-                        keyPair = singleUseKey;
+                        const sig = await token.sign(dataToSign, singleUseKey);
+                        witnessData.push(bytesToHex(sig));
+                    } else {
+                        witnessData.push("");
                     }
                 }
-                if (!keyPair) {
-                    // Cannot sign, push empty string or throw error as needed
-                    witnessData.push("");
-                    continue;
-                }
-                const dataToSign = hexToBytes(token.header.token_hash);
-                // Use the instance sign method
-                const signature = await token.sign(dataToSign, keyPair);
-                witnessData.push(bytesToHex(signature));
             } else {
                 witnessData.push("");
             }
