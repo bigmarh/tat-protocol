@@ -1,4 +1,6 @@
-import Token, { Header, Payload, TokenType } from "./Token.js";
+import Token, { TokenType } from "./Token.js";
+import type { Header, Payload } from "./Token.js";
 import { TokenValidator } from "./TokenValidator.js";
 
-export { Token, Header, Payload, TokenType, TokenValidator };
+export { Token, TokenType, TokenValidator };
+export type { Header, Payload };

@@ -100,20 +100,23 @@ export class Pocket extends NWPCPeer {
     // 1. Initialization & State Management
     // =============================
     private constructor(config: PocketConfig) {
-        super(config);
+        // Resolve storage before super() so NWPCBase always receives a concrete
+        // StorageInterface. storageType:'browser' is a convenience shorthand that
+        // must be materialised here — the constructor body runs too late.
+        const storage = config?.storage
+            ?? (config?.storageType === 'browser'
+                ? (() => {
+                    if (!config.allowInsecureStorage) {
+                        throw new Error('Browser storage requires allowInsecureStorage to persist sensitive state.');
+                    }
+                    return new BrowserStore();
+                })()
+                : new NodeStore());
+        super({ ...config, storage });
         this.config = config || {};
         this.isInitialized = false;
         this.keys = config?.keys || { secretKey: '', publicKey: '' };
-        if (config?.storage) {
-            this.storage = config.storage;
-        } else if (config?.storageType === 'browser') {
-            if (!config.allowInsecureStorage) {
-                throw new Error('Browser storage requires allowInsecureStorage to persist sensitive state.');
-            }
-            this.storage = new BrowserStore();
-        } else {
-            this.storage = new NodeStore();
-        }
+        this.storage = storage;
 
         this.handleEvent = this.handleEvent.bind(this);
     }
