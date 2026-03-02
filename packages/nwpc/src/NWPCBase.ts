@@ -246,7 +246,7 @@ export abstract class NWPCBase implements INWPCBase {
     const filter = {
       kinds: [1059],
       "#p": [pubkey],
-      since: Math.floor(Date.now() / 1000) - 3 * 24 * 60 * 60,
+      since: Math.floor(Date.now() / 1000) - 10 * 60,
     };
 
     const subscription = this.ndk.subscribe(filter, {
@@ -397,7 +397,24 @@ export abstract class NWPCBase implements INWPCBase {
       );
     }
 
-    await wrappedEvent.publish();
+    // Same first-relay-wins pattern as NWPCPeer.request(): resolve as soon as
+    // one relay ACKs rather than waiting for all relays via Promise.all.
+    await new Promise<void>((resolve, reject) => {
+      const onFirstAck = () => {
+        resolve();
+      };
+      wrappedEvent.once("relay:published", onFirstAck);
+      wrappedEvent
+        .publish()
+        .then(() => {
+          wrappedEvent.off("relay:published", onFirstAck);
+          resolve();
+        })
+        .catch((err) => {
+          wrappedEvent.off("relay:published", onFirstAck);
+          reject(err as Error);
+        });
+    });
   }
 
   public async broadcastResponse(

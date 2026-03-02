@@ -15,7 +15,7 @@ import { KeyPair } from '@tat-protocol/hdkeys';
 import { Transaction } from "./Transaction.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { SingleUseKey } from "@tat-protocol/hdkeys";
-import { NDKEvent } from "@nostr-dev-kit/ndk";
+import { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
 import { validateMnemonic } from '@scure/bip39';
 import { wordlist as englishWordlist } from '@scure/bip39/wordlists/english';
@@ -95,6 +95,7 @@ export class Pocket extends NWPCPeer {
     private hdKey!: HDKey;
     protected stateKey: string = '';
     private subscribedIssuers: Set<string> = new Set();
+    private spentFeedSubscriptions: Map<string, NDKSubscription> = new Map();
 
     // =============================
     // 1. Initialization & State Management
@@ -142,11 +143,23 @@ export class Pocket extends NWPCPeer {
             this.keys = { secretKey, publicKey };
             this.saveIdKey();
         }
-        await super.init();
-        this.state = { ...this.state } as PocketState;
-        // Use publicKey which was set from either signer, loaded key, or generated key
-        this.stateKey = `pocket-state-${this.publicKey || this.keys.publicKey}`;
+
+        // Resolve publicKey now (same logic as NWPCBase.init) so we can build
+        // stateKey and load persisted tokens BEFORE subscribing to relays.
+        // This prevents EOSE handlers from saving empty state over loaded tokens.
+        if (this.config?.signer) {
+            this.publicKey = await this.config.signer.getPublicKey();
+        } else if (this.keys?.publicKey) {
+            this.publicKey = this.keys.publicKey;
+        }
+
+        // Load persisted state BEFORE connecting / subscribing.
+        this.stateKey = `pocket-state-${this.publicKey}`;
         await this.loadPocketState();
+
+        // NOW connect and subscribe — state is fully restored, so any EOSE or
+        // replayed events will serialize against the correct (loaded) state.
+        await super.init();
         this.isInitialized = true;
     }
 
@@ -194,6 +207,7 @@ export class Pocket extends NWPCPeer {
     }
 
     private async savePocketState(): Promise<void> {
+        if (!this.stateKey) return; // Guard: don't save before stateKey is resolved
         await this.saveState(this.stateKey, this.state);
     }
 
@@ -217,7 +231,7 @@ export class Pocket extends NWPCPeer {
                 };
                 const seed = await HDKey.mnemonicToSeed(this.state.hdMasterKey.mnemonic);
                 this.hdKey = HDKey.fromMasterSeed(seed);
-                this.savePocketState();
+                await this.savePocketState();
                 return; // No saved state exists
             }
             this.state = {
@@ -229,6 +243,7 @@ export class Pocket extends NWPCPeer {
             }
             const seed = await HDKey.mnemonicToSeed(this.state.hdMasterKey.mnemonic);
             this.hdKey = HDKey.fromMasterSeed(seed);
+            await this.rebuildIndexesAndBalances();
 
             // Subscribe to all single-use key pubkeys after loading state
             for (const pubkey of this.state.singleUseKeys.keys()) {
@@ -320,59 +335,104 @@ export class Pocket extends NWPCPeer {
             Debug.log(`Duplicate token received (hash: ${tokenHash}), ignoring.`, 'Pocket');
             return;
         }
-        const tokenID = String(token.payload.tokenID);
-        if (tokenID !== "undefined") {
-            const tatIndex = this.state.tatIndex.get(issuer);
-            if (tatIndex) {
-                if (tatIndex.get(tokenID) !== tokenHash) {
-                    tatIndex.set(tokenID, tokenHash);
-                }
-            } else {
-                this.state.tatIndex.set(issuer, new Map([[tokenID, tokenHash]]));
-            }
-        }
-        else {
-            const denomination = Number(token.payload.amount);
-            const setID = (token.payload.ext?.setID as string) || "-";
-            const tokenIndex = this.state.tokenIndex.get(issuer);
-            if (tokenIndex) {
-                let tokenHashes = tokenIndex.get(denomination);
-                if (tokenHashes) {
-                    if (!tokenHashes.includes(String(tokenHash))) {
-                        tokenHashes.push(String(tokenHash));
-                        tokenIndex.set(denomination, tokenHashes);
-                        this.updateBalance(issuer, setID, Number(token.payload.amount));
-                    }
-                } else {
-                    tokenIndex.set(denomination, [String(tokenHash)]);
-                    this.updateBalance(issuer, setID, Number(token.payload.amount));
-                }
-            } else {
-                this.state.tokenIndex.set(issuer, new Map([[denomination, [String(tokenHash)]]]));
-                this.updateBalance(issuer, setID, Number(token.payload.amount));
-            }
-        }
         if (issuerTokens) {
             issuerTokens.set(tokenHash, tokenJWT);
         } else {
             this.state.tokens.set(issuer, new Map([[tokenHash, tokenJWT]]));
         }
+        await this.reindexIssuerState(issuer);
         return this.savePocketState();
     }
 
-    private async updateBalance(issuer: string, setID: string, amount: number) {
-        if (this.state.balances.has(issuer)) {
-            const issuerBalances = this.state.balances.get(issuer);
-            if (issuerBalances?.has(setID)) {
-                const currentAmount = issuerBalances?.get(setID) || 0;
-                issuerBalances?.set(setID, currentAmount + amount);
-            } else {
-                issuerBalances?.set(setID, amount);
+    /**
+     * Rebuild all issuer-specific derived state (indexes + balances) from source-of-truth tokens.
+     * This prevents drift when events arrive out of order or when state is recovered from disk.
+     */
+    private async rebuildIndexesAndBalances() {
+        const issuers = new Set<string>([
+            ...this.state.tokens.keys(),
+            ...this.state.tokenIndex.keys(),
+            ...this.state.tatIndex.keys(),
+            ...this.state.balances.keys(),
+        ]);
+
+        for (const issuer of issuers) {
+            await this.reindexIssuerState(issuer);
+        }
+    }
+
+    /**
+     * Rebuild a single issuer's tokenIndex/tatIndex/balances from state.tokens[issuer].
+     * state.tokens is treated as the only source of truth.
+     */
+    private async reindexIssuerState(issuer: string) {
+        const issuerTokens = this.state.tokens.get(issuer);
+        if (!issuerTokens || issuerTokens.size === 0) {
+            this.state.tokens.delete(issuer);
+            this.state.tokenIndex.delete(issuer);
+            this.state.tatIndex.delete(issuer);
+            this.state.balances.delete(issuer);
+            return;
+        }
+
+        const canonicalTokens = new Map<string, string>();
+        const tokenIndex = new Map<number, string[]>();
+        const tatIndex = new Map<string, string>();
+        const balances = new Map<string, number>();
+
+        for (const tokenJWT of issuerTokens.values()) {
+            try {
+                const token = await new Token().restore(String(tokenJWT));
+                if (token.payload.iss !== issuer) {
+                    continue;
+                }
+
+                const tokenHash = token.header.token_hash;
+                canonicalTokens.set(tokenHash, tokenJWT);
+
+                const tokenID = token.payload.tokenID;
+                if (tokenID !== undefined && tokenID !== null) {
+                    tatIndex.set(String(tokenID), tokenHash);
+                    continue;
+                }
+
+                const amount = Number(token.payload.amount);
+                if (!Number.isFinite(amount) || amount <= 0) {
+                    continue;
+                }
+                const denomination = amount;
+                const setID = (token.payload.ext?.setID as string) || "-";
+                const hashes = tokenIndex.get(denomination) || [];
+                hashes.push(tokenHash);
+                tokenIndex.set(denomination, hashes);
+                balances.set(setID, (balances.get(setID) || 0) + amount);
+            } catch {
+                // Skip malformed/unrestorable tokens during reconciliation.
             }
-            await this.savePocketState();
+        }
+
+        if (canonicalTokens.size > 0) {
+            this.state.tokens.set(issuer, canonicalTokens);
         } else {
-            this.state.balances.set(issuer, new Map([[setID, amount]]));
-            await this.savePocketState();
+            this.state.tokens.delete(issuer);
+        }
+
+        if (tokenIndex.size > 0) {
+            this.state.tokenIndex.set(issuer, tokenIndex);
+        } else {
+            this.state.tokenIndex.delete(issuer);
+        }
+
+        if (tatIndex.size > 0) {
+            this.state.tatIndex.set(issuer, tatIndex);
+        } else {
+            this.state.tatIndex.delete(issuer);
+        }
+
+        if (balances.size > 0) {
+            this.state.balances.set(issuer, balances);
+        } else {
+            this.state.balances.delete(issuer);
         }
     }
 
@@ -399,6 +459,12 @@ export class Pocket extends NWPCPeer {
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
+        // Dedup check before the expensive decrypt/unwrap.
+        if (this.isEventProcessed(event.id)) {
+            Debug.log("duplicate event detected (early)" + event.id, 'Pocket');
+            return;
+        }
+
         const toKey = event.tags.find(tag => tag[0] === 'p')?.[1];
         let keys: KeyPair = { secretKey: '', publicKey: '' };
         let signerToUse: Signer | undefined = undefined;
@@ -450,12 +516,7 @@ export class Pocket extends NWPCPeer {
                 recipient: mainPubkey as string,
             };
 
-            const eventId = event.id;
-            if (this.isEventProcessed(eventId)) {
-                Debug.log("duplicate event detected" + eventId, 'Pocket');
-                return;
-            }
-            this.markEventProcessed(eventId);
+            this.markEventProcessed(event.id);
 
             //
             if (message.result?.token) {
@@ -498,9 +559,26 @@ export class Pocket extends NWPCPeer {
                         Debug.log("handleEvent message" + message, 'Pocket');
                         if (message.error?.code == NWPC_SPEC_ERRORS.TOKEN_SPENT.code) {
                             Debug.log("handleEvent error" + message.error, 'Pocket');
-                            //delete the token from the state
-                            const tokenHash = message.result.spent;
-                            const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
+                            // delete the token from state if issuer returned spent metadata
+                            // in error.params (preferred) or legacy result shape.
+                            let spentMeta: { spent?: string; issuer?: string } | undefined;
+                            const params = message.error?.params;
+                            if (typeof params === "string" && params.trim()) {
+                                try {
+                                    spentMeta = JSON.parse(params) as { spent?: string; issuer?: string };
+                                } catch {
+                                    // Ignore malformed params and fall back to legacy fields.
+                                }
+                            }
+                            if (!spentMeta) {
+                                const result = message.result as { spent?: string; issuer?: string } | undefined;
+                                spentMeta = result;
+                            }
+                            const tokenHash = spentMeta?.spent;
+                            const issuer = spentMeta?.issuer;
+                            const tokenJWT = tokenHash && issuer
+                                ? this.state.tokens.get(issuer)?.get(tokenHash)
+                                : undefined;
                             if (tokenJWT) {
                                 await this.deleteToken(tokenJWT);
                             }
@@ -621,6 +699,19 @@ export class Pocket extends NWPCPeer {
     public getBalance(issuer: string, setID: string) {
         setID = setID || "-";
         return this.state.balances.get(issuer)?.get(setID);
+    }
+
+    /**
+     * Recompute derived indexes/balances from stored tokens.
+     * Useful as an explicit repair/sync call before rendering balances.
+     */
+    public async reconcileBalances(issuer?: string): Promise<void> {
+        if (issuer) {
+            await this.reindexIssuerState(issuer);
+        } else {
+            await this.rebuildIndexesAndBalances();
+        }
+        await this.savePocketState();
     }
 
     // =============================
@@ -783,7 +874,12 @@ export class Pocket extends NWPCPeer {
      * @param tx The transaction to send
      * @returns The response from the network
      */
-    public async sendTx(method: string, issuer: string, tx: TransactionData) {
+    public async sendTx(
+        method: string,
+        issuer: string,
+        tx: TransactionData,
+        timeoutMs: number = 60000
+    ) {
         // Restore tokens from tx.inputs or tx.ins
         const inputs: Token[] = [];
         Debug.log("sendTx" + method + tx, 'Pocket');
@@ -804,7 +900,7 @@ export class Pocket extends NWPCPeer {
         }
 
         Debug.log("sendTx finalTx" + tx, 'Pocket');
-        return this.request(method, tx, issuer);
+        return this.request(method, tx, issuer, undefined, timeoutMs);
     }
 
     /**
@@ -898,32 +994,14 @@ export class Pocket extends NWPCPeer {
     async deleteToken(tokenJWT: string) {
         const token = await new Token().restore(String(tokenJWT));
         const issuer = token.payload.iss;
-        const denomination = Number(token.payload.amount);
-        const setID = (token.payload.ext?.setID as string) || "-";
         const tokenHash = token.header.token_hash;
-
-        // Remove from tokenIndex
-        const tokenIndex = this.state.tokenIndex.get(issuer);
-        if (tokenIndex) {
-            tokenIndex.delete(denomination);
-            // update the balance
-            const balance = this.state.balances.get(issuer)?.get(setID);
-            if (balance) {
-                this.state.balances.get(issuer)?.set(setID, balance - denomination);
-            }
-        }
-
-        // Remove from tatIndex
-        const tatIndex = this.state.tatIndex.get(issuer);
-        if (tatIndex) {
-            tatIndex.delete(String(token.payload.tokenID));
-        }
 
         // Remove from tokens
         const issuerTokens = this.state.tokens.get(issuer);
         if (issuerTokens) {
             issuerTokens.delete(tokenHash);
         }
+        await this.reindexIssuerState(issuer);
 
         // Save state after deletion
         await this.savePocketState();
@@ -933,28 +1011,59 @@ export class Pocket extends NWPCPeer {
     private async subscribeToIssuerSpent(issuerPubkey: string) {
         if (this.subscribedIssuers.has(issuerPubkey)) return;
         this.subscribedIssuers.add(issuerPubkey);
-        // Subscribe to spent events (kind 1059, tag ["p", issuerPubkey])
-        await this.subscribe(
-            issuerPubkey,
-            this.handleIssuerSpentEvent.bind(this)
-        );
+        // Issuers publish spent markers as kind 1 feed notes ("spent:<tokenHash>").
+        // Subscribe directly to issuer feed events so pockets can reconcile spent
+        // tokens even if they were spent on another device.
+        const filter = {
+            kinds: [1],
+            authors: [issuerPubkey],
+            "#p": [issuerPubkey],
+            since: Math.floor(Date.now() / 1000) - 10 * 60,
+        };
+        const subscription = this.ndk.subscribe(filter, { closeOnEose: false });
+        subscription.on("event", async (event: NDKEvent) => {
+            await this.handleIssuerSpentEvent(event, issuerPubkey);
+        });
+        this.spentFeedSubscriptions.set(issuerPubkey, subscription);
     }
 
     // Handle spent events from issuer
-    private async handleIssuerSpentEvent(event: NDKEvent) {
+    private async handleIssuerSpentEvent(event: NDKEvent, issuerHint?: string) {
         try {
-            let message: NWPCMessageData;
-            try {
-                message = JSON.parse(event.content);
-            } catch (e) {
-                // Not JSON, ignore or handle as needed
-                Debug.warn("handleIssuerSpentEvent received non-JSON content, ignoring:" + event.content, 'Pocket');
-                return;
+            const content = (event.content || "").trim();
+            let spentMeta: { spent?: string; issuer?: string } | undefined;
+
+            if (content.startsWith("spent:")) {
+                spentMeta = {
+                    spent: content.slice("spent:".length).trim(),
+                    issuer: issuerHint || event.pubkey,
+                };
+            } else {
+                try {
+                    const parsed = JSON.parse(content) as NWPCMessageData | { spent?: string; issuer?: string };
+                    if ((parsed as NWPCMessageData)?.result) {
+                        const result = (parsed as NWPCMessageData).result as { spent?: string; issuer?: string } | undefined;
+                        spentMeta = result;
+                    } else {
+                        spentMeta = parsed as { spent?: string; issuer?: string };
+                    }
+                } catch {
+                    const tokenHashFromTag = event.tags.find((tag) => tag[0] === "t")?.[1];
+                    if (tokenHashFromTag) {
+                        spentMeta = {
+                            spent: tokenHashFromTag,
+                            issuer: issuerHint || event.pubkey,
+                        };
+                    } else {
+                        Debug.warn("handleIssuerSpentEvent received unknown content, ignoring:" + event.content, 'Pocket');
+                        return;
+                    }
+                }
             }
-            const result = message.result as { spent?: string; issuer?: string } | undefined;
-            if (result?.spent && result?.issuer) {
-                const tokenHash = result.spent;
-                const issuer = result.issuer;
+
+            const tokenHash = spentMeta?.spent;
+            const issuer = spentMeta?.issuer || issuerHint || event.pubkey;
+            if (tokenHash && issuer) {
                 const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
                 if (tokenJWT) {
                     await this.deleteToken(tokenJWT);

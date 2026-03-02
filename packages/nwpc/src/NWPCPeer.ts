@@ -232,9 +232,10 @@ export class NWPCPeer extends NWPCBase {
     }
 
     Debug.log("request:", "NWPCPeer");
-    await wrappedEvent.publish();
 
-    return new Promise((resolve, reject) => {
+    // Register the response handler BEFORE publishing to prevent the race
+    // where a fast server responds before the handler map is populated.
+    const responsePromise = new Promise<NWPCResponse>((resolve, reject) => {
       const timeoutId = setTimeout(() => {
         this.responseHandlers.delete(request.id);
         reject(new Error("Request timed out"));
@@ -246,5 +247,41 @@ export class NWPCPeer extends NWPCBase {
         timeoutId,
       });
     });
+
+    try {
+      // Resolve as soon as the FIRST relay ACKs — don't wait for all relays.
+      // NDK's publish() uses Promise.all internally, so without this wrapper it
+      // blocks until every relay responds (or times out at 2500ms each). By
+      // listening to the per-relay "relay:published" event we can move on the
+      // moment any relay has the event, letting the rest settle in the background.
+      await new Promise<void>((resolve, reject) => {
+        const onFirstAck = () => {
+          resolve();
+        };
+        wrappedEvent.once("relay:published", onFirstAck);
+        wrappedEvent
+          .publish()
+          .then(() => {
+            wrappedEvent.off("relay:published", onFirstAck);
+            resolve();
+          })
+          .catch((err) => {
+            wrappedEvent.off("relay:published", onFirstAck);
+            reject(err as Error);
+          });
+      });
+    } catch (err) {
+      // If the publish fails entirely (no relay ACKed), clean up the pending
+      // response handler so it doesn't linger until the request timeout fires.
+      const handler = this.responseHandlers.get(request.id);
+      if (handler) {
+        clearTimeout(handler.timeoutId);
+        this.responseHandlers.delete(request.id);
+        handler.reject(new Error("Failed to publish request: " + String(err)));
+      }
+      throw err;
+    }
+
+    return responsePromise;
   }
 }

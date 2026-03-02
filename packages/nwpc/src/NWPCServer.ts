@@ -38,6 +38,9 @@ export class NWPCServer extends NWPCBase {
   }
 
   protected async handleEvent(event: NDKEvent): Promise<void> {
+    let requestId: string | undefined;
+    let senderPubkey: string | undefined;
+
     try {
       if (!this.signer && !this.keys) {
         Debug.error("Signer or keys not initialized", "NWPCServer");
@@ -65,6 +68,8 @@ export class NWPCServer extends NWPCBase {
         Debug.log("Original Event is not valid:" + event.id, "NWPCServer");
         return;
       }
+      requestId = request.id;
+      senderPubkey = unwrapped.sender;
 
       //Event is valid from sender
       const context = {
@@ -90,6 +95,25 @@ export class NWPCServer extends NWPCBase {
       }
     } catch (error) {
       Debug.error("Error in handleEvent:" + error, "NWPCServer");
+      // Ensure request callers receive a terminal error instead of timing out
+      // when server-side handling throws after request parsing.
+      if (requestId && senderPubkey) {
+        try {
+          await this.sendResponse(
+            {
+              id: requestId,
+              timestamp: Date.now(),
+              error: {
+                code: NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+                message: NWPC_SPEC_ERRORS.INTERNAL_ERROR.message,
+              },
+            },
+            senderPubkey,
+          );
+        } catch (sendErr) {
+          Debug.error("Failed to send fallback error response:" + sendErr, "NWPCServer");
+        }
+      }
     }
   }
 
@@ -126,7 +150,11 @@ export class NWPCServer extends NWPCBase {
         ` - ${recipientPubkey.slice(0, 3)}...${recipientPubkey.slice(-3)}`,
       "NWPCServer",
     );
-    await wrappedEvent.publish();
+    // Fire-and-forget: don't block the handler waiting for relay ACK.
+    // The event is signed and handed to NDK; relay delivery happens asynchronously.
+    wrappedEvent.publish().catch((err) => {
+      Debug.error("sendResponse publish error: " + err, "NWPCServer");
+    });
   }
 
   /**
