@@ -87,7 +87,13 @@ export class NWPCServer extends NWPCBase {
 
       const res = new NWPCResponseObject(request.id, this, context);
 
-      await this.router.handle(request, context, res);
+      const response = await this.router.handle(request, context, res);
+
+      // If the router returned an error (e.g. METHOD_NOT_FOUND), send it back
+      // so the caller gets an error response instead of timing out.
+      if (response?.error && senderPubkey) {
+        await this.sendResponse(response, senderPubkey);
+      }
 
       // Apply afterRequest hook if it exists
       if (this.hooks.afterRequest) {
@@ -111,7 +117,10 @@ export class NWPCServer extends NWPCBase {
             senderPubkey,
           );
         } catch (sendErr) {
-          Debug.error("Failed to send fallback error response:" + sendErr, "NWPCServer");
+          Debug.error(
+            "Failed to send fallback error response:" + sendErr,
+            "NWPCServer",
+          );
         }
       }
     }
@@ -150,11 +159,24 @@ export class NWPCServer extends NWPCBase {
         ` - ${recipientPubkey.slice(0, 3)}...${recipientPubkey.slice(-3)}`,
       "NWPCServer",
     );
-    // Fire-and-forget: don't block the handler waiting for relay ACK.
-    // The event is signed and handed to NDK; relay delivery happens asynchronously.
-    wrappedEvent.publish().catch((err) => {
-      Debug.error("sendResponse publish error: " + err, "NWPCServer");
-    });
+    // Wait for the first relay ACK with a 3-second fallback.
+    // Pure fire-and-forget (the previous approach) caused transfer timeouts
+    // because the auto-ack never reached the client when relays were momentarily
+    // slow.  We still don't throw on relay errors — the handler should not crash
+    // because a single relay was unavailable.
+    await Promise.race([
+      new Promise<void>((resolve) => {
+        wrappedEvent.once("relay:published", resolve);
+        wrappedEvent
+          .publish()
+          .then(() => resolve())
+          .catch((err) => {
+            Debug.error("sendResponse publish error: " + err, "NWPCServer");
+            resolve(); // Don't block on relay error
+          });
+      }),
+      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
+    ]);
   }
 
   /**
