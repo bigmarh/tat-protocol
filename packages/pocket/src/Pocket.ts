@@ -441,7 +441,8 @@ export class Pocket extends NWPCPeer {
     // =============================
     public async subscribe(
         pubkey: string,
-        handler?: (event: NDKEvent) => Promise<void>
+        handler?: (event: NDKEvent) => Promise<void>,
+        since?: number,
     ): Promise<any> {
         if (!pubkey) {
             pubkey = this.keys.publicKey;
@@ -451,10 +452,10 @@ export class Pocket extends NWPCPeer {
             await this.unsubscribe(pubkey);
         }
         if (handler) {
-            return super.subscribe(pubkey, handler);
+            return super.subscribe(pubkey, handler, since);
         }
         else {
-            return super.subscribe(pubkey, this.handleEvent.bind(this));
+            return super.subscribe(pubkey, this.handleEvent.bind(this), since);
         }
     }
 
@@ -518,78 +519,76 @@ export class Pocket extends NWPCPeer {
 
             this.markEventProcessed(event.id);
 
-            //
+            // Handle embedded token — store it but don't skip response resolution.
+            // A response can contain a token AND be the reply to a pending request().
             if (message.result?.token) {
                 Debug.log("received token" + message.result.token, 'Pocket');
                 await this.storeToken(message.result.token);
             }
-            //delete the token from the state if it is spent
-            else if (message.result?.spent) {
+
+            // Handle embedded changeToken (repay response)
+            if (message.result?.changeToken) {
+                Debug.log("received changeToken" + message.result.changeToken, 'Pocket');
+                await this.storeToken(message.result.changeToken);
+            }
+
+            // Delete spent token from state
+            if (message.result?.spent) {
                 Debug.log("received spent token" + message.result, 'Pocket');
-                //delete the token from the state
                 const tokenHash = message.result.spent;
                 const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
-
                 if (tokenJWT) {
                     await this.deleteToken(tokenJWT);
                 }
-
                 await this.savePocketState();
             }
-            else {
 
-                if (this.responseHandlers.has(message.id)) {
-                    if (this.hooks.beforeResponse) {
-                        const shouldContinue = await this.hooks.beforeResponse(
-                            message,
-                            context,
-                        );
-                        if (!shouldContinue) return;
+            // Always resolve a pending request() — even when a token was embedded.
+            // Previously this was in an `else` branch, so token responses never resolved
+            // the caller, causing 15s timeouts whenever the server sent token + metadata.
+            if (this.responseHandlers.has(message.id)) {
+                if (this.hooks.beforeResponse) {
+                    const shouldContinue = await this.hooks.beforeResponse(message, context);
+                    if (!shouldContinue) return;
+                }
+
+                Debug.log("Found response handler for message ID:" + message.id, 'Pocket');
+                const handler = this.responseHandlers.get(message.id);
+                if (handler) {
+                    clearTimeout(handler.timeoutId);
+                    this.responseHandlers.delete(message.id);
+                    handler.resolve(message);
+                    Debug.log("handleEvent message" + message, 'Pocket');
+                    if (message.error?.code == NWPC_SPEC_ERRORS.TOKEN_SPENT.code) {
+                        Debug.log("handleEvent error" + message.error, 'Pocket');
+                        let spentMeta: { spent?: string; issuer?: string } | undefined;
+                        const params = message.error?.params;
+                        if (typeof params === "string" && params.trim()) {
+                            try {
+                                spentMeta = JSON.parse(params) as { spent?: string; issuer?: string };
+                            } catch {
+                                // Ignore malformed params and fall back to legacy fields.
+                            }
+                        }
+                        if (!spentMeta) {
+                            const result = message.result as { spent?: string; issuer?: string } | undefined;
+                            spentMeta = result;
+                        }
+                        const tokenHash = spentMeta?.spent;
+                        const issuer = spentMeta?.issuer;
+                        const tokenJWT = tokenHash && issuer
+                            ? this.state.tokens.get(issuer)?.get(tokenHash)
+                            : undefined;
+                        if (tokenJWT) {
+                            await this.deleteToken(tokenJWT);
+                        }
                     }
-
-                    Debug.log(
-                        "Found response handler for message ID:" + message.id,
-                        'Pocket',
-                    );
-                    const handler = this.responseHandlers.get(message.id);
-                    if (handler) {
-                        clearTimeout(handler.timeoutId);
-                        this.responseHandlers.delete(message.id);
-                        handler.resolve(message);
-                        Debug.log("handleEvent message" + message, 'Pocket');
-                        if (message.error?.code == NWPC_SPEC_ERRORS.TOKEN_SPENT.code) {
-                            Debug.log("handleEvent error" + message.error, 'Pocket');
-                            // delete the token from state if issuer returned spent metadata
-                            // in error.params (preferred) or legacy result shape.
-                            let spentMeta: { spent?: string; issuer?: string } | undefined;
-                            const params = message.error?.params;
-                            if (typeof params === "string" && params.trim()) {
-                                try {
-                                    spentMeta = JSON.parse(params) as { spent?: string; issuer?: string };
-                                } catch {
-                                    // Ignore malformed params and fall back to legacy fields.
-                                }
-                            }
-                            if (!spentMeta) {
-                                const result = message.result as { spent?: string; issuer?: string } | undefined;
-                                spentMeta = result;
-                            }
-                            const tokenHash = spentMeta?.spent;
-                            const issuer = spentMeta?.issuer;
-                            const tokenJWT = tokenHash && issuer
-                                ? this.state.tokens.get(issuer)?.get(tokenHash)
-                                : undefined;
-                            if (tokenJWT) {
-                                await this.deleteToken(tokenJWT);
-                            }
-                        }
-                        if (this.hooks.afterResponse) {
-                            await this.hooks.afterResponse(message, context);
-                        }
+                    if (this.hooks.afterResponse) {
+                        await this.hooks.afterResponse(message, context);
                     }
                 }
-                Debug.log("handleEvent messageID" + message.id, 'Pocket');
-                Debug.log("handleEvent secondary message" + message, 'Pocket');
+            } else {
+                Debug.log("handleEvent secondary message (no handler)" + message.id, 'Pocket');
             }
         }
         catch (error) {

@@ -157,7 +157,11 @@ export abstract class NWPCBase implements INWPCBase {
       Debug.log("already connected" + this.state.relays, "NWPCBase");
       return this;
     }
-    await this.ndk.connect();
+    // Pass a timeout so connect() proceeds as soon as the first relay is
+    // up rather than blocking until every relay in the pool has connected.
+    // NDK's default (no timeout) uses Promise.race with a never-resolving
+    // promise, effectively waiting for ALL relays — up to ~2s with remote relays.
+    await this.ndk.connect(1500);
 
     this.connected = true;
     Debug.log(
@@ -236,6 +240,7 @@ export abstract class NWPCBase implements INWPCBase {
   public async subscribe(
     pubkey: string,
     handler: (event: NDKEvent) => Promise<void>,
+    since?: number,
   ): Promise<NDKSubscription> {
     // Prevent duplicate subscriptions: Unsubscribe if already subscribed
     const existing = this.getSubscription(pubkey);
@@ -246,7 +251,7 @@ export abstract class NWPCBase implements INWPCBase {
     const filter = {
       kinds: [1059],
       "#p": [pubkey],
-      since: Math.floor(Date.now() / 1000) - 10 * 60,
+      since: since ?? Math.floor(Date.now() / 1000) - 10 * 60,
     };
 
     const subscription = this.ndk.subscribe(filter, {
