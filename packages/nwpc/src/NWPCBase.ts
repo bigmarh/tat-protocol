@@ -68,6 +68,8 @@ export abstract class NWPCBase implements INWPCBase {
   protected connected: boolean = false;
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
   private deduplication: boolean = true; // Enable deduplication for event processing
+  private _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
+  private _keepaliveTick = 0;
 
   // Hybrid LRU + Bloom filter for processed events
   private processedEventLRU: LRUCache<string, true>;
@@ -112,8 +114,14 @@ export abstract class NWPCBase implements INWPCBase {
     }
   }
 
-  private async queueSaveState(key: string, state: NWPCState): Promise<void> {
-    this.saveLock = this.saveLock.then(() => this.saveState(key, state));
+  protected async queueSaveState(key: string, state: NWPCState): Promise<void> {
+    this.saveLock = this.saveLock
+      .catch(() => {})
+      .then(() =>
+        this.saveState(key, state).catch((err) => {
+          console.error("[NWPCBase] saveState failed:", err);
+        }),
+      );
     return this.saveLock;
   }
 
@@ -173,13 +181,92 @@ export abstract class NWPCBase implements INWPCBase {
     return this;
   }
 
+  /**
+   * Check that at least one relay has a truly open WebSocket.
+   * NDK's `connectedRelays()` only checks its internal status enum, NOT the
+   * actual `ws.readyState`, so after idle/sleep it reports stale relays as
+   * connected.  We use `relay.connected` which checks BOTH.
+   * If every relay is dead, force-disconnect them all and reconnect.
+   */
+  public async ensureConnected(): Promise<void> {
+    const relays = Array.from(this.ndk.pool.relays.values());
+    const live = relays.filter((r) => r.connected).length;
+    if (live > 0) return;
+
+    Debug.log(
+      `All ${relays.length} relays have dead WebSockets — forcing reconnect`,
+      "NWPCBase",
+    );
+
+    // Force-disconnect each relay so NDK resets its internal status.
+    for (const relay of relays) {
+      try { relay.disconnect(); } catch { /* ignore */ }
+    }
+    this.connected = false;
+
+    await this.ndk.connect(3000);
+    this.connected = true;
+
+    const reconnected = this.ndk.pool
+      .connectedRelays()
+      .map((r) => r.url);
+    Debug.log("Reconnected to " + reconnected.join(", "), "NWPCBase");
+    this.state.relays = new Set([...this.state.relays, ...reconnected]);
+
+    // Re-subscribe so incoming messages are received on fresh connections.
+    if (this.publicKey) {
+      await this.subscribe(this.publicKey, this.handleEvent.bind(this));
+    }
+  }
+
   public async disconnect(): Promise<void> {
     Debug.log("disconnect", "NWPCBase");
+    this.stopKeepalive();
     if (!this.connected) {
       return;
     }
 
     this.connected = false;
+  }
+
+  /**
+   * Start a periodic keepalive that detects dead relay connections and
+   * re-subscribes before the server goes deaf.
+   *
+   * Every tick: calls ensureConnected() (catches relays whose WebSocket
+   * readyState has flipped to CLOSED).
+   *
+   * Every ~5 minutes: forces a fresh subscribe().  Re-subscribing sends a
+   * REQ to the relay; if the socket is silently dead (readyState still OPEN
+   * but the intermediate LB dropped the TCP session) the write will fail and
+   * NDK marks the relay disconnected, so the next tick reconnects.
+   */
+  public startKeepalive(intervalMs = 30_000): void {
+    this.stopKeepalive();
+    this._keepaliveTick = 0;
+    const refreshEvery = Math.max(1, Math.ceil(300_000 / intervalMs));
+
+    this._keepaliveTimer = setInterval(async () => {
+      try {
+        this._keepaliveTick++;
+        await this.ensureConnected();
+
+        // Periodic full re-subscribe to catch silently-dead sockets
+        if (this._keepaliveTick % refreshEvery === 0 && this.publicKey) {
+          Debug.log("Keepalive: refreshing subscription", "NWPCBase");
+          await this.subscribe(this.publicKey, this.handleEvent.bind(this));
+        }
+      } catch (err) {
+        Debug.error("Keepalive error: " + err, "NWPCBase");
+      }
+    }, intervalMs);
+  }
+
+  public stopKeepalive(): void {
+    if (this._keepaliveTimer) {
+      clearInterval(this._keepaliveTimer);
+      this._keepaliveTimer = null;
+    }
   }
 
   public use(method: string, ...handlers: NWPCHandler[]): void {
@@ -384,6 +471,8 @@ export abstract class NWPCBase implements INWPCBase {
     if (!this.signer && !this.keys) {
       throw new Error("Signer or keys not initialized");
     }
+
+    await this.ensureConnected();
 
     let wrappedEvent;
     if (this.signer) {
