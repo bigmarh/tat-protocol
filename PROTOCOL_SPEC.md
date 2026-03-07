@@ -1,6 +1,6 @@
 # TAT Protocol Specification v1.0.0
 
-**Status**: Draft
+**Status**: Living specification
 **Version**: 1.0.0
 **Last Updated**: 2025-12-17
 **Authors**: TAT Protocol Contributors
@@ -789,7 +789,7 @@ Implementations MAY support:
 
 ### 11.3 Implementations
 
-- **Reference (TypeScript)**: https://github.com/tat-protocol/tat-protocol
+- **Reference (TypeScript)**: https://github.com/bigmarh/tat-protocol
 - **Rust**: (Community implementation - coming soon)
 - **Python**: (Community implementation - coming soon)
 
@@ -822,4 +822,4 @@ Implementations MAY support:
 
 **Document Status**: Living specification
 **License**: CC0 (Public Domain)
-**Feedback**: Submit issues at https://github.com/tat-protocol/tat-protocol/issues
+**Feedback**: Submit issues at https://github.com/bigmarh/tat-protocol/issues

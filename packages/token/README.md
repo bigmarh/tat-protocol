@@ -1,43 +1,49 @@
 # @tat-protocol/token
 
-The **Token** package provides token logic and utilities for the TAT Protocol. It enables creation, parsing, and validation of both fungible and non-fungible (TAT) tokens, and is used throughout the SDK.
+Core token model for TAT protocol JWT-like tokens.
 
-## Features
-
-- Create and parse fungible and non-fungible tokens
-- Validate token structure and signatures
-- Integrates with Pocket, Forge, and NWPC
-- Utility functions for token management
-
-## Installation
+## Install
 
 ```bash
-pnpm add @tat-protocol/token
-# or
 npm install @tat-protocol/token
-# or
-yarn add @tat-protocol/token
 ```
 
-## Usage Example
+## Exports
 
-```typescript
-import { Token } from '@tat-protocol/token';
+- `Token` (default export as `Token`, plus named export)
+- `TokenType` (`FUNGIBLE`, `TAT`)
+- Types: `Header`, `Payload`
+- `TokenValidator`
 
-// Create a new token instance
+## Quick Start
+
+```ts
+import { Token, TokenType } from "@tat-protocol/token";
+import { KeySigner } from "@tat-protocol/signers";
+
+const signer = new KeySigner(process.env.ISSUER_SECRET_KEY!);
+const issuerPubkey = await signer.getPublicKey();
+
 const token = new Token();
+await token.build({
+  token_type: TokenType.FUNGIBLE,
+  payload: Token.createPayload({
+    iss: issuerPubkey,
+    amount: 100,
+    P2PKlock: process.env.RECIPIENT_PUBKEY,
+  }),
+});
 
-// Parse a JWT token string
-await token.fromJWT('tokenJWTstring');
+const signatureHex = await signer.sign(await token.data_to_sign());
+const jwt = await token.toJWT(signatureHex);
 
-// Access token payload
-const payload = token.getPayload();
+const restored = await new Token().restore(jwt);
+await restored.validate();
 ```
 
-## Development
+## Use Cases
 
-This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
-
-## License
-
-MIT License. See [LICENSE](../LICENSE) for details. 
+- Token issuance and parsing.
+- Signature and hash verification.
+- Lock checks (`P2PKlock`, `HTLC`, `timeLock`).
+- Derived token creation (`Token.createDerivedToken`).

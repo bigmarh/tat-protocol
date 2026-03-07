@@ -1,0 +1,15 @@
+{
+  "name": "pocket-examples",
+  "version": "1.0.0",
+  "description": "Example pocket wallet CLI using TAT Protocol",
+  "private": true,
+  "scripts": {
+    "start": "npx tsx runPocket.ts",
+    "start:key": "npx tsx runPocket.ts <keyID>"
+  },
+  "dependencies": {
+    "@tat-protocol/pocket": "workspace:*",
+    "@tat-protocol/token": "workspace:*",
+    "@tat-protocol/storage": "workspace:*"
+  }
+}

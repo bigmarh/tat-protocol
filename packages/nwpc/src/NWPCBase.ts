@@ -200,16 +200,18 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Force-disconnect each relay so NDK resets its internal status.
     for (const relay of relays) {
-      try { relay.disconnect(); } catch { /* ignore */ }
+      try {
+        relay.disconnect();
+      } catch {
+        /* ignore */
+      }
     }
     this.connected = false;
 
     await this.ndk.connect(3000);
     this.connected = true;
 
-    const reconnected = this.ndk.pool
-      .connectedRelays()
-      .map((r) => r.url);
+    const reconnected = this.ndk.pool.connectedRelays().map((r) => r.url);
     Debug.log("Reconnected to " + reconnected.join(", "), "NWPCBase");
     this.state.relays = new Set([...this.state.relays, ...reconnected]);
 

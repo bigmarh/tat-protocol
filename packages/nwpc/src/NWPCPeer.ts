@@ -248,14 +248,15 @@ export class NWPCPeer extends NWPCBase {
       });
     });
 
-    try {
-      // Resolve as soon as the FIRST relay ACKs — don't wait for all relays.
-      // NDK's publish() uses Promise.all internally, so without this wrapper it
-      // blocks until every relay responds (or times out at 2500ms each). By
-      // listening to the per-relay "relay:published" event we can move on the
-      // moment any relay has the event, letting the rest settle in the background.
-      await new Promise<void>((resolve, reject) => {
+    // Publish with relay health check + one automatic retry on stale connections.
+    const publishOnce = () =>
+      new Promise<void>((resolve, reject) => {
+        const ackTimeout = setTimeout(() => {
+          wrappedEvent.off("relay:published", onFirstAck);
+          reject(new Error("No relay ACK within 5s — connection likely stale"));
+        }, 5000);
         const onFirstAck = () => {
+          clearTimeout(ackTimeout);
           resolve();
         };
         wrappedEvent.once("relay:published", onFirstAck);
@@ -263,23 +264,50 @@ export class NWPCPeer extends NWPCBase {
           .publish()
           .then(() => {
             wrappedEvent.off("relay:published", onFirstAck);
+            clearTimeout(ackTimeout);
             resolve();
           })
           .catch((err) => {
             wrappedEvent.off("relay:published", onFirstAck);
+            clearTimeout(ackTimeout);
             reject(err as Error);
           });
       });
-    } catch (err) {
-      // If the publish fails entirely (no relay ACKed), clean up the pending
-      // response handler so it doesn't linger until the request timeout fires.
-      const handler = this.responseHandlers.get(request.id);
-      if (handler) {
-        clearTimeout(handler.timeoutId);
-        this.responseHandlers.delete(request.id);
-        handler.reject(new Error("Failed to publish request: " + String(err)));
+
+    try {
+      await this.ensureConnected();
+      await publishOnce();
+    } catch (firstErr) {
+      // First attempt failed — force reconnect and retry once.
+      Debug.log(
+        "Publish failed (" + String(firstErr) + "), reconnecting and retrying",
+        "NWPCPeer",
+      );
+      try {
+        // Force all relays to disconnect so ensureConnected sees 0 live relays.
+        for (const relay of this.ndk.pool.relays.values()) {
+          try {
+            relay.disconnect();
+          } catch {
+            /* ignore */
+          }
+        }
+        this.connected = false;
+        await this.ensureConnected();
+        await publishOnce();
+      } catch (retryErr) {
+        const handler = this.responseHandlers.get(request.id);
+        if (handler) {
+          clearTimeout(handler.timeoutId);
+          this.responseHandlers.delete(request.id);
+          handler.reject(
+            new Error(
+              "Failed to publish request after retry: " + String(retryErr),
+            ),
+          );
+        }
+        throw retryErr;
       }
-      throw err;
     }
 
     return responsePromise;

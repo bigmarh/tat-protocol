@@ -405,15 +405,19 @@ export abstract class ForgeBase extends NWPCServer {
   }
 
   public async publishSpentToken(tokenHash: string) {
-    if (this.keys.publicKey && this.keys.secretKey) {
-      await postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, [
-        ["t", tokenHash],
-        ["p", this.keys.publicKey!],
-      ]);
-    }
-
+    // Mark spent in state first so subsequent validation sees it immediately
     this.state.spentTokens.add(tokenHash);
     await this._saveState();
+
+    // Fire-and-forget relay publication — don't block the transfer response
+    if (this.keys.publicKey && this.keys.secretKey) {
+      postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, [
+        ["t", tokenHash],
+        ["p", this.keys.publicKey!],
+      ]).catch((err) =>
+        Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
+      );
+    }
   }
 
   public async handleBurn(
@@ -597,6 +601,17 @@ export abstract class ForgeBase extends NWPCServer {
           null,
           "Invalid token signature",
           NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+          "",
+        ];
+      }
+
+      // Enforce single-issuer transfer inputs. A forge must only accept
+      // tokens it originally issued.
+      if (token.payload.iss !== this.keys.publicKey) {
+        return [
+          null,
+          "Input token issuer mismatch",
+          NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
           "",
         ];
       }

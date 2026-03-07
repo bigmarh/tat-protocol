@@ -1,62 +1,28 @@
 # @tat-protocol/config
 
-Configuration module for TAT Protocol - Default settings and configuration options.
+Default protocol configuration values used by SDK packages.
 
-## Overview
-
-The Config module provides default configuration values for TAT Protocol packages, including default relay URLs and other protocol-wide settings.
-
-## Installation
+## Install
 
 ```bash
 npm install @tat-protocol/config
 ```
 
+## Exports
+
+- `PROTOCOL_VERSION`
+- `defaultConfig`
+
 ## Usage
 
-```typescript
-import { defaultConfig } from '@tat-protocol/config';
+```ts
+import { defaultConfig, PROTOCOL_VERSION } from "@tat-protocol/config";
 
+console.log(PROTOCOL_VERSION);
 console.log(defaultConfig.relays);
-// []
 ```
 
-## Configuration
+## Notes
 
-### Default Config
-
-The `defaultConfig` object includes:
-
-- `relays`: Array of default Nostr relay URLs (currently empty by default)
-
-## Customization
-
-You can override the default config in your application:
-
-```typescript
-import { defaultConfig } from '@tat-protocol/config';
-
-const myConfig = {
-  ...defaultConfig,
-  relays: [
-    'wss://relay.damus.io',
-    'wss://relay.nostr.band',
-    'wss://relay.snort.social'
-  ]
-};
-```
-
-Or provide custom configuration directly to TAT Protocol packages:
-
-```typescript
-import { Pocket } from '@tat-protocol/pocket';
-
-const pocket = await Pocket.create({
-  relays: ['wss://your-relay.com'],
-  // ... other config
-});
-```
-
-## License
-
-MIT License. See [LICENSE](../../LICENSE) for details.
+- `defaultConfig.relays` is intentionally minimal; production apps should provide their own relay set.
+- Most packages accept `relays` directly in their constructor config.

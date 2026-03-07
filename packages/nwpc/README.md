@@ -1,53 +1,55 @@
 # @tat-protocol/nwpc
 
-The **NWPC** package provides the network protocol and peer communication layer for the TAT Protocol. It enables decentralized, secure messaging and transaction relay between protocol participants.
+NWPC (Nostr Wrapped Procedure Call) transport for encrypted request/response flows.
 
-## Features
-
-- Peer-to-peer network communication
-- Secure message relay and event handling
-- Integrates with Pocket and Forge
-- Extensible protocol for custom use cases
-
-## Installation
+## Install
 
 ```bash
-pnpm add @tat-protocol/nwpc
-# or
 npm install @tat-protocol/nwpc
-# or
-yarn add @tat-protocol/nwpc
 ```
 
-## Usage Example
+## Exports
 
-```typescript
-import { NWPCPeer } from '@tat-protocol/nwpc';
+- `NWPCPeer`
+- `NWPCServer`
+- `NWPCResponseObject`
+- `NWPC_SPEC_ERRORS`
+- Types: `NWPCConfig`, `NWPCRequest`, `NWPCResponse`, `NWPCContext`, metadata types
 
-// Initialize a network peer
+## Quick Start
+
+```ts
+import { NWPCServer, NWPCPeer } from "@tat-protocol/nwpc";
+import { NodeStore } from "@tat-protocol/storage";
+import { KeySigner } from "@tat-protocol/signers";
+
+const relays = ["wss://relay.damus.io"];
+
+const server = new NWPCServer({
+  signer: new KeySigner(process.env.SERVER_SECRET_KEY!),
+  storage: new NodeStore(".nwpc-server"),
+  relays,
+});
+
+server.use("ping", async (_req, context, res) => {
+  return res.send({ pong: true, from: context.recipient }, context.sender);
+});
+
+await server.init();
+
 const peer = new NWPCPeer({
-  relays: ['wss://relay.example.com'],
+  signer: new KeySigner(process.env.CLIENT_SECRET_KEY!),
+  storage: new NodeStore(".nwpc-client"),
+  relays,
 });
 
-// Subscribe to events
-await peer.subscribe('somePublicKey', (event) => {
-  console.log('Received event:', event);
-});
-
-// Send a request
-const response = await peer.request('method', { data: 'payload' }, 'recipientPubKey');
+await peer.init();
+const response = await peer.request("ping", {}, server.getPublicKey()!);
+console.log(response.result);
 ```
 
-## CommonJS Usage
+## Runtime Notes
 
-```js
-const { NWPCPeer } = require("@tat-protocol/nwpc");
-```
-
-## Development
-
-This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
-
-## License
-
-MIT License. See [LICENSE](../LICENSE) for details. 
+- Requires a `StorageInterface` implementation.
+- Supports both signer-based and key-based configs (signer preferred).
+- Includes optional route introspection metadata.

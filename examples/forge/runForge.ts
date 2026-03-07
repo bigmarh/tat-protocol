@@ -1,9 +1,8 @@
-import { ForgeConfig } from "../../packages/forge/src/ForgeConfig";
+import { createTATForgeWithKey } from "@tat-protocol/tdk";
 import { getPublicKey } from "@tat-protocol/utils";
 import { hexToBytes } from "@noble/hashes/utils";
-import { NodeStore } from "@tat-protocol/storage/dist/DiskStorage";
+import { NodeStore } from "@tat-protocol/storage";
 import { defaultConfig } from "./defaultConfig";
-import { NonFungibleForge } from "../../packages/forge/src/NonFungibleForge";
 
 // Test keys
 const secretKey =
@@ -15,24 +14,15 @@ console.log("Secret Key:", secretKey);
 console.log("Public Key:", publicKey);
 console.log("-------------KEYS-------------------\n");
 
-// Create forge config
-const config: ForgeConfig = {
-  owner: "aaa266a87d1c24a11b9509cc74e1eaf2db8ca2a563be0c1a429917acd4d1f37d",
-  keys: {
-    secretKey,
-    publicKey,
-  },
-  authorizedForgers: [publicKey], // Authorize ourselves
-  totalSupply: 10,
-  storage: new NodeStore(), // Use Node.js storage
-  relays: defaultConfig.relays,
-};
-
 // Create and run the forge
 async function runForge() {
   try {
-    const forge = new NonFungibleForge(config);
-    await forge.initialize(); // Wait for initialization to complete
+    const forge = await createTATForgeWithKey({
+      secretKey,
+      owner: "aaa266a87d1c24a11b9509cc74e1eaf2db8ca2a563be0c1a429917acd4d1f37d",
+      storage: new NodeStore(),
+      relays: defaultConfig.relays,
+    });
 
     console.log("\n-------------FORGE-------------------");
     console.log("Owner:", forge.owner);

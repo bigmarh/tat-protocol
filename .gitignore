@@ -42,6 +42,11 @@ Thumbs.db
 # TypeScript
 *.tsbuildinfo
 
+# Prevent build artifacts in source directories
+packages/*/src/**/*.js
+packages/*/src/**/*.d.ts
+packages/*/src/**/*.js.map
+
 # Logs
 logs/
 *.log

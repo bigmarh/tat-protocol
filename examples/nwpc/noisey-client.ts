@@ -4,7 +4,7 @@ import { getPublicKey } from "nostr-tools";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey } from "nostr-tools";
 import { defaultConfig } from "./defaultConfig";
-import { NodeStore } from "@tat-protocol/storage/dist/DiskStorage";
+import { NodeStore } from "@tat-protocol/storage";
 
 //send forge 1000 04133dbe9039a986f9342ff2c2d287f1b184a6c385b3c72d9b1829b1d6b9bdfc
 interface KeyPair {

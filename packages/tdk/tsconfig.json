@@ -17,6 +17,8 @@
     { "path": "../forge" },
     { "path": "../nwpc" },
     { "path": "../pocket" },
-    { "path": "../utils" }
+    { "path": "../utils" },
+    { "path": "../gate" },
+    { "path": "../booth" }
   ]
 }

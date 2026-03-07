@@ -3,7 +3,7 @@ import readline from "readline";
 import { getPublicKey } from "nostr-tools";
 import { hexToBytes } from "@noble/hashes/utils";
 import { defaultConfig } from "./defaultConfig";
-import { NodeStore } from "@tat-protocol/storage/dist/DiskStorage";
+import { NodeStore } from "@tat-protocol/storage";
 
 /*  Private Key: da99fc1f05476cccd2672c9e4141bd33ae684fff4323288251ebb188e95040cf
   Public Key: 04133dbe9039a986f9342ff2c2d287f1b184a6c385b3c72d9b1829b1d6b9bdfc */

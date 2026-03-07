@@ -831,9 +831,9 @@ Run validator:
 ### 8.1 Resources
 
 - **Protocol Spec**: [PROTOCOL_SPEC.md](./PROTOCOL_SPEC.md)
-- **Reference Implementation**: https://github.com/tat-protocol/tat-protocol
-- **Test Vectors**: https://github.com/tat-protocol/test-vectors
-- **Community**: https://github.com/tat-protocol/tat-protocol/discussions
+- **Reference Implementation**: https://github.com/bigmarh/tat-protocol
+- **Test Vectors**: https://github.com/bigmarh/test-vectors
+- **Community**: https://github.com/bigmarh/tat-protocol/discussions
 
 ### 8.2 Reporting Issues
 

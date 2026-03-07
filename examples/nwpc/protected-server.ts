@@ -7,7 +7,7 @@ import type {
 } from "@tat-protocol/nwpc";
 import { getPublicKey } from "nostr-tools";
 import { hexToBytes } from "@noble/hashes/utils";
-import { NodeStore } from "@tat-protocol/storage/dist/DiskStorage";
+import { NodeStore } from "@tat-protocol/storage";
 
 // Example keys - DO NOT USE IN PRODUCTION
 const secretKey =

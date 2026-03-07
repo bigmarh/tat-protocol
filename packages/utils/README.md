@@ -1,36 +1,33 @@
 # @tat-protocol/utils
 
-The **Utils** package provides utility functions for the TAT Protocol. It includes helpers for cryptography, encoding, and other common tasks used throughout the SDK.
+Shared cryptography, Nostr, data-serialization, and logging helpers.
 
-## Features
-
-- Utility functions for cryptography, encoding, and more
-- Used by Pocket, Forge, NWPC, and other modules
-- Lightweight and easy to use
-
-## Installation
+## Install
 
 ```bash
-pnpm add @tat-protocol/utils
-# or
 npm install @tat-protocol/utils
-# or
-yarn add @tat-protocol/utils
 ```
 
-## Usage Example
+## Common Exports
 
-```typescript
-import { DebugLogger } from '@tat-protocol/utils';
+- Crypto: `createHash`, `signMessage`, `verifySignature`
+- Nostr helpers: `Wrap`, `Unwrap`, NIP-44 wrappers
+- State helpers: `serializeData`, `deserializeData`
+- Observability: `DebugLogger`
+- Data structures: `BloomFilter`
 
-const logger = DebugLogger.getInstance();
-logger.log('Hello from TAT Protocol Utils!');
+## Example
+
+```ts
+import { DebugLogger, createHash } from "@tat-protocol/utils";
+
+const Debug = DebugLogger.getInstance();
+Debug.enableAll();
+
+const hash = await createHash("hello");
+Debug.log(`hash-bytes=${hash.length}`, "example");
 ```
 
-## Development
+## Notes
 
-This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
-
-## License
-
-MIT License. See [LICENSE](../LICENSE) for details. 
+This package is intentionally low-level and reused by most protocol modules.

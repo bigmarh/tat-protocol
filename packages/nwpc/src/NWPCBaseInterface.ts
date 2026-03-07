@@ -4,6 +4,7 @@ import { NWPCRouter } from "./NWPCRouter.js";
 
 export interface INWPCBase {
   router: NWPCRouter;
+  ensureConnected(): Promise<void>;
   sendResponse(response: NWPCResponse, recipientPubkey: string): Promise<void>;
   broadcastResponse(
     response: NWPCResponse,

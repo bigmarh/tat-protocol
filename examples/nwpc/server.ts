@@ -8,7 +8,7 @@ import type {
 import { getPublicKey } from "nostr-tools";
 import { hexToBytes } from "@noble/hashes/utils";
 import { defaultConfig } from "./defaultConfig";
-import { NodeStore } from "@tat-protocol/storage/dist/DiskStorage";
+import { NodeStore } from "@tat-protocol/storage";
 
 /*   Private Key: 2623a88c18e829794edd8f2fdfd7408f644a3675c706d98173a6cb9ede41515e
   Public Key: 031dd47426e7518119dcca1688cc3c3ae976f8c5690b4e2160e66dab47833f0876 */

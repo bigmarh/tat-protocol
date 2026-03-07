@@ -1,44 +1,35 @@
 # @tat-protocol/hdkeys
 
-The **HDKeys** package provides hierarchical deterministic (HD) key management for the TAT Protocol. It enables secure generation, derivation, and management of cryptographic keys for use across the protocol.
+HD key generation and derivation utilities used by Pocket and related tooling.
 
-## Features
-
-- Generate and manage HD key pairs
-- Derive child keys for different protocol uses
-- Integrates with Pocket and Forge
-- Secure, standards-based cryptography
-
-## Installation
+## Install
 
 ```bash
-pnpm add @tat-protocol/hdkeys
-# or
 npm install @tat-protocol/hdkeys
-# or
-yarn add @tat-protocol/hdkeys
 ```
 
-## Usage Example
+## Exports
 
-```typescript
-import { HDKey } from '@tat-protocol/hdkeys';
+- `HDKey`
+- Types: `SingleUseKey`, `KeyPair`
 
-// Generate a new mnemonic
-const mnemonic = HDKey.generateMnemonic();
+## Quick Start
 
-// Derive a master key from the mnemonic
+```ts
+import { HDKey } from "@tat-protocol/hdkeys";
+
+const mnemonic = HDKey.generateMnemonic(128);
 const seed = await HDKey.mnemonicToSeed(mnemonic);
-const masterKey = HDKey.fromMasterSeed(seed);
 
-// Derive a child key
-const childKey = masterKey.derive("m/44'/0'/0'/0/0");
+const master = HDKey.fromMasterSeed(seed);
+const child = master.derive("m/44'/1237'/0'/0/0");
+
+console.log(child.privateKey);
+console.log(child.publicKey);
 ```
 
-## Development
+## What It Is Used For
 
-This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
-
-## License
-
-MIT License. See [LICENSE](../LICENSE) for details. 
+- Deterministic wallet identities.
+- Single-use receiving keys.
+- Recoverable key hierarchies.

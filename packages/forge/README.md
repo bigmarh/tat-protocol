@@ -1,51 +1,51 @@
 # @tat-protocol/forge
 
-The **Forge** package is responsible for token creation, issuance, and management in the TAT Protocol ecosystem. It provides the core logic for minting both fungible and non-fungible (TAT) tokens, and integrates seamlessly with other protocol modules such as Pocket and NWPC.
+Token issuer implementations for fungible and non-fungible assets.
 
-## Features
-
-- Create and issue fungible tokens
-- Mint and manage non-fungible TAT tokens
-- Integrate with Pocket for asset management
-- Secure, standards-based token logic
-
-## Installation
+## Install
 
 ```bash
-pnpm add @tat-protocol/forge
-# or
 npm install @tat-protocol/forge
-# or
-yarn add @tat-protocol/forge
 ```
 
-## Usage Example
+## Exports
 
-```typescript
-import { Forge } from '@tat-protocol/forge';
+- `FungibleForge`
+- `NonFungibleForge`
+- `TATForge` (alias of `NonFungibleForge`)
+- `ForgeBase`
+- Types: `ForgeConfig`, `ForgeState`
 
-// Initialize Forge
-const forge = new Forge();
+## Quick Start
 
-// Create a new fungible token
-const token = await forge.createToken({
-  issuer: 'issuerPubKey',
-  amount: 1000,
-  metadata: { name: 'MyToken', symbol: 'MTK' }
+```ts
+import { FungibleForge } from "@tat-protocol/forge";
+import { NodeStore } from "@tat-protocol/storage";
+import { KeySigner } from "@tat-protocol/signers";
+
+const signer = new KeySigner(process.env.FORGE_SECRET_KEY!);
+
+const forge = new FungibleForge({
+  owner: process.env.FORGE_OWNER_PUBKEY!,
+  signer,
+  storage: new NodeStore(".forge"),
+  relays: ["wss://relay.damus.io"],
+  totalSupply: 1_000_000,
 });
 
-// Issue a TAT (non-fungible token)
-const tat = await forge.createTAT({
-  issuer: 'issuerPubKey',
-  tokenID: 'unique-id',
-  metadata: { description: 'Special asset' }
-});
+await forge.initialize();
+console.log("Forge ready:", forge.getPublicKey());
 ```
 
-## Development
+## NWPC Methods Provided by Forge
 
-This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
+- `forge`: mint new output tokens.
+- `transfer`: consume inputs and produce outputs.
+- `burn`: permanently destroy token value.
+- `verify`: check spent status for token hashes.
 
-## License
+## Operational Notes
 
-MIT License. See [LICENSE](../LICENSE) for details. 
+- Prefer signer-based configuration in production.
+- Persist forge state in dedicated storage.
+- Enforce access controls via `owner` and `authorizedForgers`.

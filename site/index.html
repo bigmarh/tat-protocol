@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>TAT Protocol | Open Token Infrastructure</title>
+    <meta
+      name="description"
+      content="TAT Protocol is an open-source TypeScript SDK for token issuance, wallet orchestration, and access verification over Nostr."
+    />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="bg-layer" aria-hidden="true"></div>
+    <header class="topbar">
+      <div class="brand">TAT Protocol</div>
+      <a class="toplink" href="https://github.com/tat-protocol" target="_blank" rel="noreferrer">GitHub</a>
+    </header>
+
+    <main>
+      <section class="hero reveal">
+        <p class="eyebrow">Open-source protocol SDK</p>
+        <h1>Issue, transfer, and verify tokenized access over Nostr.</h1>
+        <p class="lead">
+          TAT Protocol gives teams a complete TypeScript stack for forge, pocket,
+          NWPC transport, gate verification, and booth checkout workflows.
+        </p>
+        <div class="cta-row">
+          <a class="btn btn-primary" href="https://github.com/bigmarh/tat-protocol#readme">Read the SDK docs</a>
+          <a class="btn btn-ghost" href="https://github.com/bigmarh/tat-protocol/blob/main/docs/ADOPTION_GUIDE.md">Adoption guide</a>
+        </div>
+      </section>
+
+      <section class="grid reveal" aria-label="Protocol capabilities">
+        <article class="card">
+          <h2>Forge + Token</h2>
+          <p>Mint fungible and non-fungible assets with spent-token safeguards and issuer controls.</p>
+        </article>
+        <article class="card">
+          <h2>Pocket + Storage</h2>
+          <p>Track balances, hold assets, and sign transfer flows with state persistence across sessions.</p>
+        </article>
+        <article class="card">
+          <h2>NWPC Transport</h2>
+          <p>Encrypted request/response RPC over Nostr relay infrastructure with route metadata support.</p>
+        </article>
+        <article class="card">
+          <h2>Gate + Booth</h2>
+          <p>Implement access checks, challenge proofs, catalogs, invoices, and on-protocol payments.</p>
+        </article>
+      </section>
+
+      <section class="strip reveal">
+        <h3>Why teams adopt it</h3>
+        <ul>
+          <li>Modular packages or one unified TDK import</li>
+          <li>Signer abstraction for browser extensions and backend keys</li>
+          <li>Build + test flows validated in this repository</li>
+          <li>Open-source docs designed for direct adoption</li>
+        </ul>
+      </section>
+
+      <section class="terminal reveal" aria-label="Install commands">
+        <p class="mono">npm install @tat-protocol/tdk</p>
+        <p class="mono">pnpm build && pnpm test</p>
+      </section>
+    </main>
+
+    <footer class="footer">
+      <p>MIT licensed. Built for decentralized application teams.</p>
+    </footer>
+
+    <script src="./script.js"></script>
+  </body>
+</html>

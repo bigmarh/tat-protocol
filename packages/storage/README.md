@@ -1,57 +1,41 @@
 # @tat-protocol/storage
 
-The **Storage** package provides persistent storage solutions for the TAT Protocol. It enables secure, reliable storage of protocol state, tokens, and other data, supporting both browser and Node.js environments.
+Storage abstractions and backends for Node.js and browser environments.
 
-## Features
-
-- Persistent storage for protocol state and tokens
-- Supports browser and Node.js environments
-- Integrates with Pocket and Forge
-- Pluggable storage backends
-
-## Installation
+## Install
 
 ```bash
-pnpm add @tat-protocol/storage
-# or
 npm install @tat-protocol/storage
-# or
-yarn add @tat-protocol/storage
 ```
 
-## Usage
+## Exports
 
-### Browser
-```ts
-import { Storage } from '@tat-protocol/storage';
-import { BrowserStore } from '@tat-protocol/storage';
+- `Storage` (backend wrapper)
+- `NodeStore` (filesystem-backed storage)
+- `BrowserStore` (localStorage-backed storage)
+- `StorageInterface`
 
-const storage = new Storage(new BrowserStore());
-```
+## Quick Start
 
 ### Node.js
-```ts
-import { Storage } from '@tat-protocol/storage';
-import { NodeStore } from '@tat-protocol/storage';
 
-const storage = new Storage(new NodeStore());
+```ts
+import { Storage, NodeStore } from "@tat-protocol/storage";
+
+const storage = new Storage(new NodeStore(".tat-state"));
+await storage.setItem("example", JSON.stringify({ ok: true }));
 ```
 
-## API
-- `Storage` is a universal class that requires a backend implementing `StorageInterface`.
-- Use `BrowserStore` for browser (localStorage), `NodeStore` for Node.js (filesystem).
+### Browser
 
-## Entry Points
-- `main` (Node.js): `./node.js`
-- `browser`: `./browser.js`
+```ts
+import { Storage, BrowserStore } from "@tat-protocol/storage";
 
-## Migration
-- You must now explicitly provide a backend to `Storage`. There is no longer any environment detection or dynamic import.
+const storage = new Storage(new BrowserStore());
+await storage.setItem("example", JSON.stringify({ ok: true }));
+```
 
-## Development
+## Security Notes
 
-This package is part of the [TAT Protocol SDK](../README.md) monorepo. To contribute or run tests, see the main SDK instructions.
-
-## License
-
-MIT License. See [LICENSE](../LICENSE) for details. 
+- `NodeStore` supports optional AES-GCM encryption when `TAT_STORAGE_ENCRYPTION_KEY` is set.
+- Use separate directories per service (`.forge`, `.pocket`, `.gate`, `.booth`) for safer operations.

@@ -93,7 +93,7 @@ Superseded-By: TPS-ZZZ (if applicable)
 
 #### TPS Process Steps
 
-1. **Draft**: Create TPS document in `specs/tps/` directory
+1. **Draft**: Create TPS document in a `specs/tps/` directory (will be created when the first TPS is proposed)
 2. **Discussion**: Open GitHub issue for community feedback
 3. **Review**: Core maintainers review technical details
 4. **Implementation**: Create reference implementation
@@ -160,11 +160,11 @@ TAT Protocol uses semantic versioning:
 #### Template for New TPS
 
 ```bash
-# Copy template
-cp specs/tps/TPS-000-template.md specs/tps/TPS-XXX-your-title.md
+# Create the TPS directory (if it doesn't exist yet)
+mkdir -p specs/tps
 
-# Edit with your changes
-vim specs/tps/TPS-XXX-your-title.md
+# Create your TPS document
+touch specs/tps/TPS-XXX-your-title.md
 
 # Open discussion issue
 gh issue create --title "TPS-XXX: Your Title" --body "Discussion for TPS-XXX"
@@ -409,7 +409,7 @@ We follow the [Contributor Covenant Code of Conduct](https://www.contributor-cov
 
 ```bash
 # Clone repository
-git clone https://github.com/tat-protocol/tat-protocol.git
+git clone https://github.com/bigmarh/tat-protocol.git
 cd tat-protocol
 
 # Install dependencies
@@ -434,14 +434,15 @@ tat-protocol/
 │   ├── storage/      # Storage backends
 │   ├── utils/        # Utility functions
 │   ├── hdkeys/       # HD key management
-│   ├── boxoffice/    # Booth protocol (TAT sales)
-│   ├── turnstile/    # Gate protocol (access verification)
-│   ├── tdk/          # Complete SDK
-│   └── config/       # Configuration
-├── specs/
-│   └── tps/          # Protocol standards
+│   ├── signers/      # KeySigner + NIP-07 signer adapters
+│   ├── types/        # Shared Signer and event types
+│   ├── booth/        # Commerce/invoice/payment services
+│   ├── gate/         # Access verification services
+│   ├── config/       # Default relay/protocol config
+│   └── tdk/          # Complete SDK with factory helpers
 ├── examples/         # Example applications
-└── tests/            # Integration tests
+├── tests/            # Unit/integration/e2e tests
+└── docs/             # Adoption and protocol docs
 ```
 
 ### Working with Packages
@@ -652,7 +653,7 @@ Contributors are recognized in:
 
 ## Questions?
 
-- Open a [Discussion](https://github.com/tat-protocol/tat-protocol/discussions)
+- Open a [Discussion](https://github.com/bigmarh/tat-protocol/discussions)
 - Ask in an existing Issue
 - Review existing documentation
 

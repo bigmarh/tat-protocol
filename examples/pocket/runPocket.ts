@@ -1,7 +1,7 @@
 import readline from "readline";
 import { Pocket } from "@tat-protocol/pocket";
 import { Token } from "@tat-protocol/token";
-import { NodeStore } from '@tat-protocol/storage/dist/DiskStorage';
+import { NodeStore } from "@tat-protocol/storage";
 import { defaultConfig } from "./defaultConfig";
 
 

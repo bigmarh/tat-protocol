@@ -14,7 +14,6 @@ import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
 import { Transaction } from "./Transaction.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
-import { SingleUseKey } from "@tat-protocol/hdkeys";
 import { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
 import { validateMnemonic } from '@scure/bip39';
@@ -29,8 +28,10 @@ export type issuerId = string;
  * Interface for a single-use keypair
  */
 export interface SingleUseKeyPair {
-    secretKey: string;
+    secretKey?: string;
     publicKey: string;
+    index?: number;
+    path?: string;
     createdAt: number;
     relatedTxIds?: string[];
     used?: boolean;
@@ -64,7 +65,9 @@ export interface PocketConfig extends NWPCConfig {
 export interface PocketState extends NWPCState {
     favorites: string[];
     hdMasterKey: HDKeys;
-    singleUseKeys: Map<string, SingleUseKey>; //[pubkey, singleUseKey], Hold the singleUseKey for each pubkey
+    singleUseKeys: Map<string, SingleUseKeyPair>; //[pubkey, singleUseKey], Hold the singleUseKey for each pubkey
+    /** HD derivation counter — always >= singleUseKeys.size. Persisted to avoid index collisions after key deletion. */
+    singleUseKeyNextIndex: number;
     tokens: Map<string, Map<string, string>>; //[issuerPubkey, tokenHash, tokenJWT], Hold the tokenJWT for each tokenHash
     balances: Map<string, Map<string, number>>;         //[issuerPubkey,setID, balance]. Hold the balance for each issuer
     tokenIndex: Map<string, Map<number, string[]>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
@@ -78,6 +81,7 @@ export interface HDKeys {
 }
 
 const Debug = DebugLogger.getInstance();
+const SINGLE_USE_KEY_DERIVATION_BASE_PATH = "m/7'/23'/11'/16'/0";
 
 /**
  * Transaction data structure
@@ -93,6 +97,8 @@ export class Pocket extends NWPCPeer {
     declare protected state: PocketState;
     protected isInitialized!: boolean;
     private hdKey!: HDKey;
+    /** Optional callback fired whenever a token is stored or deleted. */
+    public onTokenChange?: () => void;
     protected stateKey: string = '';
     private subscribedIssuers: Set<string> = new Set();
     private spentFeedSubscriptions: Map<string, NDKSubscription> = new Map();
@@ -208,7 +214,7 @@ export class Pocket extends NWPCPeer {
 
     private async savePocketState(): Promise<void> {
         if (!this.stateKey) return; // Guard: don't save before stateKey is resolved
-        await this.saveState(this.stateKey, this.state);
+        await this.queueSaveState(this.stateKey, this.state);
     }
 
     async loadPocketState(): Promise<void> {
@@ -224,6 +230,7 @@ export class Pocket extends NWPCPeer {
                         mnemonic
                     },
                     singleUseKeys: new Map(),
+                    singleUseKeyNextIndex: 0,
                     tokens: new Map(),
                     tokenIndex: new Map(),
                     tatIndex: new Map(),
@@ -243,6 +250,14 @@ export class Pocket extends NWPCPeer {
             }
             const seed = await HDKey.mnemonicToSeed(this.state.hdMasterKey.mnemonic);
             this.hdKey = HDKey.fromMasterSeed(seed);
+            // Backward compat: ensure derivation counter is always monotonic and safe.
+            const highestKnownIndex = this.getHighestKnownSingleUseKeyIndex();
+            const minNextIndex = Math.max(this.state.singleUseKeys.size, highestKnownIndex + 1, 0);
+            if (typeof this.state.singleUseKeyNextIndex !== 'number') {
+                this.state.singleUseKeyNextIndex = minNextIndex;
+            } else {
+                this.state.singleUseKeyNextIndex = Math.max(this.state.singleUseKeyNextIndex, minNextIndex);
+            }
             await this.rebuildIndexesAndBalances();
 
             // Subscribe to all single-use key pubkeys after loading state
@@ -261,17 +276,114 @@ export class Pocket extends NWPCPeer {
     // =============================
     // 2. Key Management
     // =============================
-    private async deriveSingleUseKey(path?: string): Promise<SingleUseKeyPair> {
-        path = `m/7'/23'/11'/16'/0/${this.state.singleUseKeys.size}`;
+    private buildSingleUseKeyPath(index: number): string {
+        return `${SINGLE_USE_KEY_DERIVATION_BASE_PATH}/${index}`;
+    }
+
+    private parseIndexFromPath(path?: string): number | undefined {
+        if (!path) return undefined;
+        const m = path.match(/\/(\d+)$/);
+        if (!m) return undefined;
+        const parsed = Number(m[1]);
+        return Number.isInteger(parsed) && parsed >= 0 ? parsed : undefined;
+    }
+
+    private deriveSingleUseKeyAtIndex(index: number): KeyPair & { index: number; path: string } {
+        const path = this.buildSingleUseKeyPath(index);
         const hdKey: HDKey = this.hdKey.derive(path);
-        const keyPair: KeyPair = {
+        if (!hdKey.privateKey) {
+            throw new Error(`Could not derive private key at index ${index}`);
+        }
+        const keyPair: KeyPair & { index: number; path: string } = {
             secretKey: hdKey.privateKey,
-            publicKey: hdKey.publicKey
+            publicKey: hdKey.publicKey,
+            index,
+            path,
         };
         if (keyPair.publicKey && keyPair.publicKey.length === 66) {
             const uncompressedKey = getPublicKey(hexToBytes(keyPair.secretKey));
             keyPair.publicKey = uncompressedKey;
         }
+        return keyPair;
+    }
+
+    private getHighestKnownSingleUseKeyIndex(): number {
+        let highest = -1;
+        for (const key of this.state.singleUseKeys.values()) {
+            if (typeof key.index === 'number' && key.index >= 0) {
+                highest = Math.max(highest, key.index);
+                continue;
+            }
+            const parsed = this.parseIndexFromPath(key.path);
+            if (typeof parsed === 'number') {
+                highest = Math.max(highest, parsed);
+            }
+        }
+        return highest;
+    }
+
+    private async findOrRecoverSingleUseKeyByPubkey(pubkey: string): Promise<SingleUseKeyPair | null> {
+        const existing = this.state.singleUseKeys.get(pubkey);
+        if (existing?.secretKey) {
+            let changed = false;
+            if (typeof existing.index !== 'number') {
+                const parsed = this.parseIndexFromPath(existing.path);
+                if (typeof parsed === 'number') {
+                    existing.index = parsed;
+                    changed = true;
+                }
+            }
+            if (typeof existing.index === 'number' && !existing.path) {
+                existing.path = this.buildSingleUseKeyPath(existing.index);
+                changed = true;
+            }
+            if (changed) {
+                this.state.singleUseKeys.set(pubkey, existing);
+                await this.savePocketState();
+            }
+            return existing;
+        }
+
+        if (existing && typeof existing.index === 'number') {
+            const derived = this.deriveSingleUseKeyAtIndex(existing.index);
+            if (derived.publicKey === pubkey) {
+                const recovered: SingleUseKeyPair = {
+                    ...existing,
+                    publicKey: derived.publicKey,
+                    secretKey: derived.secretKey,
+                    index: derived.index,
+                    path: derived.path,
+                    createdAt: existing.createdAt || Date.now(),
+                };
+                this.state.singleUseKeys.set(pubkey, recovered);
+                await this.savePocketState();
+                return recovered;
+            }
+        }
+
+        const maxIndexExclusive = Math.max(this.state.singleUseKeyNextIndex ?? 0, this.state.singleUseKeys.size);
+        for (let idx = 0; idx < maxIndexExclusive; idx++) {
+            const derived = this.deriveSingleUseKeyAtIndex(idx);
+            if (derived.publicKey !== pubkey) continue;
+            const recovered: SingleUseKeyPair = {
+                publicKey: derived.publicKey,
+                secretKey: derived.secretKey,
+                index: derived.index,
+                path: derived.path,
+                createdAt: existing?.createdAt || Date.now(),
+                used: existing?.used,
+                relatedTxIds: existing?.relatedTxIds,
+            };
+            this.state.singleUseKeys.set(pubkey, recovered);
+            await this.savePocketState();
+            return recovered;
+        }
+        return null;
+    }
+
+    private async deriveSingleUseKey(): Promise<SingleUseKeyPair> {
+        const index = this.state.singleUseKeyNextIndex++;
+        const keyPair = this.deriveSingleUseKeyAtIndex(index);
         const singleUseKey: SingleUseKeyPair = {
             ...keyPair,
             createdAt: Date.now(),
@@ -284,9 +396,10 @@ export class Pocket extends NWPCPeer {
                 Debug.log("sendRequestWithSingleUseKey response", 'Pocket');
                 await this.handleEvent(event);
 
-                //unsubscribe from the single-use key after use
+                // Stop listening for new events to this key (token received, job done).
+                // Do NOT delete the key from singleUseKeys here — the private key is still
+                // needed to sign witness data when the received token is spent later.
                 await this.unsubscribe(keyPair.publicKey);
-                this.state.singleUseKeys.delete(keyPair.publicKey);
                 Debug.log("unsubscribe from single-use key" + keyPair.publicKey, 'Pocket');
             } catch (e) {
                 // Ignore invalid responses
@@ -302,12 +415,23 @@ export class Pocket extends NWPCPeer {
     }
 
     addSingleUseKey = async (pubkey: string, key: SingleUseKeyPair) => {
+        if (typeof key.index === 'number' && !key.path) {
+            key.path = this.buildSingleUseKeyPath(key.index);
+        } else if (typeof key.index !== 'number') {
+            const parsed = this.parseIndexFromPath(key.path);
+            if (typeof parsed === 'number') {
+                key.index = parsed;
+                key.path = key.path || this.buildSingleUseKeyPath(parsed);
+            }
+        }
         if (!this.state.singleUseKeys.has(pubkey)) {
             this.state.singleUseKeys.set(pubkey, key);
             Debug.log(`Key with pubkey ${pubkey} added`, 'Pocket');
         } else {
             Debug.log(`Key with pubkey ${pubkey} already used`, 'Pocket');
         }
+        const minNextIndex = Math.max(this.state.singleUseKeys.size, this.getHighestKnownSingleUseKeyIndex() + 1);
+        this.state.singleUseKeyNextIndex = Math.max(this.state.singleUseKeyNextIndex ?? 0, minNextIndex);
         await this.savePocketState();
     };
 
@@ -341,7 +465,8 @@ export class Pocket extends NWPCPeer {
             this.state.tokens.set(issuer, new Map([[tokenHash, tokenJWT]]));
         }
         await this.reindexIssuerState(issuer);
-        return this.savePocketState();
+        await this.savePocketState();
+        this.onTokenChange?.();
     }
 
     /**
@@ -483,11 +608,16 @@ export class Pocket extends NWPCPeer {
         }
         else if (toKey) {
             const singleUseKey = this.state.singleUseKeys.get(toKey);
-            if (singleUseKey) {
-                // Single-use keys always have secret key, create a KeySigner for them
-                keys = singleUseKey;
+            if (singleUseKey?.secretKey) {
+                keys = { secretKey: singleUseKey.secretKey, publicKey: singleUseKey.publicKey };
             } else {
-                keys = await this.deriveSingleUseKey(toKey);
+                const recovered = await this.findOrRecoverSingleUseKeyByPubkey(toKey);
+                if (recovered?.secretKey) {
+                    keys = { secretKey: recovered.secretKey, publicKey: recovered.publicKey };
+                } else {
+                    Debug.log(`Missing single-use key for pubkey ${toKey}`, 'Pocket');
+                    return;
+                }
             }
         }
         try {
@@ -622,6 +752,157 @@ export class Pocket extends NWPCPeer {
         return this.state;
     }
 
+    // ── Recovery APIs ──────────────────────────────────────────────────────────
+
+    /**
+     * Returns a snapshot of all data needed to reconstruct this wallet from scratch.
+     * Contains sensitive key material — encrypt before storing.
+     */
+    public exportRecoverySnapshot(): {
+        mnemonic: string;
+        tokens: Array<{ issuer: string; jwt: string }>;
+        singleUseKeys: Array<{
+            publicKey: string;
+            secretKey?: string;
+            index?: number;
+            path?: string;
+            createdAt: number;
+            used?: boolean;
+        }>;
+        singleUseKeyNextIndex: number;
+        favorites: string[];
+    } {
+        const tokens: Array<{ issuer: string; jwt: string }> = [];
+        for (const [issuer, issuerTokens] of this.state.tokens) {
+            for (const [, jwt] of issuerTokens) {
+                tokens.push({ issuer, jwt });
+            }
+        }
+
+        const singleUseKeys: Array<{
+            publicKey: string;
+            secretKey?: string;
+            index?: number;
+            path?: string;
+            createdAt: number;
+            used?: boolean;
+        }> = [];
+        for (const [, key] of this.state.singleUseKeys) {
+            singleUseKeys.push({
+                publicKey: key.publicKey,
+                secretKey: key.secretKey,
+                index: key.index,
+                path: key.path,
+                createdAt: key.createdAt,
+                used: key.used,
+            });
+        }
+
+        return {
+            mnemonic: this.state.hdMasterKey?.mnemonic ?? '',
+            tokens,
+            singleUseKeys,
+            singleUseKeyNextIndex: this.state.singleUseKeyNextIndex ?? singleUseKeys.length,
+            favorites: this.state.favorites ?? [],
+        };
+    }
+
+    /**
+     * Import an array of token JWTs into the wallet (e.g. from a backup restore).
+     * Skips duplicates silently. Returns counts for each outcome.
+     */
+    public async importTokens(
+        tokens: Array<{ issuer: string; jwt: string }>
+    ): Promise<{ imported: number; failed: number; duplicates: number }> {
+        let imported = 0, failed = 0, duplicates = 0;
+        for (const { jwt } of tokens) {
+            try {
+                const tokenObj = await new Token().restore(jwt);
+                const issuer = tokenObj.payload.iss;
+                const tokenHash = tokenObj.header.token_hash;
+                const existing = this.state.tokens.get(issuer);
+                if (existing?.has(tokenHash)) {
+                    duplicates++;
+                    continue;
+                }
+                await this.storeToken(jwt);
+                imported++;
+            } catch {
+                failed++;
+            }
+        }
+        return { imported, failed, duplicates };
+    }
+
+    /**
+     * Restore key material from a backup snapshot. Must be called BEFORE importTokens().
+     * Restores the HD mnemonic, single-use keys, and favorites.
+     */
+    public async restoreKeyMaterial(snapshot: {
+        mnemonic: string;
+        singleUseKeys?: Array<{
+            publicKey: string;
+            secretKey?: string;
+            index?: number;
+            path?: string;
+            createdAt: number;
+            used?: boolean;
+        }>;
+        singleUseKeyNextIndex?: number;
+        favorites?: string[];
+    }): Promise<void> {
+        // Restore mnemonic + re-derive master HD key
+        this.state.hdMasterKey = { mnemonic: snapshot.mnemonic };
+        const seed = await HDKey.mnemonicToSeed(snapshot.mnemonic);
+        this.hdKey = HDKey.fromMasterSeed(seed);
+
+        // Restore single-use keys
+        let highestKnownIndex = this.getHighestKnownSingleUseKeyIndex();
+        if (snapshot.singleUseKeys?.length) {
+            for (const key of snapshot.singleUseKeys) {
+                const index = typeof key.index === 'number' && key.index >= 0
+                    ? key.index
+                    : this.parseIndexFromPath(key.path);
+                const path = typeof index === 'number'
+                    ? (key.path || this.buildSingleUseKeyPath(index))
+                    : key.path;
+                const normalizedKey: SingleUseKeyPair = {
+                    ...key,
+                    index,
+                    path,
+                };
+                if (typeof index === 'number') {
+                    highestKnownIndex = Math.max(highestKnownIndex, index);
+                }
+                if (!this.state.singleUseKeys.has(key.publicKey)) {
+                    this.state.singleUseKeys.set(key.publicKey, normalizedKey);
+                    // Subscribe so incoming tokens addressed to this key are received
+                    await this.subscribe(key.publicKey);
+                } else {
+                    const existing = this.state.singleUseKeys.get(key.publicKey)!;
+                    this.state.singleUseKeys.set(key.publicKey, {
+                        ...existing,
+                        ...normalizedKey,
+                    });
+                }
+            }
+        }
+
+        // Restore HD derivation counter — must be >= actual key count to avoid collisions
+        const minNextIndex = Math.max(this.state.singleUseKeys.size, highestKnownIndex + 1);
+        this.state.singleUseKeyNextIndex = Math.max(
+            snapshot.singleUseKeyNextIndex ?? 0,
+            minNextIndex
+        );
+
+        // Restore favorites
+        if (snapshot.favorites?.length) {
+            this.state.favorites = snapshot.favorites;
+        }
+
+        await this.savePocketState();
+    }
+
     /**
      * Retrieves a specific token by its hash.
      *
@@ -723,6 +1004,7 @@ export class Pocket extends NWPCPeer {
     private async buildWitnessData(inputs: Token[]): Promise<string[]> {
         const witnessData: string[] = [];
         const mainPubkey = this.publicKey || this.keys.publicKey;
+        const missingLockKeys = new Set<string>();
         for (const token of inputs) {
             if (token.payload.P2PKlock) {
                 const dataToSign = hexToBytes(token.header.token_hash);
@@ -737,21 +1019,29 @@ export class Pocket extends NWPCPeer {
                         const sig = await token.sign(dataToSign, this.keys);
                         witnessData.push(bytesToHex(sig));
                     } else {
+                        missingLockKeys.add(lockKey);
                         witnessData.push("");
                     }
                 } else {
-                    // Single-use key
-                    const singleUseKey = this.state.singleUseKeys.get(lockKey);
-                    if (singleUseKey) {
-                        const sig = await token.sign(dataToSign, singleUseKey);
+                    // Single-use key: recover deterministically from mnemonic if cache is missing.
+                    const singleUseKey = await this.findOrRecoverSingleUseKeyByPubkey(lockKey);
+                    if (singleUseKey?.secretKey) {
+                        const sig = await token.sign(dataToSign, {
+                            publicKey: singleUseKey.publicKey,
+                            secretKey: singleUseKey.secretKey,
+                        });
                         witnessData.push(bytesToHex(sig));
                     } else {
+                        missingLockKeys.add(lockKey);
                         witnessData.push("");
                     }
                 }
             } else {
                 witnessData.push("");
             }
+        }
+        if (missingLockKeys.size > 0) {
+            throw new Error(`Missing witness key for lock pubkeys: ${Array.from(missingLockKeys).join(",")}`);
         }
         return witnessData;
     }
@@ -947,6 +1237,13 @@ export class Pocket extends NWPCPeer {
     ): Promise<unknown> {
         // 1. Generate a new single-use key
         const senderKeys = await this.deriveSingleUseKey();
+        if (!senderKeys.secretKey) {
+            throw new Error("Derived single-use key is missing secretKey");
+        }
+        const senderKeyPair: KeyPair = {
+            publicKey: senderKeys.publicKey,
+            secretKey: senderKeys.secretKey,
+        };
 
         // 2. Subscribe for the response
         let response: unknown = null;
@@ -955,7 +1252,7 @@ export class Pocket extends NWPCPeer {
             if (event.pubkey === forgePubkey) {
                 try {
                     // Unwrap/decrypt/verify as needed
-                    const unwrapped = await Unwrap(event.content, senderKeys, forgePubkey);
+                    const unwrapped = await Unwrap(event.content, senderKeyPair, forgePubkey);
                     if (unwrapped) {
                         response = JSON.parse(unwrapped.content);
                         responseReceived = true;
@@ -972,7 +1269,7 @@ export class Pocket extends NWPCPeer {
         await this.subscribe(senderKeys.publicKey, handler);
 
         // 3. Send the request using the single-use key as sender
-        await this.request(method, tx as Record<string, unknown>, forgePubkey, senderKeys);
+        await this.request(method, tx as Record<string, unknown>, forgePubkey, senderKeyPair);
 
         // 4. Wait for response or timeout
         const start = Date.now();
@@ -1004,6 +1301,7 @@ export class Pocket extends NWPCPeer {
 
         // Save state after deletion
         await this.savePocketState();
+        this.onTokenChange?.();
     }
 
     // Subscribe to spent events for a given issuer
@@ -1067,7 +1365,6 @@ export class Pocket extends NWPCPeer {
                 if (tokenJWT) {
                     await this.deleteToken(tokenJWT);
                 }
-                await this.savePocketState();
                 Debug.log(`Token spent event processed for issuer ${issuer}, tokenHash ${tokenHash}`, 'Pocket');
             }
         } catch (error) {

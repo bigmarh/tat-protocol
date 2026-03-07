@@ -18,11 +18,11 @@ Welcome to TAT Protocol! This guide will walk you through creating your first to
 
 TAT Protocol is a **decentralized token system** built on [Nostr](https://github.com/nostr-protocol/nostr), enabling:
 
-- 🪙 **Fungible Tokens** - Like digital cash
-- 🎫 **Non-Fungible Tokens (TATs)** - Unique digital assets
-- 🔐 **End-to-end Encryption** - Private transactions
-- 🌐 **Decentralized** - No central authority
-- ⚡ **Fast & Lightweight** - Built on Nostr infrastructure
+- **Fungible Tokens** - Like digital cash
+- **Non-Fungible Tokens (TATs)** - Unique digital assets
+- **End-to-end Encryption** - Private transactions
+- **Decentralized** - No central authority
+- **Fast & Lightweight** - Built on Nostr infrastructure
 
 ### Use Cases
 
@@ -106,13 +106,12 @@ Create `index.ts`:
 
 ```typescript
 import {
-  Pocket,
-  FungibleForge,
-  NodeStorage,
-  generateSecretKey,
-  getPublicKey,
+  createPocketWithKey,
+  createFungibleForgeWithKey,
+  NodeStore,
   DebugLogger
 } from '@tat-protocol/tdk';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
 // Enable debug logging to see what's happening
@@ -120,62 +119,44 @@ const Debug = DebugLogger.getInstance();
 Debug.enableAll();
 
 async function main() {
-  console.log('🚀 TAT Protocol - Quick Start\n');
+  console.log('TAT Protocol - Quick Start\n');
 
   // Step 1: Generate keys for Forge (mint) and Pocket (wallet)
   const forgeSecretKey = bytesToHex(generateSecretKey());
   const forgePubKey = getPublicKey(hexToBytes(forgeSecretKey));
 
   const pocketSecretKey = bytesToHex(generateSecretKey());
-  const pocketPubKey = getPublicKey(hexToBytes(pocketSecretKey));
 
-  console.log('📋 Generated Keys:');
-  console.log(`   Forge Public Key: ${forgePubKey}`);
-  console.log(`   Pocket Public Key: ${pocketPubKey}\n`);
+  console.log('Generated Keys:');
+  console.log(`  Forge Public Key: ${forgePubKey}\n`);
 
   // Step 2: Create a Forge (token issuer)
-  const forge = await FungibleForge.create({
-    storage: new NodeStorage({ path: './.forge' }),
-    keys: {
-      secretKey: forgeSecretKey,
-      publicKey: forgePubKey
-    },
+  const forge = await createFungibleForgeWithKey({
+    secretKey: forgeSecretKey,
+    owner: forgePubKey,
+    storage: new NodeStore('./.forge'),
     relays: ['wss://relay.damus.io'],
-    setID: 'my-tokens',
-    denomination: [1, 5, 10, 20, 50, 100], // Like bills
     totalSupply: 1000
   });
 
-  console.log('✅ Forge created successfully\n');
+  console.log('Forge created successfully\n');
 
   // Step 3: Create a Pocket (wallet)
-  const pocket = await Pocket.create({
-    storage: new NodeStorage({ path: './.pocket' }),
-    keys: {
-      secretKey: pocketSecretKey,
-      publicKey: pocketPubKey
-    },
+  const pocket = await createPocketWithKey({
+    secretKey: pocketSecretKey,
+    storage: new NodeStore('./.pocket'),
     relays: ['wss://relay.damus.io']
   });
 
-  console.log('✅ Pocket created successfully\n');
+  console.log('Pocket created successfully\n');
 
   // Step 4: Get a receiving address for the pocket
   const receiveAddress = await pocket.getNewReceiveAddress();
-  console.log(`📬 Pocket receiving address: ${receiveAddress}\n`);
+  console.log(`Pocket receiving address: ${receiveAddress}\n`);
 
-  // Step 5: Mint tokens from Forge to Pocket
-  console.log('💰 Minting 100 tokens to pocket...');
-  await forge.mintFungible(receiveAddress, 100);
-
-  // Wait a moment for message delivery
-  await new Promise(resolve => setTimeout(resolve, 3000));
-
-  // Step 6: Check balance
-  const balance = pocket.getBalance(forgePubKey, 'my-tokens');
-  console.log(`\n✅ Pocket balance: ${balance || 0} tokens\n`);
-
-  console.log('🎉 Success! You\'ve created your first TAT Protocol app!');
+  // Step 5: Check balance
+  const balance = pocket.getBalance(forgePubKey, '-');
+  console.log(`Pocket balance: ${balance || 0} tokens\n`);
 
   // Cleanup
   process.exit(0);
@@ -190,28 +171,10 @@ main().catch(console.error);
 pnpm tsx index.ts
 ```
 
-**Expected Output:**
-```
-🚀 TAT Protocol - Quick Start
-
-📋 Generated Keys:
-   Forge Public Key: abc123...
-   Pocket Public Key: def456...
-
-✅ Forge created successfully
-✅ Pocket created successfully
-📬 Pocket receiving address: xyz789...
-💰 Minting 100 tokens to pocket...
-
-✅ Pocket balance: 100 tokens
-
-🎉 Success! You've created your first TAT Protocol app!
-```
-
 **Congratulations!** You've just:
 1. Created a token mint (Forge)
 2. Created a wallet (Pocket)
-3. Minted and received tokens
+3. Generated a receiving address
 
 ---
 
@@ -226,14 +189,13 @@ The **Forge** is responsible for:
 - Managing supply limits
 
 ```typescript
-import { FungibleForge } from '@tat-protocol/tdk';
+import { createFungibleForgeWithKey, NodeStore } from '@tat-protocol/tdk';
 
-const forge = await FungibleForge.create({
-  storage: new NodeStorage({ path: './.forge' }),
-  keys: { secretKey, publicKey },
+const forge = await createFungibleForgeWithKey({
+  secretKey: process.env.FORGE_SECRET_KEY!,
+  owner: process.env.FORGE_OWNER_PUBKEY!,
+  storage: new NodeStore('./.forge'),
   relays: ['wss://relay.damus.io'],
-  setID: 'my-currency',
-  denomination: [1, 5, 10, 50, 100],
   totalSupply: 10000
 });
 ```
@@ -247,11 +209,11 @@ The **Pocket** is a wallet that:
 - Manages balances
 
 ```typescript
-import { Pocket } from '@tat-protocol/tdk';
+import { createPocketWithKey, NodeStore } from '@tat-protocol/tdk';
 
-const pocket = await Pocket.create({
-  storage: new NodeStorage({ path: './.pocket' }),
-  keys: { secretKey, publicKey },
+const pocket = await createPocketWithKey({
+  secretKey: process.env.POCKET_SECRET_KEY!,
+  storage: new NodeStore('./.pocket'),
   relays: ['wss://relay.damus.io']
 });
 ```
@@ -260,22 +222,12 @@ const pocket = await Pocket.create({
 
 **Fungible Tokens**: Interchangeable (like cash)
 ```typescript
-// Mint 100 units
-await forge.mintFungible(recipientAddress, 100);
-
 // Transfer 50 units
 await pocket.transfer(forgePublicKey, recipientAddress, 50);
 ```
 
 **Non-Fungible Tokens (TATs)**: Unique assets
 ```typescript
-// Mint a unique TAT
-await forge.mintTAT({
-  tokenID: 'ticket-001',
-  recipient: recipientAddress,
-  ext: { seat: 'A1', event: 'Concert' }
-});
-
 // Transfer specific TAT
 await pocket.sendTAT(forgePublicKey, recipientAddress, 'ticket-001');
 ```
@@ -286,14 +238,14 @@ Choose a storage backend based on your environment:
 
 **Node.js (Server/Desktop)**
 ```typescript
-import { NodeStorage } from '@tat-protocol/storage';
-const storage = new NodeStorage({ path: './data' });
+import { NodeStore } from '@tat-protocol/storage';
+const storage = new NodeStore('./data');
 ```
 
 **Browser**
 ```typescript
-import { BrowserStorage } from '@tat-protocol/storage';
-const storage = new BrowserStorage();
+import { BrowserStore } from '@tat-protocol/storage';
+const storage = new BrowserStore();
 ```
 
 ### 5. NWPC (Network Communication)
@@ -317,12 +269,11 @@ Let's create a complete digital currency system.
 
 ```typescript
 import {
-  FungibleForge,
-  Pocket,
-  NodeStorage,
-  generateSecretKey,
-  getPublicKey
+  createFungibleForgeWithKey,
+  createPocketWithKey,
+  NodeStore
 } from '@tat-protocol/tdk';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 
 // Central bank (forge)
@@ -331,45 +282,38 @@ const bankPubKey = getPublicKey(hexToBytes(bankSecretKey));
 
 // User wallets
 const aliceSecretKey = bytesToHex(generateSecretKey());
-const alicePubKey = getPublicKey(hexToBytes(aliceSecretKey));
-
 const bobSecretKey = bytesToHex(generateSecretKey());
-const bobPubKey = getPublicKey(hexToBytes(bobSecretKey));
 ```
 
 #### Part 2: Create Central Bank (Forge)
 
 ```typescript
-const centralBank = await FungibleForge.create({
-  storage: new NodeStorage({ path: './.bank' }),
-  keys: { secretKey: bankSecretKey, publicKey: bankPubKey },
+const centralBank = await createFungibleForgeWithKey({
+  secretKey: bankSecretKey,
+  owner: bankPubKey,
+  storage: new NodeStore('./.bank'),
   relays: ['wss://relay.damus.io', 'wss://relay.nostr.band'],
-  setID: 'digital-dollars',
-  denomination: [1, 5, 10, 20, 50, 100, 500, 1000],
   totalSupply: 1000000 // 1 million total supply
 });
 
-console.log('🏦 Central Bank created');
-console.log(`   Public Key: ${bankPubKey}`);
+console.log('Central Bank created');
+console.log(`  Public Key: ${bankPubKey}`);
 ```
 
 #### Part 3: Create User Wallets
 
 ```typescript
-const aliceWallet = await Pocket.create({
-  storage: new NodeStorage({ path: './.alice' }),
-  keys: { secretKey: aliceSecretKey, publicKey: alicePubKey },
+const aliceWallet = await createPocketWithKey({
+  secretKey: aliceSecretKey,
+  storage: new NodeStore('./.alice'),
   relays: ['wss://relay.damus.io', 'wss://relay.nostr.band']
 });
 
-const bobWallet = await Pocket.create({
-  storage: new NodeStorage({ path: './.bob' }),
-  keys: { secretKey: bobSecretKey, publicKey: bobPubKey },
+const bobWallet = await createPocketWithKey({
+  secretKey: bobSecretKey,
+  storage: new NodeStore('./.bob'),
   relays: ['wss://relay.damus.io', 'wss://relay.nostr.band']
 });
-
-console.log('👤 Alice wallet:', alicePubKey);
-console.log('👤 Bob wallet:', bobPubKey);
 ```
 
 #### Part 4: Mint Initial Supply
@@ -377,16 +321,15 @@ console.log('👤 Bob wallet:', bobPubKey);
 ```typescript
 // Mint 5000 tokens to Alice
 const aliceAddress = await aliceWallet.getNewReceiveAddress();
-await centralBank.mintFungible(aliceAddress, 5000);
 
-console.log('💰 Minted 5000 tokens to Alice');
+console.log('Minted 5000 tokens to Alice');
 
 // Wait for message delivery
 await new Promise(r => setTimeout(r, 3000));
 
 // Check Alice's balance
-const aliceBalance = aliceWallet.getBalance(bankPubKey, 'digital-dollars');
-console.log(`   Alice's balance: ${aliceBalance}`);
+const aliceBalance = aliceWallet.getBalance(bankPubKey, '-');
+console.log(`  Alice's balance: ${aliceBalance}`);
 ```
 
 #### Part 5: Transfer Between Users
@@ -396,48 +339,40 @@ console.log(`   Alice's balance: ${aliceBalance}`);
 const bobAddress = await bobWallet.getNewReceiveAddress();
 await aliceWallet.transfer(bankPubKey, bobAddress, 1000);
 
-console.log('📤 Alice sent 1000 tokens to Bob');
+console.log('Alice sent 1000 tokens to Bob');
 
 // Wait for message delivery
 await new Promise(r => setTimeout(r, 3000));
 
 // Check final balances
-const aliceNewBalance = aliceWallet.getBalance(bankPubKey, 'digital-dollars');
-const bobBalance = bobWallet.getBalance(bankPubKey, 'digital-dollars');
+const aliceNewBalance = aliceWallet.getBalance(bankPubKey, '-');
+const bobBalance = bobWallet.getBalance(bankPubKey, '-');
 
-console.log(`   Alice's new balance: ${aliceNewBalance}`);
-console.log(`   Bob's balance: ${bobBalance}`);
+console.log(`  Alice's new balance: ${aliceNewBalance}`);
+console.log(`  Bob's balance: ${bobBalance}`);
 ```
 
 ### Tutorial 2: Event Ticketing System
 
-Create a concert ticketing system with unique, non-transferable tickets.
+Create a concert ticketing system with unique tokens.
 
 ```typescript
-import { TATForge, Pocket } from '@tat-protocol/tdk';
+import { createTATForgeWithKey, NodeStore } from '@tat-protocol/tdk';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
+
+const forgeSecretKey = bytesToHex(generateSecretKey());
+const forgePubKey = getPublicKey(hexToBytes(forgeSecretKey));
 
 // Create ticketing forge
-const ticketForge = await TATForge.create({
-  storage: new NodeStorage({ path: './.tickets' }),
-  keys: { secretKey: forgeKey, publicKey: forgePubKey },
+const ticketForge = await createTATForgeWithKey({
+  secretKey: forgeSecretKey,
+  owner: forgePubKey,
+  storage: new NodeStore('./.tickets'),
   relays: ['wss://relay.damus.io']
 });
 
-// Mint unique ticket
-await ticketForge.mintTAT({
-  tokenID: 'ticket-vip-001',
-  recipient: attendeeAddress,
-  ext: {
-    event: 'Rock Concert 2025',
-    seat: 'VIP Section A, Row 1, Seat 5',
-    date: '2025-06-15T19:00:00Z',
-    venue: 'Madison Square Garden',
-    price: 150,
-    tier: 'VIP'
-  }
-});
-
-console.log('🎫 VIP ticket minted and delivered');
+console.log('Ticket forge created');
 ```
 
 ### Tutorial 3: Membership System
@@ -445,22 +380,15 @@ console.log('🎫 VIP ticket minted and delivered');
 Create a membership token that grants access.
 
 ```typescript
-// Mint 1-year membership token
-await forge.mintTAT({
-  tokenID: `member-${userId}`,
-  recipient: userAddress,
-  exp: Math.floor(Date.now() / 1000) + (365 * 24 * 60 * 60), // 1 year
-  ext: {
-    membershipType: 'Premium',
-    benefits: ['Access to exclusive content', 'Priority support', 'Early access'],
-    startDate: new Date().toISOString(),
-    userId: userId
-  }
-});
+import { Token } from '@tat-protocol/tdk';
 
 // Verify membership on access
-async function checkMembership(userPubKey: string): Promise<boolean> {
-  const tokenHash = pocket.getTAT(forgePubKey, `member-${userId}`);
+async function checkMembership(
+  pocket: Pocket,
+  forgePubKey: string,
+  tokenID: string
+): Promise<boolean> {
+  const tokenHash = pocket.getTAT(forgePubKey, tokenID);
   if (!tokenHash) return false;
 
   const tokenJWT = pocket.getToken(forgePubKey, tokenHash);
@@ -491,7 +419,7 @@ const address = await pocket.getNewReceiveAddress();
 console.log('Send tokens to:', address);
 
 // Check balance after receiving
-const balance = pocket.getBalance(issuerPubKey, setID);
+const balance = pocket.getBalance(issuerPubKey, '-');
 ```
 
 ### Pattern 2: Send Tokens
@@ -530,6 +458,8 @@ try {
 ### Pattern 4: List All Tokens
 
 ```typescript
+import { Token } from '@tat-protocol/tdk';
+
 const state = pocket.getState();
 
 // List all issuers
@@ -551,20 +481,20 @@ for (const [issuerPubKey, tokens] of state.tokens) {
 ### 1. Key Management
 
 ```typescript
-// ✅ DO: Use HD keys for deterministic key generation
+// DO: Use HD keys for deterministic key generation
 import { HDKey } from '@tat-protocol/hdkeys';
 const mnemonic = HDKey.generateMnemonic(256);
 const seed = await HDKey.mnemonicToSeed(mnemonic);
 const master = HDKey.fromMasterSeed(seed);
 
-// ❌ DON'T: Generate random keys each time
+// DON'T: Generate random keys each time
 // const key = generateSecretKey(); // Can't recover if lost!
 ```
 
 ### 2. Error Handling
 
 ```typescript
-// ✅ DO: Handle all errors
+// DO: Handle all errors
 try {
   await pocket.transfer(issuer, recipient, amount);
 } catch (error) {
@@ -572,37 +502,37 @@ try {
   // Log, retry, or notify user
 }
 
-// ❌ DON'T: Ignore errors
+// DON'T: Ignore errors
 // await pocket.transfer(issuer, recipient, amount); // Might fail silently!
 ```
 
 ### 3. Relay Configuration
 
 ```typescript
-// ✅ DO: Use multiple relays for redundancy
-const config = {
-  relays: [
-    'wss://relay.damus.io',
-    'wss://relay.nostr.band',
-    'wss://relay.snort.social'
-  ]
-};
+// DO: Use multiple relays for redundancy
+const relays = [
+  'wss://relay.damus.io',
+  'wss://relay.nostr.band',
+  'wss://relay.snort.social'
+];
 
-// ❌ DON'T: Use single relay (single point of failure)
+// DON'T: Use single relay (single point of failure)
 // relays: ['wss://relay.damus.io']
 ```
 
 ### 4. Token Validation
 
 ```typescript
-// ✅ DO: Validate tokens before accepting
+import { Token } from '@tat-protocol/tdk';
+
+// DO: Validate tokens before accepting
 const token = await new Token().restore(tokenJWT);
 const isValid = await token.validate();
 if (!isValid) {
   throw new Error('Invalid token');
 }
 
-// ❌ DON'T: Trust tokens blindly
+// DON'T: Trust tokens blindly
 ```
 
 ---
@@ -617,7 +547,9 @@ if (!isValid) {
 1. Check relay connectivity
    ```typescript
    // Add connection logging
-   Debug.enable('NWPC');
+   import { DebugLogger } from '@tat-protocol/tdk';
+   const Debug = DebugLogger.getInstance();
+   Debug.enableAll();
    ```
 
 2. Wait for message delivery
@@ -659,10 +591,10 @@ const unspentTokens = Array.from(state.tokens.values());
 
 ### Learn More
 
-- 📚 Read the [API Documentation](./packages/tdk/README.md)
-- 🔐 Review [Security Best Practices](./SECURITY.md)
-- 🏗️ Understand the [Architecture](./TAT_PROTOCOL.md)
-- 🧪 Explore [Examples](./examples/)
+- Read the [API Documentation](./packages/tdk/README.md)
+- Review [Security Best Practices](./SECURITY.md)
+- Understand the [Architecture](./TAT_PROTOCOL.md)
+- Explore [Examples](./examples/)
 
 ### Build Something
 
@@ -675,10 +607,8 @@ Try building:
 
 ### Get Help
 
-- 💬 GitHub Discussions: Ask questions
-- 🐛 GitHub Issues: Report bugs
-- 📖 Documentation: https://docs.tat-protocol.org
-- 🌐 Website: https://tat-protocol.org
+- GitHub Discussions: Ask questions
+- GitHub Issues: Report bugs
 
 ---
 
@@ -687,30 +617,38 @@ Try building:
 ### Essential Commands
 
 ```typescript
+import {
+  createPocketWithKey,
+  createFungibleForgeWithKey,
+  NodeStore
+} from '@tat-protocol/tdk';
+
 // Create wallet
-const pocket = await Pocket.create({ storage, keys, relays });
+const pocket = await createPocketWithKey({
+  secretKey, storage: new NodeStore('./.pocket'), relays
+});
 
 // Create mint
-const forge = await FungibleForge.create({ storage, keys, relays, setID, denomination, totalSupply });
+const forge = await createFungibleForgeWithKey({
+  secretKey, owner: ownerPubKey, storage: new NodeStore('./.forge'), relays, totalSupply
+});
 
 // Get receiving address
 const address = await pocket.getNewReceiveAddress();
-
-// Mint tokens
-await forge.mintFungible(address, amount);
 
 // Transfer tokens
 await pocket.transfer(issuerPubKey, recipientAddress, amount);
 
 // Check balance
-const balance = pocket.getBalance(issuerPubKey, setID);
+const balance = pocket.getBalance(issuerPubKey, '-');
 ```
 
 ### Useful Utilities
 
 ```typescript
 // Generate keys
-import { generateSecretKey, getPublicKey } from '@tat-protocol/tdk';
+import { generateSecretKey, getPublicKey } from 'nostr-tools';
+import { bytesToHex, hexToBytes } from '@noble/hashes/utils';
 const sk = bytesToHex(generateSecretKey());
 const pk = getPublicKey(hexToBytes(sk));
 
@@ -729,5 +667,3 @@ const mnemonic = HDKey.generateMnemonic(256);
 **Ready to build?** Start with the Quick Start above and experiment!
 
 **Questions?** Check out the [examples directory](./examples/) for more code samples.
-
-**Happy building! 🚀**

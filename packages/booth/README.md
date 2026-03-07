@@ -1,175 +1,54 @@
-# @tat-protocol/boxoffice
+# @tat-protocol/booth
 
-Purchase and sales protocol for TAT Protocol tokens.
+Booth services for catalog, invoicing, and payment orchestration.
 
-## Overview
-
-The Boxoffice module provides **two implementations**:
-
-### 1. **BoxofficeServerSpec** - TAT Protocol Extensions Spec Compliant
-Implements the [TAT Protocol Extensions specification](https://github.com/tat-protocol/extensions) section 4 (Booth Protocol) with official NWPC methods:
-- `booth.catalog` - Browse available TATs
-- `booth.invoice` - Request purchase invoice
-- `booth.pay` - Submit payment
-- `booth.status` - Check invoice status
-
-**Use this for spec-compliant implementations.**
-
-### 2. **BoxofficeBase/BoxofficeServer** - Flexible SDK Foundation
-Protocol-level SDK with pluggable payment providers, pricing engines, and custom business logic.
-
-**Use this for custom implementations with advanced features.**
-
----
-
-## Installation
+## Install
 
 ```bash
-npm install @tat-protocol/boxoffice
+npm install @tat-protocol/booth
 ```
 
-## Quick Start
+## Exports
 
-### Using BoxofficeServerSpec (Spec-Compliant)
+- `BoothServerSpec` (spec-oriented NWPC booth server)
+- `BoothAgent` (advanced/extended implementation)
+- `BoothBase`, `BoothServer`, `Booth`, `TATPaymentProvider`
+- Types from `types.ts` and `spec-types.ts`
 
-```typescript
-import { BoxofficeServerSpec, CatalogItem } from '@tat-protocol/boxoffice';
-import { NodeStorage } from '@tat-protocol/storage';
+## Quick Start (Spec Server)
 
-// Create spec-compliant booth
-const boxoffice = await BoxofficeServerSpec.create({
-  storage: new NodeStorage({ path: './boxoffice' }),
-  keys: myKeys,
-  boxOfficeName: 'TATpay',
-  fee: 0.025, // 2.5% fee
-  relays: ['wss://relay.damus.io'],
-  supportedPaymentMethods: ['lightning', 'card']
+```ts
+import { BoothServerSpec } from "@tat-protocol/booth";
+import { NodeStore } from "@tat-protocol/storage";
+import { KeySigner } from "@tat-protocol/signers";
+
+const booth = await BoothServerSpec.create({
+  signer: new KeySigner(process.env.BOOTH_SECRET_KEY!),
+  storage: new NodeStore(".booth"),
+  relays: ["wss://relay.damus.io"],
+  boxOfficeName: "TAT Booth",
+  fee: 0.025,
+  supportedPaymentMethods: ["tat"],
 });
 
-// Add catalog items (per spec section 4.4)
-const catalogItem: CatalogItem = {
-  id: 'premium-monthly',
-  issuer: forgePublicKey,
-  name: 'Premium Membership',
-  description: 'Monthly premium access',
-  price: {
-    amount: 5.0,
-    currency: 'USD'
-  },
-  tokenType: 'TAT',
-  duration: 2592000, // 30 days in seconds
-  supply: {
-    total: 0, // Unlimited
-    remaining: 0,
-  },
-  metadata: {
-    category: 'membership',
-    benefits: ['Exclusive content', 'Early access']
-  }
-};
-
-await boxoffice.addCatalogItem(catalogItem);
-
-// Now clients can call:
-// - booth.catalog
-// - booth.invoice
-// - booth.pay
-// - booth.status
+await booth.addCatalogItem({
+  id: "premium-pass",
+  issuer: process.env.FORGE_PUBKEY!,
+  name: "Premium Pass",
+  description: "Access tier",
+  price: { amount: 100, currency: "USD" },
+  tokenType: "FUNGIBLE",
+});
 ```
 
-### Implementing Custom Boxoffice
+## Protocol Flow
 
-```typescript
-import { BoxofficeBase, TokenOrder, Receipt } from '@tat-protocol/boxoffice';
+1. Client requests `booth.catalog`.
+2. Client requests `booth.invoice`.
+3. Client submits payment via `booth.pay`.
+4. Client checks settlement with `booth.status`.
 
-class MyBoxoffice extends BoxofficeBase {
-  // Implement how to fulfill orders after payment
-  protected async fulfillOrder(order: TokenOrder): Promise<Receipt> {
-    // Mint tokens via your forge
-    const tokens = await this.forge.mint({
-      recipient: order.buyerAddress,
-      quantity: order.quantity,
-      tokenType: order.tokenType
-    });
+## Current Payment Support
 
-    // Create receipt
-    return {
-      receiptId: `receipt-${order.orderId}`,
-      orderId: order.orderId,
-      buyer: order.buyer,
-      payment: this.getPaymentForOrder(order.orderId),
-      tokens: tokens.map(t => t.toJWT()),
-      issuedAt: Date.now()
-    };
-  }
-
-  // Validate orders before creation
-  protected async validateOrder(order: Partial<TokenOrder>): Promise<boolean> {
-    // Custom validation logic
-    // Check inventory, buyer eligibility, pricing, etc.
-    return true;
-  }
-}
-```
-
-## Implementing Payment Providers
-
-```typescript
-import { PaymentProvider, PaymentMethod } from '@tat-protocol/boxoffice';
-
-class BitcoinPaymentProvider implements PaymentProvider {
-  readonly name = 'bitcoin';
-  readonly supportedMethods = [PaymentMethod.BITCOIN];
-
-  async initializePayment(payment: Payment) {
-    // Generate Bitcoin address
-    const address = await this.generateAddress();
-
-    return {
-      paymentId: payment.paymentId,
-      paymentAddress: address,
-      expiresAt: Date.now() + 3600000 // 1 hour
-    };
-  }
-
-  async verifyPayment(paymentId: string) {
-    // Check blockchain for payment
-    const tx = await this.checkBlockchain(paymentId);
-
-    return {
-      verified: tx.confirmed,
-      status: tx.confirmed ? 'COMPLETED' : 'PENDING',
-      transactionId: tx.hash,
-      completedAt: tx.confirmedAt
-    };
-  }
-
-  // Implement other PaymentProvider methods...
-}
-```
-
-## Core Interfaces
-
-### PaymentProvider
-Defines how payments are processed for different payment methods.
-
-### PricingEngine
-Defines pricing strategies (fixed, dynamic, bulk discounts, etc.).
-
-### TokenOrder
-Order structure for purchasing tokens.
-
-### Receipt
-Cryptographically signed receipt with issued tokens.
-
-## API
-
-See inline documentation in the source code for detailed API information.
-
-## Examples
-
-See the [examples directory](./src/examples) for complete usage examples.
-
-## License
-
-MIT License. See [LICENSE](../../LICENSE) for details.
+- `tat`: implemented.
+- `lightning` / `card`: scaffolded for extension.

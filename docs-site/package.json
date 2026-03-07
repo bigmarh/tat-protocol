@@ -1,0 +1,14 @@
+{
+  "name": "@tat-protocol/docs-site",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vitepress dev docs --port 4174",
+    "build": "vitepress build docs",
+    "preview": "vitepress preview docs --port 4174"
+  },
+  "devDependencies": {
+    "vitepress": "^1.6.3"
+  }
+}
