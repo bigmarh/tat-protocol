@@ -1054,7 +1054,7 @@ export class Pocket extends NWPCPeer {
      * @param changeKey Address to send change to (optional)
      * @returns The built transaction structure
      */
-    private async createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+    public async createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
         // Always use a new single-use key for change outputs
         const singleUseKey = await this.deriveSingleUseKey();
         // Save the new key to state (deriveSingleUseKey already does this)
