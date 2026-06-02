@@ -13,6 +13,8 @@ npm install @tat-protocol/gate
 - `GateServerSpec` (spec-oriented NWPC gate service)
 - `GateBase` (extensible base class)
 - `Gate` (minimal wrapper)
+- Built-in strategies: `singleUse`, `multiUse`, `timeWindow`, `allOf`
+- `SimpleAccessPolicy` / `createAccessPolicy`
 - Types from `types.ts` and `spec-types.ts`
 
 ## Quick Start (Spec Server)
@@ -32,6 +34,31 @@ const gate = await GateServerSpec.create({
 });
 
 console.log(gate.getPublicKey());
+```
+
+## Easy Local Validation
+
+For in-process gates, compose defaults instead of writing custom strategy classes:
+
+```ts
+import {
+  createAccessPolicy,
+  singleUse,
+  allOf,
+  timeWindow,
+} from "@tat-protocol/gate";
+
+const policy = createAccessPolicy({
+  name: "Main entrance",
+  allowedIssuers: [process.env.TICKET_FORGE_PUBKEY!],
+  requireValidSignature: true,
+  requireNotExpired: true,
+});
+
+const strategy = allOf([
+  singleUse(),
+  timeWindow({ startsAt: eventStartMs, endsAt: eventEndMs }),
+]);
 ```
 
 ## Protocol Flow

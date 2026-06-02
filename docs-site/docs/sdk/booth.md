@@ -20,13 +20,14 @@ Catalog → Invoice → Payment → Fulfillment → Receipt
 
 ## Classes
 
-| Class | Description |
-|-------|-------------|
-| `BoothBase` | Abstract base with order, payment, inventory, and analytics logic |
-| `BoothServer` | NWPC-compatible server with network handlers |
-| `BoothServerSpec` | Extended spec-compliant server with catalog management |
-| `BoothAgent` | Lightweight agent for orchestration |
-| `TATPaymentProvider` | Payment provider that accepts TAT tokens |
+| Class                | Description                                                       |
+| -------------------- | ----------------------------------------------------------------- |
+| `BoothBase`          | Abstract base with order, payment, inventory, and analytics logic |
+| `BoothServer`        | NWPC-compatible server with network handlers                      |
+| `BoothServerSpec`    | Extended spec-compliant server with catalog management            |
+| `BoothAgent`         | Lightweight agent for orchestration                               |
+| `TATPaymentProvider` | Payment provider that accepts TAT tokens                          |
+| `BoothWebhookServer` | Optional dependency-free HTTP/HTTPS webhook helper                |
 
 ## Quick start
 
@@ -103,12 +104,58 @@ Returns: total orders, total revenue, orders by status, top items, and time peri
 
 ### BoothServerSpec
 
-Adds catalog management on top of `BoothBase`:
+Adds catalog management and spec-oriented NWPC methods. It also supports external payment adapters plus a fulfillment callback:
+
+```ts
+const booth = await BoothServerSpec.create({
+  storage,
+  signer,
+  relays,
+  boxOfficeName: "Ticket Booth",
+  fee: 0.025,
+  paymentAdapters: [lightningAdapter],
+  async fulfill({ invoice, buyerPubkey }) {
+    const tat = await forge.mintTicket({
+      to: buyerPubkey,
+      item: invoice.catalogItem,
+    });
+    return { tat, tokenID: invoice.catalogItem.id };
+  },
+});
+```
 
 ```ts
 async addCatalogItem(item: CatalogItem): Promise<void>
 async removeCatalogItem(itemId: string): Promise<void>
 async updateCatalogItem(itemId: string, updates: Partial<CatalogItem>): Promise<void>
+async confirmInvoice(invoiceId: string, payment): Promise<{ success: boolean; receipt?: Receipt }>
+```
+
+Use `confirmInvoice()` from payment webhooks. It is idempotent: already-fulfilled invoices return the existing receipt instead of minting again.
+
+### Webhooks
+
+Booth does not need to own your HTTP server. You can call `confirmInvoice()` from any framework. For simple deployments, `BoothWebhookServer` provides a tiny Node server:
+
+```ts
+const webhooks = new BoothWebhookServer({
+  port: 8080,
+  routes: [
+    {
+      path: "/webhooks/lightning",
+      methods: ["POST"],
+      handler: async (req) => {
+        const event = await lightningAdapter.parseWebhook!(req);
+        if (event.status === "completed" && event.invoiceId) {
+          await booth.confirmInvoice(event.invoiceId, event);
+        }
+        return { body: { ok: true } };
+      },
+    },
+  ],
+});
+
+await webhooks.start();
 ```
 
 ### TATPaymentProvider
@@ -117,9 +164,9 @@ Accepts TAT Protocol tokens as payment.
 
 ```ts
 const provider = new TATPaymentProvider({
-  forgePubkey: forgePk,   // Which forge's tokens to accept
-  amount: 10,             // Cost per unit
-  autoRefund: true,       // Auto-refund on failure
+  forgePubkey: forgePk, // Which forge's tokens to accept
+  amount: 10, // Cost per unit
+  autoRefund: true, // Auto-refund on failure
 });
 ```
 
@@ -142,8 +189,13 @@ getReceivedTokens(paymentId: string): string[]
 
 ```ts
 type OrderStatus =
-  | "pending" | "paid" | "confirmed"
-  | "fulfilled" | "cancelled" | "refunded" | "failed";
+  | "pending"
+  | "paid"
+  | "confirmed"
+  | "fulfilled"
+  | "cancelled"
+  | "refunded"
+  | "failed";
 ```
 
 ### PaymentMethod
@@ -168,19 +220,23 @@ interface PaymentProvider {
   readonly supportedMethods: PaymentMethod[];
   initializePayment(payment: Payment): Promise<PaymentInitResult>;
   verifyPayment(paymentId: string): Promise<PaymentVerificationResult>;
-  refundPayment(paymentId: string, amount: Price, reason: string): Promise<RefundResult>;
+  refundPayment(
+    paymentId: string,
+    amount: Price,
+    reason: string,
+  ): Promise<RefundResult>;
 }
 ```
 
 ## BoothState
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `orders` | `Map<string, TokenOrder>` | All orders |
-| `payments` | `Map<string, Payment>` | Payment records |
-| `receipts` | `Map<string, Receipt>` | Generated receipts |
-| `inventory` | `Map<string, InventoryItem>` | Inventory items |
-| `refunds` | `Map<string, RefundRequest>` | Refund requests |
+| Property    | Type                         | Description        |
+| ----------- | ---------------------------- | ------------------ |
+| `orders`    | `Map<string, TokenOrder>`    | All orders         |
+| `payments`  | `Map<string, Payment>`       | Payment records    |
+| `receipts`  | `Map<string, Receipt>`       | Generated receipts |
+| `inventory` | `Map<string, InventoryItem>` | Inventory items    |
+| `refunds`   | `Map<string, RefundRequest>` | Refund requests    |
 
 ## Related
 

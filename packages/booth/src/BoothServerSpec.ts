@@ -22,6 +22,14 @@ import {
   // ForgeMintRequest,
   ForgeAuthorization,
 } from "./spec-types.js";
+import type {
+  BoothPaymentAdapter,
+  BoothPaymentReference,
+} from "./PaymentAdapterInterface.js";
+import type {
+  BoothFulfillmentHandler,
+  BoothFulfillmentResult,
+} from "./FulfillmentInterface.js";
 import { StorageInterface } from "@tat-protocol/storage";
 
 const Debug = DebugLogger.getInstance();
@@ -35,6 +43,10 @@ export interface BoothServerSpecConfig extends NWPCConfig {
   boxOfficeName: string;
   fee: number; // Fee rate (0.025 = 2.5%)
   supportedPaymentMethods?: string[];
+  /** External payment adapters used to build invoice payment options. */
+  paymentAdapters?: BoothPaymentAdapter[];
+  /** Called after payment confirmation to mint/deliver the purchased token(s). */
+  fulfill?: BoothFulfillmentHandler;
 }
 
 /**
@@ -214,10 +226,14 @@ export class BoothServerSpec {
       const expiresAt = Date.now() + 30 * 60 * 1000; // 30 minutes
 
       // Build payment options
-      const paymentOptions = await this.buildPaymentOptions(
-        catalogItem,
-        quantity,
-      );
+      const { paymentOptions, paymentReferences } =
+        await this.buildPaymentOptionsAndReferences(
+          catalogItem,
+          quantity,
+          invoiceId,
+          buyerPubkey,
+          expiresAt,
+        );
 
       const invoice: Invoice = {
         invoiceId,
@@ -227,6 +243,9 @@ export class BoothServerSpec {
         status: "pending",
         createdAt: Date.now(),
         buyerPubkey,
+        quantity,
+        paymentReferences,
+        fulfillment: { status: "pending" },
       };
 
       this.state.invoices.set(invoiceId, invoice);
@@ -309,9 +328,16 @@ export class BoothServerSpec {
       invoice.paidAt = Date.now();
       this.state.invoices.set(invoiceId, invoice);
 
-      // Store receipt
+      // Store receipt and fulfillment state
       if (result.receipt) {
         this.state.receipts.set(result.receipt.id, result.receipt);
+        invoice.fulfillment = {
+          status: "fulfilled",
+          receiptId: result.receipt.id,
+          fulfilledAt: Date.now(),
+          token: result.tat,
+        };
+        this.state.invoices.set(invoiceId, invoice);
       }
 
       await this._saveState();
@@ -355,7 +381,7 @@ export class BoothServerSpec {
         receipt = Array.from(this.state.receipts.values()).find(
           (r) => r.invoiceId === invoiceId,
         );
-        // TODO: Retrieve TAT JWT from receipt or storage
+        tat = invoice.fulfillment?.token;
       }
 
       return res.send(
@@ -379,43 +405,74 @@ export class BoothServerSpec {
   // =============================
 
   /**
-   * Build payment options for invoice
+   * Build payment options for invoice and persist provider references.
    */
-  private async buildPaymentOptions(
+  private async buildPaymentOptionsAndReferences(
     catalogItem: CatalogItem,
     quantity: number,
-  ): Promise<PaymentOptions> {
+    invoiceId: string,
+    buyerPubkey: string,
+    expiresAt: number,
+  ): Promise<{
+    paymentOptions: PaymentOptions;
+    paymentReferences?: Record<string, BoothPaymentReference>;
+  }> {
     const totalAmount = catalogItem.price.amount * quantity;
-    const options: PaymentOptions = {};
+    const paymentOptions: PaymentOptions = {};
+    const paymentReferences: Record<string, BoothPaymentReference> = {};
+    const boothPubkey = this.nwpcServer.getPublicKey() || "";
 
     if (this.config.supportedPaymentMethods?.includes("tat")) {
-      options.tat = {
+      paymentOptions.tat = {
         amount: catalogItem.tokenType === "FUNGIBLE" ? totalAmount : undefined,
-        payTo: this.nwpcServer.getPublicKey() || "",
+        payTo: boothPubkey,
         issuer: catalogItem.issuer,
         tokenType: catalogItem.tokenType,
       };
     }
 
-    // Add other payment methods based on configuration
-    if (this.config.supportedPaymentMethods?.includes("lightning")) {
-      // TODO: Generate Lightning invoice
-      options.lightning = {
-        bolt11: "lnbc...", // Placeholder
-        amountSats: Math.floor(totalAmount / 100), // Example conversion
-      };
+    for (const adapter of this.config.paymentAdapters ?? []) {
+      const created = await adapter.createPayment({
+        invoiceId,
+        catalogItem,
+        buyerPubkey,
+        quantity,
+        totalAmount,
+        currency: catalogItem.price.currency,
+        boothPubkey,
+        expiresAt,
+      });
+      Object.assign(paymentOptions, created.paymentOptions);
+      if (created.reference) {
+        paymentReferences[adapter.method] = created.reference;
+      }
     }
 
-    if (this.config.supportedPaymentMethods?.includes("card")) {
-      // TODO: Generate Stripe checkout URL
-      options.card = {
-        checkoutUrl: `https://checkout.example.com/${catalogItem.id}`,
-        amount: totalAmount / 100,
-        currency: "USD",
-      };
-    }
+    return {
+      paymentOptions,
+      paymentReferences:
+        Object.keys(paymentReferences).length > 0
+          ? paymentReferences
+          : undefined,
+    };
+  }
 
-    return options;
+  /**
+   * @deprecated Use buildPaymentOptionsAndReferences. Kept for subclasses/tests.
+   */
+  protected async buildPaymentOptions(
+    catalogItem: CatalogItem,
+    quantity: number,
+  ): Promise<PaymentOptions> {
+    return (
+      await this.buildPaymentOptionsAndReferences(
+        catalogItem,
+        quantity,
+        this._generateInvoiceId(),
+        "",
+        Date.now() + 30 * 60 * 1000,
+      )
+    ).paymentOptions;
   }
 
   /**
@@ -490,39 +547,21 @@ export class BoothServerSpec {
           }
         }
 
-        const receipt: Receipt = {
-          id: this._generateReceiptId(),
-          invoiceId: invoice.invoiceId,
-          timestamp: Date.now(),
-          item: {
-            id: invoice.catalogItem.id,
-            name: invoice.catalogItem.name,
-            issuer: invoice.catalogItem.issuer,
+        const fulfillment = await this.fulfillInvoice(
+          invoice,
+          buyerPubkey,
+          "tat",
+          {
+            tokens,
+            tokenHashes,
+            amount: totalAmount,
           },
-          payment: {
-            method: "tat",
-            grossAmount: invoice.catalogItem.price.amount,
-            currency: invoice.catalogItem.price.currency,
-            fees: {
-              boxOffice: invoice.catalogItem.price.amount * this.config.fee,
-              platform: 0,
-              payment: 0,
-            },
-            netToCreator:
-              invoice.catalogItem.price.amount * (1 - this.config.fee),
-          },
-          tat: {
-            tokenID: "placeholder", // TODO: Get from minted TAT
-            tokenHash: "placeholder",
-          },
-          buyer: buyerPubkey,
-          boxOffice: this.nwpcServer.getPublicKey() || "",
-        };
+        );
 
         return {
           success: true,
-          tat: "placeholder-tat-jwt", // TODO: Return actual TAT JWT
-          receipt,
+          tat: fulfillment.tat,
+          receipt: fulfillment.receipt,
         };
       }
 
@@ -542,6 +581,196 @@ export class BoothServerSpec {
           error instanceof Error ? error.message : "Payment processing failed",
       };
     }
+  }
+
+  /**
+   * Confirm an externally-paid invoice from a webhook or custom payment flow.
+   * Idempotent: if the invoice is already fulfilled, the existing receipt is
+   * returned and fulfillment is not run again.
+   */
+  public async confirmInvoice(
+    invoiceId: string,
+    payment: {
+      method: string;
+      provider?: string;
+      providerPaymentId?: string;
+      amount?: number;
+      currency?: string;
+      details?: Record<string, unknown>;
+    },
+  ): Promise<{
+    success: boolean;
+    invoice?: Invoice;
+    tat?: string;
+    receipt?: Receipt;
+    error?: string;
+  }> {
+    const invoice = this.state.invoices.get(invoiceId);
+    if (!invoice) {
+      return { success: false, error: "Invoice not found" };
+    }
+
+    const existingReceipt = Array.from(this.state.receipts.values()).find(
+      (receipt) => receipt.invoiceId === invoiceId,
+    );
+    if (invoice.fulfillment?.status === "fulfilled" && existingReceipt) {
+      return {
+        success: true,
+        invoice,
+        tat: invoice.fulfillment.token,
+        receipt: existingReceipt,
+      };
+    }
+
+    if (Date.now() > invoice.expiresAt && invoice.status !== "paid") {
+      invoice.status = "expired";
+      this.state.invoices.set(invoiceId, invoice);
+      await this._saveState();
+      return { success: false, invoice, error: "Invoice expired" };
+    }
+
+    invoice.status = "paid";
+    invoice.paidAt = invoice.paidAt ?? Date.now();
+    invoice.paymentReferences = {
+      ...(invoice.paymentReferences ?? {}),
+      [payment.method]: {
+        method: payment.method,
+        provider: payment.provider,
+        providerPaymentId: payment.providerPaymentId,
+        status: "completed",
+        data: payment.details,
+      },
+    };
+    this.state.invoices.set(invoiceId, invoice);
+    await this._saveState();
+
+    try {
+      const fulfillment = await this.fulfillInvoice(
+        invoice,
+        invoice.buyerPubkey,
+        payment.method,
+        payment.details,
+        payment.provider,
+        payment.providerPaymentId,
+        payment.amount,
+        payment.currency,
+      );
+
+      if (fulfillment.receipt) {
+        this.state.receipts.set(fulfillment.receipt.id, fulfillment.receipt);
+      }
+      invoice.fulfillment = {
+        status: "fulfilled",
+        receiptId: fulfillment.receipt?.id,
+        fulfilledAt: Date.now(),
+        token: fulfillment.tat,
+        tokens: fulfillment.tokens,
+      };
+      this.state.invoices.set(invoiceId, invoice);
+      await this._saveState();
+
+      return {
+        success: true,
+        invoice,
+        tat: fulfillment.tat,
+        receipt: fulfillment.receipt,
+      };
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Fulfillment failed";
+      invoice.fulfillment = { status: "failed", error: message };
+      this.state.invoices.set(invoiceId, invoice);
+      await this._saveState();
+      return { success: false, invoice, error: message };
+    }
+  }
+
+  private async fulfillInvoice(
+    invoice: Invoice,
+    buyerPubkey: string,
+    method: string,
+    details?: Record<string, unknown>,
+    provider?: string,
+    providerPaymentId?: string,
+    amount = invoice.catalogItem.price.amount * (invoice.quantity ?? 1),
+    currency = invoice.catalogItem.price.currency,
+  ): Promise<BoothFulfillmentResult & { receipt: Receipt }> {
+    const context = {
+      invoice,
+      buyerPubkey,
+      boothPubkey: this.nwpcServer.getPublicKey() || "",
+      payment: {
+        method,
+        provider,
+        providerPaymentId,
+        amount,
+        currency,
+        details,
+      },
+    };
+
+    const result = this.config.fulfill
+      ? await this.config.fulfill(context)
+      : ({
+          tat: undefined,
+          tokenID: invoice.catalogItem.id,
+          tokenHash: invoice.invoiceId,
+        } satisfies BoothFulfillmentResult);
+
+    const receipt =
+      result.receipt ??
+      this.createStandardReceipt(
+        invoice,
+        buyerPubkey,
+        method,
+        result,
+        amount,
+        currency,
+      );
+
+    return { ...result, receipt };
+  }
+
+  private createStandardReceipt(
+    invoice: Invoice,
+    buyerPubkey: string,
+    method: string,
+    fulfillment: BoothFulfillmentResult,
+    amount: number,
+    currency: string,
+  ): Receipt {
+    const grossAmount = amount;
+    return {
+      id: this._generateReceiptId(),
+      invoiceId: invoice.invoiceId,
+      timestamp: Date.now(),
+      item: {
+        id: invoice.catalogItem.id,
+        name: invoice.catalogItem.name,
+        issuer: invoice.catalogItem.issuer,
+      },
+      payment: {
+        method,
+        grossAmount,
+        currency,
+        fees: {
+          boxOffice: grossAmount * this.config.fee,
+          platform: 0,
+          payment: 0,
+        },
+        netToCreator: grossAmount * (1 - this.config.fee),
+      },
+      tat: {
+        tokenID: fulfillment.tokenID ?? invoice.catalogItem.id,
+        tokenHash:
+          fulfillment.tokenHash ??
+          fulfillment.tat ??
+          fulfillment.tokens?.[0] ??
+          invoice.invoiceId,
+      },
+      buyer: buyerPubkey,
+      boxOffice: this.nwpcServer.getPublicKey() || "",
+    };
   }
 
   private async verifyTokensNotSpent(

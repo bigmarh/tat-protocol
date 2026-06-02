@@ -2,6 +2,16 @@
 export { Gate } from "./Gate.js";
 export { GateBase } from "./GateBase.js";
 export { GateServerSpec } from "./GateServerSpec.js";
+export {
+  singleUse,
+  multiUse,
+  timeWindow,
+  allOf,
+} from "./ValidationStrategies.js";
+export {
+  SimpleAccessPolicy,
+  createAccessPolicy,
+} from "./SimpleAccessPolicy.js";
 
 // Configurations
 export type { GateConfig, GateState } from "./GateBase.js";

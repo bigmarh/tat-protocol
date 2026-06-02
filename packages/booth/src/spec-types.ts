@@ -131,6 +131,25 @@ export interface Invoice {
   createdAt: number;
   paidAt?: number;
   buyerPubkey: string;
+  quantity?: number;
+  paymentReferences?: Record<
+    string,
+    {
+      method: string;
+      provider?: string;
+      providerPaymentId?: string;
+      status?: "pending" | "completed" | "failed" | "expired";
+      data?: Record<string, unknown>;
+    }
+  >;
+  fulfillment?: {
+    status: "pending" | "fulfilled" | "failed";
+    receiptId?: string;
+    fulfilledAt?: number;
+    error?: string;
+    token?: string;
+    tokens?: string[];
+  };
 }
 
 /**

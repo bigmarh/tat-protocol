@@ -18,14 +18,38 @@ The typical flow is: **challenge → proof → validate → grant/deny**.
 
 ## Validation strategies
 
-| Strategy | Description |
-|----------|-------------|
-| `SINGLE_USE` | Token can only be used once (event tickets) |
-| `MULTI_ENTRY` | Token can be used multiple times (season passes) |
-| `TIME_BASED` | Token valid during specific time windows |
-| `SCAN_IN_OUT` | Track entry/exit (capacity management) |
-| `CAPACITY_LIMITED` | Max concurrent entries |
-| `CUSTOM` | Implement your own logic |
+| Strategy           | Description                                      |
+| ------------------ | ------------------------------------------------ |
+| `SINGLE_USE`       | Token can only be used once (event tickets)      |
+| `MULTI_ENTRY`      | Token can be used multiple times (season passes) |
+| `TIME_BASED`       | Token valid during specific time windows         |
+| `SCAN_IN_OUT`      | Track entry/exit (capacity management)           |
+| `CAPACITY_LIMITED` | Max concurrent entries                           |
+| `CUSTOM`           | Implement your own logic                         |
+
+Built-in factory helpers cover common cases:
+
+```ts
+import {
+  singleUse,
+  multiUse,
+  timeWindow,
+  allOf,
+  createAccessPolicy,
+} from "@tat-protocol/gate";
+
+const strategy = allOf([
+  singleUse(),
+  timeWindow({ startsAt: eventStartMs, endsAt: eventEndMs }),
+]);
+
+const policy = createAccessPolicy({
+  name: "VIP door",
+  allowedIssuers: [ticketForgePubkey],
+  requireValidSignature: true,
+  requireNotExpired: true,
+});
+```
 
 ## API Reference
 
@@ -213,7 +237,10 @@ interface AccessPolicy {
   operatingHours?: { start: string; end: string; timezone?: string };
   customRules?: Array<{
     name: string;
-    check: (token: Token, context?: Record<string, unknown>) => Promise<boolean>;
+    check: (
+      token: Token,
+      context?: Record<string, unknown>,
+    ) => Promise<boolean>;
   }>;
 }
 ```
@@ -225,7 +252,10 @@ Implement this to create custom validation logic:
 ```ts
 interface ValidationStrategyInterface {
   readonly type: ValidationStrategy;
-  validate(token: Token, context?: ValidationContext): Promise<ValidationResult>;
+  validate(
+    token: Token,
+    context?: ValidationContext,
+  ): Promise<ValidationResult>;
   consume(token: Token, context?: ValidationContext): Promise<boolean>;
   canUse(token: Token): Promise<boolean>;
   getUsage(tokenHash: string): Promise<{ uses: number; lastUsed?: number }>;
@@ -235,11 +265,11 @@ interface ValidationStrategyInterface {
 
 ## GateState
 
-| Property | Type | Description |
-|----------|------|-------------|
-| `attempts` | `Map<string, AccessAttempt>` | All access attempts |
-| `redemptions` | `Map<string, Redemption>` | Redeemed tokens |
-| `blockedTokens` | `Set<string>` | Blacklisted token hashes |
+| Property        | Type                         | Description              |
+| --------------- | ---------------------------- | ------------------------ |
+| `attempts`      | `Map<string, AccessAttempt>` | All access attempts      |
+| `redemptions`   | `Map<string, Redemption>`    | Redeemed tokens          |
+| `blockedTokens` | `Set<string>`                | Blacklisted token hashes |
 
 ## Related
 

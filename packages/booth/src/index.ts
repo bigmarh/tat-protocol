@@ -14,6 +14,31 @@ export type { BoothServerSpecConfig } from "./BoothServerSpec.js";
 export { TATPaymentProvider } from "./TATPaymentProvider.js";
 export type { TATPaymentConfig } from "./TATPaymentProvider.js";
 
+// Payment adapters / fulfillment / webhook helpers
+export {
+  BoothWebhookServer,
+  createBoothWebhookServer,
+} from "./BoothWebhookServer.js";
+export type {
+  BoothWebhookRequest,
+  BoothWebhookResponse,
+  BoothWebhookHandler,
+  BoothWebhookRoute,
+  BoothWebhookServerConfig,
+} from "./BoothWebhookServer.js";
+export type {
+  BoothPaymentAdapter,
+  BoothPaymentCreation,
+  BoothPaymentReference,
+  BoothPaymentRequest,
+  BoothPaymentWebhookEvent,
+} from "./PaymentAdapterInterface.js";
+export type {
+  BoothFulfillmentContext,
+  BoothFulfillmentHandler,
+  BoothFulfillmentResult,
+} from "./FulfillmentInterface.js";
+
 // Spec types (TAT Protocol Extensions specification - Section 4: Booth Protocol)
 export * from "./spec-types.js";
 
