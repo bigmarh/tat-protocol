@@ -10,27 +10,29 @@
   "version": "1.1.1",
   "description": "Token module for TAT Protocol",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist-cjs/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist-cjs/index.js"
     }
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "dist-cjs"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && tsc -p tsconfig.cjs.json && node ./scripts/write-cjs-package-json.cjs",
     "test": "jest",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
-    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+    "clean": "rm -rf dist dist-cjs && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
     "tat-protocol",
@@ -47,5 +49,6 @@
     "@tat-protocol/utils": "workspace:*",
     "@tat-protocol/storage": "workspace:*"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "module": "dist/index.js"
 }
