@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+- `Pocket.exportRecoverySnapshot()` — sync export of mnemonic, tokens, single-use keys, and favorites for backup
+- `Pocket.importTokens(tokens)` — import token JWTs from a backup; skips duplicates, returns `{ imported, failed, duplicates }`
+- `Pocket.restoreKeyMaterial(snapshot)` — restore HD mnemonic and single-use keys from a backup snapshot (call before `importTokens`)
+- `singleUseKeyNextIndex` field in `PocketState` — persisted HD index counter to prevent address collisions on restore
+- `Pocket.createFungibleTransferTx()` — previously internal, now public for building transfer transactions without immediately sending them
+- `NWPCBase.subscribe()` now accepts an optional `since` Unix timestamp (defaults to 10 minutes ago) to avoid replaying old events on reconnect
+- `NWPCServer.sendResponse()` now awaits first-relay acknowledgement (with 3 s fallback) instead of fire-and-forget, preventing dropped responses on transfer flows
+- NWPC relay keepalive — automatic ping/reconnect on idle connections for better resilience
+- `NIP07Signer.sign()` now falls back to `window.nostr.signData()` (NostrPass Lite convention) after `signSchnorr` (nos2x convention)
+
 ## [1.1.1] - 2026-02-28
 
 ### Fixed
