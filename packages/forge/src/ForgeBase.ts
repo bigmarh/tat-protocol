@@ -13,6 +13,7 @@ import {
 import {
   signMessage,
   verifySignature,
+  spendAuthDigest,
   postToFeed,
   DebugLogger,
 } from "@tat-protocol/utils";
@@ -701,11 +702,38 @@ export abstract class ForgeBase extends NWPCServer {
             "",
           ];
         }
-        const isValid = verifySignature(
-          hexToBytes(token.header.token_hash),
-          hexToBytes(witness),
+        // The witness must be signed over a digest bound to THIS transfer's
+        // outputs, not the bare (public, static) token hash. Otherwise a witness
+        // seen on the wire could be replayed to redirect the same input to a
+        // different recipient. See spendAuthDigest / audit finding C6.
+        const witnessBytes = hexToBytes(witness);
+        const witnessMessage = spendAuthDigest(
+          token.header.token_hash,
+          tx.outs ?? [],
+        );
+        let isValid = verifySignature(
+          witnessMessage,
+          witnessBytes,
           token.payload.P2PKlock,
         );
+        // Transition (C6): unless disabled, also accept the legacy witness
+        // signed over the bare token hash so wallets on an older SDK keep
+        // working. Flip `allowLegacyWitness: false` once all wallets are updated
+        // to fully close the replay vector.
+        if (!isValid && this.config.allowLegacyWitness !== false) {
+          const legacyValid = verifySignature(
+            hexToBytes(token.header.token_hash),
+            witnessBytes,
+            token.payload.P2PKlock,
+          );
+          if (legacyValid) {
+            Debug.log(
+              "Accepted a LEGACY (unbound) P2PK witness — a wallet still needs updating for C6",
+              "ForgeBase",
+            );
+            isValid = true;
+          }
+        }
         if (!isValid) {
           return [
             null,

@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- **P2PK witness binding (C6)** — the P2PK unlock witness is now signed over `spendAuthDigest(inputTokenHash, outs)`, a domain-separated digest bound to the transfer's outputs, instead of the bare token hash. This closes a witness-replay theft vector where an observer of a pending transfer could reuse the witness to redirect the same input to a different recipient. New export: `spendAuthDigest` from `@tat-protocol/utils`.
+  - **Migration-safe:** the forge accepts both the new bound witness and the legacy token-hash witness by default (`ForgeConfig.allowLegacyWitness`, default `true`), so wallets on an older SDK keep working during rollout. New wallets always produce the bound witness. Set `allowLegacyWitness: false` once all wallets are updated to fully close the vector (accepted legacy witnesses are logged so you can track migration).
+
 ## [1.2.0] - 2026-07-24
 
 ### Added
