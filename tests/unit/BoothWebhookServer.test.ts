@@ -17,18 +17,14 @@ describe("BoothWebhookServer", () => {
       ],
     });
 
-    const { url } = await server.start();
-    try {
-      const response = await fetch(`${url}/webhook`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ invoiceId: "inv-1" }),
-      });
+    const response = await server.dispatch({
+      method: "POST",
+      path: "/webhook",
+      headers: { "content-type": "application/json" },
+      bodyText: JSON.stringify({ invoiceId: "inv-1" }),
+    });
 
-      expect(response.status).toBe(202);
-      expect(await response.json()).toEqual({ received: true });
-    } finally {
-      await server.stop();
-    }
+    expect(response.status).toBe(202);
+    expect(response.body).toEqual({ received: true });
   });
 });

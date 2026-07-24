@@ -155,6 +155,25 @@ Transfers a TAT (non-fungible token) to a recipient.
 await pocket.sendTAT(forgePubkey, recipientAddress, "ticket-001");
 ```
 
+#### `createFungibleTransferTx()`
+
+```ts
+async createFungibleTransferTx(
+  issuer: string,
+  to: string,
+  amount: number,
+  changeKey?: string
+): Promise<[method: string, tx: TransactionData]>
+```
+
+Builds a signed fungible transfer transaction without sending it. Useful when you need to inspect or modify the transaction before sending, or when integrating with a custom transport. `transfer()` calls this internally.
+
+```ts
+const [method, tx] = await pocket.createFungibleTransferTx(forgePubkey, recipientAddress, 100);
+// inspect tx...
+await pocket.sendTx(method, forgePubkey, tx);
+```
+
 #### `sendTx()`
 
 ```ts
@@ -195,6 +214,61 @@ const address = await pocket.getNewReceiveAddress();
 // Share this address with the sender
 ```
 
+### Recovery & backup
+
+#### `exportRecoverySnapshot()`
+
+```ts
+exportRecoverySnapshot(): {
+  mnemonic: string;
+  tokens: Array<{ issuer: string; jwt: string }>;
+  singleUseKeys: Array<{ publicKey: string; secretKey?: string; index?: number; path?: string; createdAt: number; used?: boolean }>;
+  singleUseKeyNextIndex: number;
+  favorites: string[];
+}
+```
+
+Synchronously exports everything needed to recover the wallet: HD mnemonic, all token JWTs, single-use keys, and favorites. Safe to call at any time — does not modify state.
+
+```ts
+const snapshot = pocket.exportRecoverySnapshot();
+localStorage.setItem("backup", JSON.stringify(snapshot));
+```
+
+#### `restoreKeyMaterial()`
+
+```ts
+async restoreKeyMaterial(snapshot: {
+  mnemonic: string;
+  singleUseKeys?: Array<{ publicKey: string; secretKey?: string; index?: number; path?: string; createdAt: number; used?: boolean }>;
+  singleUseKeyNextIndex?: number;
+  favorites?: string[];
+}): Promise<void>
+```
+
+Restores the HD mnemonic, single-use keys, and favorites. **Must be called before `importTokens()`** so the HD key is ready before tokens are validated.
+
+```ts
+const snapshot = JSON.parse(localStorage.getItem("backup")!);
+await pocket.restoreKeyMaterial(snapshot);
+await pocket.importTokens(snapshot.tokens);
+```
+
+#### `importTokens()`
+
+```ts
+async importTokens(
+  tokens: Array<{ issuer: string; jwt: string }>
+): Promise<{ imported: number; failed: number; duplicates: number }>
+```
+
+Imports token JWTs into the wallet. Skips duplicates silently. Returns counts for each outcome.
+
+```ts
+const { imported, failed } = await pocket.importTokens(snapshot.tokens);
+console.log(`Restored ${imported} tokens`);
+```
+
 ### Subscriptions
 
 #### `subscribe()`
@@ -219,6 +293,7 @@ The Pocket persists this state:
 | `tokenIndex` | `Map<issuer, Map<denomination, hash[]>>` | Token lookup by amount |
 | `tatIndex` | `Map<issuer, Map<tokenID, hash>>` | TAT lookup by ID |
 | `singleUseKeys` | `Map<pubkey, SingleUseKey>` | Derived receive keys |
+| `singleUseKeyNextIndex` | `number` | Next HD derivation index (persisted to avoid collisions on restore) |
 | `hdMasterKey` | `HDKeys` | HD master key for derivation |
 | `favorites` | `string[]` | Favorited issuer keys |
 | `connected` | `boolean` | Relay connection status |

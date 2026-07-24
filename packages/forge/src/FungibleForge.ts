@@ -40,10 +40,13 @@ export class FungibleForge extends ForgeBase {
       );
     }
     const amountToForge = Number(amount);
-    if (amountToForge <= 0) {
+    // Reject NaN and ±Infinity: `Number("abc")` is NaN and `NaN <= 0` is false,
+    // so a bare `<= 0` check would let a valueless token through and, once spent
+    // as a transfer input, defeat the conservation check.
+    if (!Number.isFinite(amountToForge) || amountToForge <= 0) {
       return await res.error(
         NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
-        "Amount must be positive",
+        "Amount must be a positive, finite number",
       );
     }
     if (
@@ -186,8 +189,12 @@ export class FungibleForge extends ForgeBase {
     }
     let inputTotal = 0;
     for (const token of inputs) {
+      // Non-finite amounts (NaN/±Infinity) must be rejected: a single NaN input
+      // makes inputTotal NaN, and `outputTotal > NaN` is always false, so the
+      // conservation check below would pass for arbitrary outputs.
       if (
         typeof token.payload.amount !== "number" ||
+        !Number.isFinite(token.payload.amount) ||
         token.payload.amount <= 0
       ) {
         return "Each input token must have a valid positive amount";
@@ -198,7 +205,7 @@ export class FungibleForge extends ForgeBase {
     for (const entry of outs) {
       if (
         typeof entry.amount !== "number" ||
-        isNaN(entry.amount) ||
+        !Number.isFinite(entry.amount) ||
         entry.amount <= 0
       ) {
         return "Invalid or missing amount for recipient";

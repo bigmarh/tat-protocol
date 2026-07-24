@@ -137,11 +137,12 @@ server.use("myMethod", authMiddleware, myHandler);
 ```ts
 async subscribe(
   pubkey: string,
-  handler: (event: NDKEvent) => Promise<void>
+  handler: (event: NDKEvent) => Promise<void>,
+  since?: number  // Unix timestamp; defaults to 10 minutes ago
 ): Promise<NDKSubscription>
 ```
 
-Subscribe to encrypted messages for a specific public key.
+Subscribe to encrypted messages for a specific public key. The `since` parameter limits how far back the relay replays events — defaults to 10 minutes ago to avoid replaying stale messages on reconnect.
 
 #### `unsubscribe()`
 

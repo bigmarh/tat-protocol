@@ -155,7 +155,14 @@ export abstract class ForgeBase extends NWPCServer {
   ): Promise<NWPCResponse | void>;
 
   setupDefaultHandlers() {
-    this.use("forge", this.forgeToken.bind(this));
+    // Minting is privileged: only the forge owner or an explicitly authorized
+    // forger may create new tokens. `transfer`/`burn` stay open because they are
+    // gated per-input by P2PK-witness / issuer checks in validateTXInputs.
+    this.use(
+      "forge",
+      this.onlyAuthorized.bind(this),
+      this.forgeToken.bind(this),
+    );
     this.use("transfer", this.transferToken.bind(this));
     this.use("burn", this.burnToken.bind(this));
     this.use("verify", this.handleVerify.bind(this));

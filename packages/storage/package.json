@@ -7,7 +7,7 @@
   },
   "homepage": "https://github.com/bigmarh/tat-protocol#readme",
   "bugs": "https://github.com/bigmarh/tat-protocol/issues",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Storage module for TAT Protocol",
   "type": "module",
   "main": "./node.js",
@@ -16,16 +16,19 @@
   "exports": {
     ".": {
       "node": {
+        "types": "./dist/index.d.ts",
         "import": "./node.js",
-        "types": "./dist/index.d.ts"
+        "require": "./node.cjs"
       },
       "browser": {
+        "types": "./dist/index.d.ts",
         "import": "./browser.js",
-        "types": "./dist/index.d.ts"
+        "require": "./browser.cjs"
       },
       "default": {
+        "types": "./dist/index.d.ts",
         "import": "./node.js",
-        "types": "./dist/index.d.ts"
+        "require": "./node.cjs"
       }
     }
   },
@@ -33,17 +36,20 @@
     "dist",
     "node.js",
     "browser.js",
-    "README.md"
+    "README.md",
+    "dist-cjs",
+    "node.cjs",
+    "browser.cjs"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && tsc -p tsconfig.cjs.json && node ./scripts/write-cjs-package-json.cjs",
     "test": "jest",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
-    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+    "clean": "rm -rf dist dist-cjs && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
     "tat-protocol",

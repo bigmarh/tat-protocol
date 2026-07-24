@@ -7,30 +7,32 @@
   },
   "homepage": "https://github.com/bigmarh/tat-protocol#readme",
   "bugs": "https://github.com/bigmarh/tat-protocol/issues",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Utility functions for TAT Protocol",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist-cjs/index.js",
   "types": "dist/index.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
-      "types": "./dist/index.d.ts"
+      "require": "./dist-cjs/index.js"
     }
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "dist-cjs"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b",
+    "build": "tsc -b && tsc -p tsconfig.cjs.json && node ./scripts/write-cjs-package-json.cjs",
     "test": "jest",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"**/*.ts\"",
-    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+    "clean": "rm -rf dist dist-cjs && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
     "tat-protocol",
@@ -46,7 +48,9 @@
     "@noble/hashes": "^1.0.0",
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/types": "workspace:*",
-    "nostr-tools": "^2.12.0"
+    "nostr-tools": "^2.12.0",
+    "@nostr-dev-kit/ndk": "^2.14.15"
   },
-  "devDependencies": {}
+  "devDependencies": {},
+  "module": "dist/index.js"
 }

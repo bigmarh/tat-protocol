@@ -7,31 +7,34 @@
   },
   "homepage": "https://github.com/bigmarh/tat-protocol#readme",
   "bugs": "https://github.com/bigmarh/tat-protocol/issues",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "Configuration module for TAT Protocol",
   "type": "module",
-  "main": "dist/defaultConfig.js",
+  "main": "dist-cjs/defaultConfig.js",
   "types": "dist/defaultConfig.d.ts",
   "exports": {
     ".": {
+      "types": "./dist/defaultConfig.d.ts",
       "import": "./dist/defaultConfig.js",
-      "types": "./dist/defaultConfig.d.ts"
+      "require": "./dist-cjs/defaultConfig.js"
     },
     "./defaultConfig": {
+      "types": "./dist/defaultConfig.d.ts",
       "import": "./dist/defaultConfig.js",
-      "types": "./dist/defaultConfig.d.ts"
+      "require": "./dist-cjs/defaultConfig.js"
     }
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "dist-cjs"
   ],
   "publishConfig": {
     "access": "public"
   },
   "scripts": {
-    "build": "tsc -b",
-    "clean": "rm -rf dist && rm tsconfig.tsbuildinfo"
+    "build": "tsc -b && tsc -p tsconfig.cjs.json && node ./scripts/write-cjs-package-json.cjs",
+    "clean": "rm -rf dist dist-cjs && rm tsconfig.tsbuildinfo"
   },
   "keywords": [
     "tat-protocol",
@@ -40,5 +43,6 @@
     "configuration"
   ],
   "author": "TAT Protocol",
-  "license": "MIT"
+  "license": "MIT",
+  "module": "dist/defaultConfig.js"
 }
