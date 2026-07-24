@@ -23,6 +23,14 @@ export interface BoothWebhookResponse {
   body?: string | Record<string, unknown>;
 }
 
+export interface BoothWebhookDispatchRequest {
+  method?: string;
+  path: string;
+  headers?: Record<string, string | string[] | undefined>;
+  bodyText?: string;
+  raw?: IncomingMessage;
+}
+
 export type BoothWebhookHandler = (
   request: BoothWebhookRequest,
 ) => Promise<BoothWebhookResponse | BoothPaymentWebhookEvent | void>;
@@ -68,6 +76,54 @@ export class BoothWebhookServer {
     this.routes.set(route.path, route);
   }
 
+  async dispatch(
+    request: BoothWebhookDispatchRequest,
+  ): Promise<BoothWebhookResponse> {
+    const host = request.headers?.host ?? "localhost";
+    const url = new URL(request.path, `http://${host}`);
+    const route = this.routes.get(url.pathname);
+    const method = request.method ?? "GET";
+
+    if (!route) {
+      return { status: 404, body: { error: "Webhook route not found" } };
+    }
+
+    const allowed = route.methods ?? ["POST"];
+    if (!allowed.includes(method)) {
+      return { status: 405, body: { error: "Method not allowed" } };
+    }
+
+    const bodyText = request.bodyText ?? "";
+    let bodyJson: unknown | undefined;
+    const contentType = request.headers?.["content-type"] ?? "";
+    if (bodyText && String(contentType).includes("application/json")) {
+      bodyJson = JSON.parse(bodyText);
+    }
+
+    const result = await route.handler({
+      method,
+      path: url.pathname,
+      query: url.searchParams,
+      headers: request.headers ?? {},
+      bodyText,
+      bodyJson,
+      raw: request.raw ?? ({} as IncomingMessage),
+    });
+
+    if (!result) {
+      return { status: 200, body: { ok: true } };
+    }
+
+    if ("body" in result || "status" in result || "headers" in result) {
+      return result as BoothWebhookResponse;
+    }
+
+    return {
+      status: 200,
+      body: { ok: true, event: result as Record<string, unknown> },
+    };
+  }
+
   async start(): Promise<{ host: string; port: number; url: string }> {
     if (this.server) {
       return this.address();
@@ -79,7 +135,7 @@ export class BoothWebhookServer {
 
     await new Promise<void>((resolve, reject) => {
       this.server!.once("error", reject);
-      this.server!.listen(this.config.port, this.config.host, () => {
+      this.server!.listen(this.config.port, this.host(), () => {
         this.server!.off("error", reject);
         resolve();
       });
@@ -101,9 +157,13 @@ export class BoothWebhookServer {
     const addr = this.server?.address();
     const port =
       typeof addr === "object" && addr ? addr.port : this.config.port;
-    const host = this.config.host ?? "127.0.0.1";
+    const host = this.host();
     const scheme = this.config.tls ? "https" : "http";
     return { host, port, url: `${scheme}://${host}:${port}` };
+  }
+
+  private host(): string {
+    return this.config.host ?? "127.0.0.1";
   }
 
   private async handle(
@@ -111,56 +171,15 @@ export class BoothWebhookServer {
     res: ServerResponse,
   ): Promise<void> {
     try {
-      const host = req.headers.host ?? "localhost";
-      const url = new URL(req.url ?? "/", `http://${host}`);
-      const route = this.routes.get(url.pathname);
-      const method = req.method ?? "GET";
-
-      if (!route) {
-        this.send(res, {
-          status: 404,
-          body: { error: "Webhook route not found" },
-        });
-        return;
-      }
-
-      const allowed = route.methods ?? ["POST"];
-      if (!allowed.includes(method)) {
-        this.send(res, { status: 405, body: { error: "Method not allowed" } });
-        return;
-      }
-
       const bodyText = await this.readBody(req);
-      let bodyJson: unknown | undefined;
-      const contentType = req.headers["content-type"] ?? "";
-      if (bodyText && String(contentType).includes("application/json")) {
-        bodyJson = JSON.parse(bodyText);
-      }
-
-      const result = await route.handler({
-        method,
-        path: url.pathname,
-        query: url.searchParams,
+      const response = await this.dispatch({
+        method: req.method,
+        path: req.url ?? "/",
         headers: req.headers,
         bodyText,
-        bodyJson,
         raw: req,
       });
-
-      if (!result) {
-        this.send(res, { status: 200, body: { ok: true } });
-        return;
-      }
-
-      if ("body" in result || "status" in result || "headers" in result) {
-        this.send(res, result as BoothWebhookResponse);
-        return;
-      }
-
-      this.send(res, {
-        status: 200,
-        body: { ok: true, event: result as Record<string, unknown> },
-      });
+      this.send(res, response);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Webhook failed";
       this.send(res, { status: 500, body: { error: message } });
