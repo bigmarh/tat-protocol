@@ -330,7 +330,8 @@ export default class Token {
    */
   isTimeLocked(): boolean {
     if (!this.payload.timeLock) return false;
-    return this.payload.timeLock > Date.now();
+    // `timeLock` is a Unix timestamp in SECONDS (spec §3.3); Date.now() is ms.
+    return Math.floor(Date.now() / 1000) < this.payload.timeLock;
   }
 
   /**

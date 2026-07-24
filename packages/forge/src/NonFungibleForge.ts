@@ -88,48 +88,52 @@ export class NonFungibleForge extends ForgeBase {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    const sender = context.sender;
-    let tx: any;
-    try {
-      tx = JSON.parse(req.params);
-    } catch (error) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
-        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+    // Serialize the whole validate→mint→mark-spent sequence so concurrent
+    // transfers of the same NFT input cannot both pass the spent-check (C1).
+    return await this.runExclusive(async () => {
+      const sender = context.sender;
+      let tx: any;
+      try {
+        tx = JSON.parse(req.params);
+      } catch (error) {
+        return await res.error(
+          NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+          NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+        );
+      }
+      // Validate transaction
+      const [validTx, error, code, params] = await this.validateTXInputs(
+        tx,
+        tx.witnessData,
       );
-    }
-    // Validate transaction
-    const [validTx, error, code, params] = await this.validateTXInputs(
-      tx,
-      tx.witnessData,
-    );
-    if (error || !validTx) {
-      return await res.error(
-        code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
-        "Invalid transaction: " + (error || "Validation failed"),
-        params,
+      if (error || !validTx) {
+        return await res.error(
+          code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "Invalid transaction: " + (error || "Validation failed"),
+          params,
+        );
+      }
+
+      // Restore tokens from serialized inputs
+      const restoredInputs = await Promise.all(
+        (validTx.ins || []).map(async (input: string) => {
+          return await new Token().restore(input);
+        }),
       );
-    }
 
-    // Restore tokens from serialized inputs
-    const restoredInputs = await Promise.all(
-      (validTx.ins || []).map(async (input: string) => {
-        return await new Token().restore(input);
-      }),
-    );
+      // Parse output recipients
+      const recipients = (validTx.outs || []).map((out: string) =>
+        typeof out === "string" ? JSON.parse(out) : out,
+      );
 
-    // Parse output recipients
-    const recipients = (validTx.outs || []).map((out: string) =>
-      typeof out === "string" ? JSON.parse(out) : out,
-    );
-
-    // Use shared transfer logic
-    return await this.handleNonFungibleTransfer(
-      restoredInputs,
-      recipients,
-      res,
-      sender,
-    );
+      // Use shared transfer logic
+      return await this.handleNonFungibleTransfer(
+        restoredInputs,
+        recipients,
+        res,
+        sender,
+      );
+    });
   }
 
   /*
@@ -151,6 +155,11 @@ export class NonFungibleForge extends ForgeBase {
         "Missing required parameters: inputs, outs",
       );
     }
+    // Track inputs already consumed by an earlier recipient in this same
+    // request. The spent-set is only checked once, up front in validateTXInputs,
+    // so without this a duplicate tokenID in `outs` would re-find the same input
+    // and mint a second valid token from a single NFT.
+    const consumedInputs = new Set<Token>();
     for (const recipient of outs) {
       const tokenID = recipient.tokenID;
       const to = recipient.to;
@@ -160,9 +169,10 @@ export class NonFungibleForge extends ForgeBase {
           "Each recipient must specify tokenID and to",
         );
       }
-      // Find the input token with the matching tokenID
+      // Find an unconsumed input token with the matching tokenID
       const token = inputs.find(
         (t) =>
+          !consumedInputs.has(t) &&
           t.payload.tokenID !== undefined &&
           String(t.payload.tokenID) === String(tokenID),
       );
@@ -172,6 +182,7 @@ export class NonFungibleForge extends ForgeBase {
           `Input token with tokenID ${tokenID} not found`,
         );
       }
+      consumedInputs.add(token);
       // Forge new token for recipient
       const newToken = new Token();
       await newToken.build({

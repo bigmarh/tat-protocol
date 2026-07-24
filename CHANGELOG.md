@@ -20,6 +20,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `BoothWebhookServer.dispatch()` — handle webhook requests without binding an HTTP listener (serverless/edge runtimes, tests)
 - Dual ESM + CommonJS output across all packages (`dist` + `dist-cjs` with `require` export condition)
 
+### Security
+- **Forge: concurrent double-spend (C1)** — serialize the transfer/burn spent-set critical section with a per-forge lock so concurrent transfers of the same input can no longer both pass the spent-check
+- **Forge: duplicate-input value inflation (C2)** — reject transactions that list the same input token more than once (previously double-counted the amount)
+- **Forge: duplicate-tokenID NFT mint (C3)** — a `tokenID` can now be spent at most once per transfer (previously repeated outputs re-minted one NFT input)
+- **Forge: restart replay (C4)** — load the persisted spent-set and replay bloom before subscribing to relays, closing a double-spend window on the on-connect event replay
+- **timeLock enforcement (C5)** — compare `timeLock` in Unix seconds instead of `Date.now()` milliseconds; time-locked tokens were previously spendable immediately
+- **Forge durability (H1)** — `await` the spent-set write before releasing signed tokens
+- **Pocket: verify received tokens (H2)** — check token hash and issuer signature before storing, preventing spoofed balances and hash-key shadowing
+- See `SECURITY_AUDIT_FINDINGS.md` for the full ranked audit, including documented follow-ups (witness binding, rate limiting, key-at-rest encryption, canonical serialization)
+
 ### Fixed
 - `@tat-protocol/gate` now declares its `@tat-protocol/token` dependency (previously missing from the published package)
 - `@tat-protocol/config` rebuilds no longer fail with TS5055 (`dist-cjs` output was picked up as compiler input)

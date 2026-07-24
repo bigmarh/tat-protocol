@@ -79,48 +79,52 @@ export class FungibleForge extends ForgeBase {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    let tx: any;
-    try {
-      tx = JSON.parse(req.params);
-    } catch (error) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
-        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+    // Serialize the whole validate→sign→mark-spent sequence so concurrent
+    // transfers of the same input cannot both pass the spent-check (C1).
+    return await this.runExclusive(async () => {
+      let tx: any;
+      try {
+        tx = JSON.parse(req.params);
+      } catch (error) {
+        return await res.error(
+          NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+          NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+        );
+      }
+      const sender = context.sender;
+      // Validate transaction
+      const [validTx, error, code, params] = await this.validateTXInputs(
+        tx,
+        tx.witnessData,
       );
-    }
-    const sender = context.sender;
-    // Validate transaction
-    const [validTx, error, code, params] = await this.validateTXInputs(
-      tx,
-      tx.witnessData,
-    );
-    if (error || !validTx) {
-      return await res.error(
-        code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
-        "Invalid transaction: " + (error || "Validation failed"),
-        params,
+      if (error || !validTx) {
+        return await res.error(
+          code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "Invalid transaction: " + (error || "Validation failed"),
+          params,
+        );
+      }
+
+      // Restore tokens from serialized inputs
+      const restoredInputs = await Promise.all(
+        (validTx.ins || []).map(async (input: string) => {
+          return await new Token().restore(input);
+        }),
       );
-    }
 
-    // Restore tokens from serialized inputs
-    const restoredInputs = await Promise.all(
-      (validTx.ins || []).map(async (input: string) => {
-        return await new Token().restore(input);
-      }),
-    );
+      // Parse output recipients
+      const recipients = (validTx.outs || []).map((out: string) =>
+        typeof out === "string" ? JSON.parse(out) : out,
+      );
 
-    // Parse output recipients
-    const recipients = (validTx.outs || []).map((out: string) =>
-      typeof out === "string" ? JSON.parse(out) : out,
-    );
-
-    // Use shared transfer logic
-    return await this.handleFungibleTransfer(
-      restoredInputs,
-      recipients,
-      res,
-      sender,
-    );
+      // Use shared transfer logic
+      return await this.handleFungibleTransfer(
+        restoredInputs,
+        recipients,
+        res,
+        sender,
+      );
+    });
   }
 
   // Make these methods public so handlers can call them
@@ -186,6 +190,17 @@ export class FungibleForge extends ForgeBase {
   ): Promise<string | null> {
     if (!Array.isArray(inputs) || inputs.length === 0) {
       return "At least one input token is required";
+    }
+    // Defense in depth against duplicate-input value inflation: the same token
+    // listed twice must never be summed twice. (validateTXInputs also dedupes
+    // on the transfer entry path; this guards direct callers of this method.)
+    const seen = new Set<string>();
+    for (const token of inputs) {
+      const h = token.header?.token_hash ?? (await token.create_token_hash());
+      if (seen.has(h)) {
+        return "Duplicate input token in transfer";
+      }
+      seen.add(h);
     }
     let inputTotal = 0;
     for (const token of inputs) {

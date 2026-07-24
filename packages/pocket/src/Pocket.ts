@@ -450,9 +450,24 @@ export class Pocket extends NWPCPeer {
     // =============================
     private async storeToken(tokenJWT: string) {
         const token = await new Token().restore(tokenJWT);
+        // Verify integrity before trusting or indexing this token. A malicious
+        // sender can deliver a token whose header hash mismatches its payload,
+        // whose signature is forged, or whose amount is inflated; storing it
+        // unverified poisons balances and lets an attacker-chosen hash key
+        // shadow a real token. The forge re-checks on spend, but the wallet
+        // must not display or act on unverified value.
+        if (!(await token.verifyTokenHash())) {
+            Debug.log('Rejecting received token: hash does not match payload', 'Pocket');
+            return;
+        }
+        if (!(await token.verifyTokenSignature())) {
+            Debug.log('Rejecting received token: invalid issuer signature', 'Pocket');
+            return;
+        }
         const issuer = token.payload.iss;
         // Subscribe to spent events for this issuer if not already
         await this.subscribeToIssuerSpent(issuer);
+        // Key by the verified (recomputed) hash, never the claimed header value.
         const tokenHash = token.header.token_hash;
         const issuerTokens = this.state.tokens.get(issuer);
         if (issuerTokens && issuerTokens.has(tokenHash)) {

@@ -64,6 +64,12 @@ export abstract class ForgeBase extends NWPCServer {
   public owner: string;
   public isInitialized: boolean = false;
 
+  // Serializes the spent-set critical section (transfer/burn). The spent-check,
+  // output signing, spent-mark, and persist steps are separated by awaits, so
+  // without this two concurrent transfers of the same input could both pass the
+  // check before either marks it spent — a double-spend.
+  private spendLock: Promise<unknown> = Promise.resolve();
+
   /**
    * Creates a new ForgeBase instance.
    *
@@ -219,48 +225,53 @@ export abstract class ForgeBase extends NWPCServer {
    * ```
    */
   public async initialize(): Promise<void> {
-    await super.init();
-    if (this.isInitialized) return;
     try {
-      // If signer is provided, get public key from it
-      if (this.signer) {
-        const signerPubkey = await this.signer.getPublicKey();
-        this.keys = { secretKey: "", publicKey: signerPubkey };
-        this.stateKey = `forge-state-${signerPubkey}`;
+      // Resolve keys, set the state key, and load persisted state (spent-set
+      // and replay bloom) BEFORE super.init() connects and subscribes.
+      // Relays replay up to the subscription's `since` window on connect; if we
+      // subscribed first, those replayed transfers would be validated against
+      // an empty spent-set and re-minted (double-spend on restart).
+      if (!this.isInitialized) {
+        // If signer is provided, get public key from it
+        if (this.signer) {
+          const signerPubkey = await this.signer.getPublicKey();
+          this.keys = { secretKey: "", publicKey: signerPubkey };
+          this.stateKey = `forge-state-${signerPubkey}`;
+        } else {
+          // Fall back to key-based initialization for backwards compatibility
+          const forgeKeyId = `forge-keys-${this.keys?.publicKey ?? ""}`;
+          let keys = this.keys;
+          // Try to load keys from storage if not present
+          const storedKeys = await this.storage.getItem(forgeKeyId);
+          if (keys && keys.publicKey && !storedKeys) {
+            await this.storage.setItem(forgeKeyId, JSON.stringify(keys));
+          } else if (!keys?.publicKey || !keys?.secretKey) {
+            if (storedKeys) {
+              const parsedKeys = JSON.parse(storedKeys);
+              keys = {
+                secretKey: parsedKeys.secretKey,
+                publicKey: parsedKeys.publicKey,
+              };
+            } else {
+              const secretKey = bytesToHex(generateSecretKey());
+              const publicKey = getPublicKey(hexToBytes(secretKey));
+              keys = { secretKey, publicKey };
+              await this.storage.setItem(forgeKeyId, JSON.stringify(keys));
+            }
+            this.keys = keys;
+          }
+          if (!this.keys || !this.keys.publicKey || !this.keys.secretKey) {
+            throw new Error("Keys not properly initialized");
+          }
+          this.ndk = this.ndk;
+          this.stateKey = `forge-state-${this.keys.publicKey}`;
+        }
         await this._loadState();
         this.isInitialized = true;
-        return;
       }
 
-      // Fall back to key-based initialization for backwards compatibility
-      const forgeKeyId = `forge-keys-${this.keys?.publicKey ?? ""}`;
-      let keys = this.keys;
-      // Try to load keys from storage if not present
-      const storedKeys = await this.storage.getItem(forgeKeyId);
-      if (keys && keys.publicKey && !storedKeys) {
-        await this.storage.setItem(forgeKeyId, JSON.stringify(keys));
-      } else if (!keys?.publicKey || !keys?.secretKey) {
-        if (storedKeys) {
-          const parsedKeys = JSON.parse(storedKeys);
-          keys = {
-            secretKey: parsedKeys.secretKey,
-            publicKey: parsedKeys.publicKey,
-          };
-        } else {
-          const secretKey = bytesToHex(generateSecretKey());
-          const publicKey = getPublicKey(hexToBytes(secretKey));
-          keys = { secretKey, publicKey };
-          await this.storage.setItem(forgeKeyId, JSON.stringify(keys));
-        }
-        this.keys = keys;
-      }
-      if (!this.keys || !this.keys.publicKey || !this.keys.secretKey) {
-        throw new Error("Keys not properly initialized");
-      }
-      this.ndk = this.ndk;
-      this.stateKey = `forge-state-${this.keys.publicKey}`;
-      await this._loadState();
-      this.isInitialized = true;
+      // Connect + subscribe only now that spent-set and replay state are loaded.
+      await super.init();
     } catch (error) {
       Debug.error("Failed to initialize Forge:" + error, "Forge");
       throw error;
@@ -378,7 +389,28 @@ export abstract class ForgeBase extends NWPCServer {
   }
 
   public async _saveState(): Promise<void> {
-    this.saveState(this.stateKey, this.state);
+    // Await the write: the spent-set must be durable before the transfer
+    // response releases newly signed tokens, otherwise a crash after the
+    // response leaves the spent input replayable on restart.
+    await this.saveState(this.stateKey, this.state);
+  }
+
+  /**
+   * Runs a spent-set-mutating operation (transfer/burn) under a per-forge lock
+   * so that check-then-mark sequences cannot interleave across concurrent
+   * requests. Callbacks are chained regardless of prior success/failure, and a
+   * failing callback never poisons the lock for the next caller.
+   */
+  protected async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const result = this.spendLock.then(fn, fn);
+    // Advance the lock even if fn rejects, swallowing the settled value so the
+    // chain itself never becomes a rejected promise (which would reject the
+    // next caller). The real result/rejection is still returned to this caller.
+    this.spendLock = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   public async _loadState(): Promise<void> {
@@ -432,53 +464,57 @@ export abstract class ForgeBase extends NWPCServer {
     context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    let parsed: { token?: string };
-    try {
-      parsed = JSON.parse(req.params);
-    } catch (error) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
-        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
-      );
-    }
-    const { token } = parsed;
-    if (!token) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.TOKEN_REQUIRED.code,
-        NWPC_SPEC_ERRORS.TOKEN_REQUIRED.message,
-      );
-    }
-    try {
-      const restoredToken = await new Token().restore(token);
+    // Share the spent-set lock with transfers: a burn and a transfer of the
+    // same token must not both mark it spent from an unspent starting state.
+    return await this.runExclusive(async () => {
+      let parsed: { token?: string };
+      try {
+        parsed = JSON.parse(req.params);
+      } catch (error) {
+        return await res.error(
+          NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+          NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+        );
+      }
+      const { token } = parsed;
+      if (!token) {
+        return await res.error(
+          NWPC_SPEC_ERRORS.TOKEN_REQUIRED.code,
+          NWPC_SPEC_ERRORS.TOKEN_REQUIRED.message,
+        );
+      }
+      try {
+        const restoredToken = await new Token().restore(token);
 
-      // Verify token integrity before accepting burn
-      if (!(await restoredToken.verifyTokenHash())) {
-        return await res.error(
-          NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
-          "Token hash does not match payload",
-        );
-      }
-      if (!(await restoredToken.verifyTokenSignature())) {
-        return await res.error(
-          NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
-          "Invalid token signature",
-        );
-      }
+        // Verify token integrity before accepting burn
+        if (!(await restoredToken.verifyTokenHash())) {
+          return await res.error(
+            NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+            "Token hash does not match payload",
+          );
+        }
+        if (!(await restoredToken.verifyTokenSignature())) {
+          return await res.error(
+            NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
+            "Invalid token signature",
+          );
+        }
 
-      const tokenHash = restoredToken.header.token_hash;
-      if (this.state.spentTokens.has(tokenHash)) {
-        return await res.error(
-          NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
-          NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
-        );
+        const tokenHash = restoredToken.header.token_hash;
+        if (this.state.spentTokens.has(tokenHash)) {
+          return await res.error(
+            NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+            NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+          );
+        }
+        await this.publishSpentToken(tokenHash);
+        return await res.send({ success: true }, context.sender);
+      } catch (error: unknown) {
+        const message =
+          error instanceof Error ? error.message : "Unknown error occurred";
+        return await res.error(NWPC_SPEC_ERRORS.INTERNAL_ERROR.code, message);
       }
-      await this.publishSpentToken(tokenHash);
-      return await res.send({ success: true }, context.sender);
-    } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "Unknown error occurred";
-      return await res.error(NWPC_SPEC_ERRORS.INTERNAL_ERROR.code, message);
-    }
+    });
   }
 
   public async handleVerify(
@@ -591,8 +627,23 @@ export abstract class ForgeBase extends NWPCServer {
         "",
       ];
     }
+    // Reject transactions that list the same input token more than once.
+    // Without this, `validateFungibleTransfer` sums each duplicate as
+    // additional value and the spent-set (idempotent Set.add) never notices,
+    // so a single request could mint value out of thin air.
+    const seenInputHashes = new Set<string>();
     for (const input of inputs) {
       const token = await new Token().restore(input);
+      const dedupHash = await token.create_token_hash();
+      if (seenInputHashes.has(dedupHash)) {
+        return [
+          null,
+          "Duplicate input token in transaction",
+          NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "",
+        ];
+      }
+      seenInputHashes.add(dedupHash);
 
       // Verify token integrity before accepting as input
       if (!(await token.verifyTokenHash())) {
@@ -664,7 +715,13 @@ export abstract class ForgeBase extends NWPCServer {
           ];
         }
       }
-      if (token.payload.timeLock && token.payload.timeLock > Date.now()) {
+      // `timeLock` is a Unix timestamp in SECONDS (spec §3.3); compare against
+      // seconds, not Date.now() milliseconds. Spendable once now >= timeLock,
+      // so reject while now < timeLock.
+      if (
+        token.payload.timeLock &&
+        Math.floor(Date.now() / 1000) < token.payload.timeLock
+      ) {
         return [
           null,
           "The TimeLock has not passed",

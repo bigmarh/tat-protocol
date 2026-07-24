@@ -59,6 +59,27 @@ export class Token {
     return this;
   }
 
+  // Mirrors the real Token.createPayload so the forge transfer/mint paths
+  // (which call Token.createPayload) work under this mock. iat is in seconds.
+  static createPayload(payloadObj: Record<string, unknown>): Payload {
+    const payload: Payload = {
+      iss: payloadObj.iss as string,
+      iat: Math.floor(Date.now() / 1000),
+    };
+    if (payloadObj.amount !== undefined && payloadObj.amount !== null) {
+      payload.amount = payloadObj.amount as number;
+    }
+    if (payloadObj.P2PKlock) payload.P2PKlock = payloadObj.P2PKlock as string;
+    if (payloadObj.timeLock) payload.timeLock = payloadObj.timeLock as number;
+    if (payloadObj.tokenID !== undefined && payloadObj.tokenID !== null) {
+      payload.tokenID = payloadObj.tokenID as string;
+    }
+    if (payloadObj.data_uri) payload.data_uri = payloadObj.data_uri as string;
+    if (payloadObj.HTLC) payload.HTLC = payloadObj.HTLC as string;
+    if (payloadObj.exp) payload.exp = payloadObj.exp as number;
+    return payload;
+  }
+
   async create_token_hash(): Promise<string> {
     const payloadStr = JSON.stringify(this.payload);
     const hash = sha256(new TextEncoder().encode(payloadStr));
@@ -129,6 +150,19 @@ export class Token {
     this.signature = signature;
 
     return this;
+  }
+
+  isExpired(): boolean {
+    if (this.payload.exp) {
+      return Math.floor(Date.now() / 1000) >= this.payload.exp;
+    }
+    return false;
+  }
+
+  isTimeLocked(): boolean {
+    if (!this.payload.timeLock) return false;
+    // Unix seconds vs Unix seconds (mirrors the fixed real implementation).
+    return Math.floor(Date.now() / 1000) < (this.payload.timeLock as number);
   }
 
   async validate(): Promise<boolean> {
