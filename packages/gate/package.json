@@ -46,6 +46,7 @@
   "dependencies": {
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/storage": "workspace:*",
+    "@tat-protocol/token": "workspace:*",
     "@tat-protocol/types": "workspace:*",
     "@tat-protocol/utils": "workspace:*"
   },
