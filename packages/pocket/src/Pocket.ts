@@ -1207,7 +1207,22 @@ export class Pocket extends NWPCPeer {
         }
 
         Debug.log("sendTx finalTx" + tx, 'Pocket');
-        return this.request(method, tx, issuer, undefined, timeoutMs);
+        const response = await this.request(method, tx, issuer, undefined, timeoutMs);
+        // On confirmed success the forge has marked every input spent, so
+        // remove them locally right away instead of waiting for the issuer's
+        // spent-token feed — this keeps the local balance correct immediately.
+        if (!response?.error && tx.ins) {
+            for (const input of tx.ins) {
+                const jwt = typeof input === 'string' ? input : input.token;
+                if (!jwt) continue;
+                try {
+                    await this.deleteToken(jwt);
+                } catch (err) {
+                    Debug.log(`sendTx: failed to delete spent input locally: ${err}`, 'Pocket');
+                }
+            }
+        }
+        return response;
     }
 
     /**

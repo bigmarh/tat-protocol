@@ -20,6 +20,7 @@ import {
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
 import { StorageInterface } from "@tat-protocol/storage";
+import { NDKEvent, type NostrEvent as NostrEventRaw } from "@nostr-dev-kit/ndk";
 
 const Debug = DebugLogger.getInstance();
 
@@ -449,13 +450,43 @@ export abstract class ForgeBase extends NWPCServer {
     this.state.spentTokens.add(tokenHash);
     await this._saveState();
 
-    // Fire-and-forget relay publication — don't block the transfer response
-    if (this.keys.publicKey && this.keys.secretKey) {
-      postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, [
-        ["t", tokenHash],
-        ["p", this.keys.publicKey!],
-      ]).catch((err) =>
+    // Fire-and-forget relay publication — don't block the transfer response.
+    // Pockets subscribe to these kind-1 "spent:<hash>" notes to reconcile
+    // spent tokens across devices, so every forge flavor must publish them.
+    const forgePubkey = this.getPublicKey();
+    if (!forgePubkey) {
+      Debug.error("publishSpentToken skipped: no forge pubkey", "ForgeBase");
+      return;
+    }
+    const tags: string[][] = [
+      ["t", tokenHash],
+      ["p", forgePubkey],
+    ];
+    if (this.signer) {
+      // Signer-based forge: keys.secretKey is intentionally empty, so sign
+      // the note through the signer instead of skipping publication.
+      this.signer
+        .signEvent({
+          kind: 1,
+          content: `spent:${tokenHash}`,
+          tags,
+          created_at: Math.floor(Date.now() / 1000),
+        })
+        .then(async (signed) => {
+          const ev = new NDKEvent(this.ndk, signed as NostrEventRaw);
+          await ev.publish();
+        })
+        .catch((err) =>
+          Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
+        );
+    } else if (this.keys.publicKey && this.keys.secretKey) {
+      postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, tags).catch((err) =>
         Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
+      );
+    } else {
+      Debug.error(
+        "publishSpentToken skipped: no signer or secret key available",
+        "ForgeBase",
       );
     }
   }
