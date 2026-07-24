@@ -13,6 +13,7 @@ import {
 import {
   signMessage,
   verifySignature,
+  spendAuthDigest,
   postToFeed,
   DebugLogger,
 } from "@tat-protocol/utils";
@@ -701,8 +702,16 @@ export abstract class ForgeBase extends NWPCServer {
             "",
           ];
         }
+        // The witness must be signed over a digest bound to THIS transfer's
+        // outputs, not the bare (public, static) token hash. Otherwise a witness
+        // seen on the wire could be replayed to redirect the same input to a
+        // different recipient. See spendAuthDigest / audit finding C6.
+        const witnessMessage = spendAuthDigest(
+          token.header.token_hash,
+          tx.outs ?? [],
+        );
         const isValid = verifySignature(
-          hexToBytes(token.header.token_hash),
+          witnessMessage,
           hexToBytes(witness),
           token.payload.P2PKlock,
         );

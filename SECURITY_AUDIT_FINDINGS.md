@@ -40,11 +40,11 @@ On start the forge subscribed to relays before loading its persisted spent-set a
 **Fix:** compare `Math.floor(Date.now()/1000) < timeLock` in both places.
 **Test:** `tests/unit/forge-timelock.verify.test.ts` — a token time-locked one hour out is rejected; a past lock is accepted.
 
-### C6 — P2PK unlock signature not bound to the transfer (witness replay / theft) · [DOCUMENTED]
-`packages/forge/src/ForgeBase.ts` (witness verified over `token_hash` only), witness built in `packages/pocket/src/Pocket.ts`.
-The spender signs only the input token's own static, public `token_hash` — not domain-separated, not bound to the outputs (recipient/amount) or a nonce. An observer of a pending transfer (a relay, a racing client) can reuse the witness to redirect the same input to an attacker-chosen recipient before it is marked spent.
-**Why not fixed here:** the fix changes the signed message, which requires **Forge and Pocket to update in lock-step** (old clients send old witnesses). It must ship as a coordinated, versioned change with a transition window accepting both forms.
-**Recommended fix:** sign `H(domain_tag ‖ input_token_hash ‖ canonical(outs) ‖ nonce)`; forge recomputes and verifies the same binding; add domain separation distinct from issuance signing.
+### C6 — P2PK unlock signature not bound to the transfer (witness replay / theft) · [FIXED]
+`packages/forge/src/ForgeBase.ts` (witness verification), witness built in `packages/pocket/src/Pocket.ts`, digest in `packages/utils/src/CryptoHelpers.ts`.
+Previously the spender signed only the input token's own static, public `token_hash` — not domain-separated, not bound to the outputs. An observer of a pending transfer (a relay, a racing client) could reuse the witness to redirect the same input to an attacker-chosen recipient before it was marked spent.
+**Fix:** introduced `spendAuthDigest(inputTokenHash, outs)` — a domain-separated digest (`"TAT-P2PK-SPEND-v1"` tag) that commits to the transfer's outputs (recipient + amount + tokenID). The wallet signs this digest; the forge recomputes it from the transaction's `tx.outs` and verifies the witness against it. A witness is now valid only for the exact outputs its signer authorized, so it cannot be replayed to redirect the input. Done as a **clean break** (no legacy-witness acceptance) since there are no external consumers yet.
+**Test:** `tests/unit/forge-witness-binding.verify.test.ts` — correct witness accepted; witness replayed onto attacker outputs rejected; legacy token-hash-only witness rejected.
 
 ---
 
@@ -101,4 +101,6 @@ The spender signs only the input token's own static, public `token_hash` — not
 
 C1, C2, C3, C4, C5 (Critical) and H1, H2 (High), each with the adversarial tests listed above. Full suite green (14 suites / 64 tests); clean typecheck/build across all packages.
 
-The **[DOCUMENTED]** findings — especially **C6** (witness binding), **H3** (rate limiting), **H4/H5** (durability/recovery), **H6** (key encryption), and the format-migration items **M1/M2/M3** — are the recommended next tranche. C6 and the format items require coordinated, versioned releases because they change on-wire/on-token bytes that live clients depend on.
+**Update:** **C6** (P2PK witness binding) is now also **[FIXED]** — see above — on branch `fix/c6-witness-binding` with an adversarial test, done as a clean break while there are no external consumers.
+
+The remaining **[DOCUMENTED]** findings — **H3** (rate limiting), **H4/H5** (durability/recovery), **H6** (key encryption), and the format-migration items **M1/M2/M3** — are the recommended next tranche. The format items require coordinated, versioned releases because they change on-wire/on-token bytes.

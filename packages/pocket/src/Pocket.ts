@@ -8,7 +8,7 @@ import {
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap, UnwrapWithSigner } from "@tat-protocol/utils";
+import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
@@ -1016,13 +1016,15 @@ export class Pocket extends NWPCPeer {
     /**
      * Helper to build witness data for P2PK tokens
      */
-    private async buildWitnessData(inputs: Token[]): Promise<string[]> {
+    private async buildWitnessData(inputs: Token[], outs: unknown[]): Promise<string[]> {
         const witnessData: string[] = [];
         const mainPubkey = this.publicKey || this.keys.publicKey;
         const missingLockKeys = new Set<string>();
         for (const token of inputs) {
             if (token.payload.P2PKlock) {
-                const dataToSign = hexToBytes(token.header.token_hash);
+                // Bind the witness to this transfer's outputs so it cannot be
+                // replayed to redirect the input elsewhere (audit finding C6).
+                const dataToSign = spendAuthDigest(token.header.token_hash, outs);
                 const lockKey = token.payload.P2PKlock;
 
                 if (lockKey === mainPubkey) {
@@ -1196,8 +1198,9 @@ export class Pocket extends NWPCPeer {
                 inputs.push(token);
             }
         }
-        // Build witness data if needed
-        const witnessData = await this.buildWitnessData(inputs);
+        // Build witness data if needed. The witness is bound to tx.outs, so the
+        // outputs must be finalized before this point.
+        const witnessData = await this.buildWitnessData(inputs, tx.outs ?? []);
         // Attach witnessData to tx if any are present
         if (witnessData.some(w => w)) {
             tx.witnessData = witnessData;
