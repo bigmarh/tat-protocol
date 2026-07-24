@@ -21,6 +21,7 @@ declare global {
         decrypt(senderPubkey: string, ciphertext: string): Promise<string>;
       };
       signSchnorr?(message: string): Promise<string>;
+      signData?(message: string): Promise<string>;
     };
   }
 }
@@ -100,12 +101,16 @@ export class NIP07Signer implements Signer {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    // If extension supports signSchnorr, use it
+    // If extension supports signSchnorr (nos2x convention), use it
     if (nostr.signSchnorr) {
       return nostr.signSchnorr(messageHex);
     }
 
-    // Fallback: some extensions don't support raw signing
+    // Fallback: signData (NostrPass Lite convention)
+    if (nostr.signData) {
+      return nostr.signData(messageHex);
+    }
+
     throw new Error(
       "NIP-07 extension does not support raw data signing. Use signEvent instead.",
     );

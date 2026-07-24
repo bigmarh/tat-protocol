@@ -78,6 +78,13 @@ signer.nip44.encrypt(recipientPubkey: string, plaintext: string): Promise<string
 signer.nip44.decrypt(senderPubkey: string, ciphertext: string): Promise<string>
 ```
 
+`sign()` tries raw Schnorr signing in this order:
+1. `window.nostr.signSchnorr()` — nos2x / Alby convention
+2. `window.nostr.signData()` — NostrPass Lite convention
+3. Throws if neither is available
+
+This means TAT Protocol works with both nos2x-style and NostrPass Lite-style extensions without any configuration.
+
 ## Utility functions
 
 ### `isNIP07Available()`
