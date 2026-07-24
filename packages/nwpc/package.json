@@ -7,7 +7,7 @@
   },
   "homepage": "https://github.com/bigmarh/tat-protocol#readme",
   "bugs": "https://github.com/bigmarh/tat-protocol/issues",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "description": "NWPC (Nostr Wrapped Procedure Call) implementation for TAT Protocol",
   "type": "module",
   "main": "dist-cjs/index.js",

@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [1.2.0] - 2026-07-24
 
 ### Added
 - `Pocket.exportRecoverySnapshot()` — sync export of mnemonic, tokens, single-use keys, and favorites for backup
@@ -17,6 +17,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `NWPCServer.sendResponse()` now awaits first-relay acknowledgement (with 3 s fallback) instead of fire-and-forget, preventing dropped responses on transfer flows
 - NWPC relay keepalive — automatic ping/reconnect on idle connections for better resilience
 - `NIP07Signer.sign()` now falls back to `window.nostr.signData()` (NostrPass Lite convention) after `signSchnorr` (nos2x convention)
+- `BoothWebhookServer.dispatch()` — handle webhook requests without binding an HTTP listener (serverless/edge runtimes, tests)
+- Dual ESM + CommonJS output across all packages (`dist` + `dist-cjs` with `require` export condition)
+
+### Fixed
+- `@tat-protocol/gate` now declares its `@tat-protocol/token` dependency (previously missing from the published package)
+- `@tat-protocol/config` rebuilds no longer fail with TS5055 (`dist-cjs` output was picked up as compiler input)
+- Forge: gate minting and reject non-finite amounts
 
 ## [1.1.1] - 2026-02-28
 
