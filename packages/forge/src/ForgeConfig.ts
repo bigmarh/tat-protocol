@@ -83,6 +83,18 @@ export interface ForgeConfig {
   authorizedForgers?: string[];
 
   /**
+   * Transition control for the P2PK witness-binding fix (audit C6).
+   *
+   * When `true` (the default), the forge accepts BOTH the new transfer-bound
+   * witness AND the legacy witness signed over only the token hash, so wallets
+   * on an older SDK keep working during a migration. While legacy witnesses are
+   * accepted the witness-replay theft vector remains open for those witnesses —
+   * set this to `false` once all wallets produce the bound witness to fully
+   * close C6. New wallets always produce the bound witness.
+   */
+  allowLegacyWitness?: boolean;
+
+  /**
    * Allow arbitrary properties for NWPC compatibility
    */
   [key: string]: unknown;

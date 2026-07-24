@@ -33,16 +33,26 @@ class MemStore implements StorageInterface {
   }
 }
 
-function makeForge() {
+function makeForge(opts: { allowLegacyWitness?: boolean } = {}) {
   const forge = new FungibleForge({
     owner: OWNER,
     keys: { secretKey: OWNER_SK, publicKey: OWNER },
     storage: new MemStore(),
     totalSupply: 0,
     relays: [],
+    ...opts,
   } as any);
   (forge as any).keys = { secretKey: OWNER_SK, publicKey: OWNER };
   return forge;
+}
+
+function legacyWitness(hash: string): string {
+  // Pre-C6 scheme: sign the bare token hash.
+  return bytesToHex(schnorr.sign(hexToBytes(hash), ALICE_SK));
+}
+
+function boundWitness(hash: string, outs: unknown[]): string {
+  return bytesToHex(schnorr.sign(spendAuthDigest(hash, outs), ALICE_SK));
 }
 
 // Mint a P2PK-locked token owned by ALICE, signed by the forge (OWNER).
@@ -99,18 +109,54 @@ describe("C6: P2PK witness is bound to the transfer outputs", () => {
     expect(tx).toBeNull();
   });
 
-  it("rejects a legacy witness signed over only the token hash", async () => {
+  it("accepts a legacy (token-hash-only) witness during the transition (default)", async () => {
+    // Backward compatibility: wallets on the pre-C6 SDK keep working while
+    // allowLegacyWitness is left at its default (true).
     const forge = makeForge();
     const jwt = await mintP2PK(forge, 100);
     const hash = await tokenHashOf(jwt);
     const outs = [{ to: BOB, amount: 100, issuer: OWNER }];
 
-    // The old scheme: sign the bare token hash. Must no longer be accepted.
-    const legacyWitness = bytesToHex(schnorr.sign(hexToBytes(hash), ALICE_SK));
+    const [tx, err] = await (forge as any).validateTXInputs(
+      { ins: [jwt], outs },
+      [legacyWitness(hash)],
+    );
+    expect(err).toBeNull();
+    expect(tx).not.toBeNull();
+  });
+
+  it("rejects a legacy witness once allowLegacyWitness is false (C6 fully closed)", async () => {
+    const forge = makeForge({ allowLegacyWitness: false });
+    const jwt = await mintP2PK(forge, 100);
+    const hash = await tokenHashOf(jwt);
+    const outs = [{ to: BOB, amount: 100, issuer: OWNER }];
+
     const [, err] = await (forge as any).validateTXInputs(
       { ins: [jwt], outs },
-      [legacyWitness],
+      [legacyWitness(hash)],
     );
     expect(err).toMatch(/witness/i);
+  });
+
+  it("in strict mode, the bound witness still works and replay is rejected", async () => {
+    const forge = makeForge({ allowLegacyWitness: false });
+    const jwt = await mintP2PK(forge, 100);
+    const hash = await tokenHashOf(jwt);
+    const honestOuts = [{ to: BOB, amount: 100, issuer: OWNER }];
+    const witness = boundWitness(hash, honestOuts);
+
+    const [okTx, okErr] = await (forge as any).validateTXInputs(
+      { ins: [jwt], outs: honestOuts },
+      [witness],
+    );
+    expect(okErr).toBeNull();
+    expect(okTx).not.toBeNull();
+
+    const attackerOuts = [{ to: ATTACKER, amount: 100, issuer: OWNER }];
+    const [, replayErr] = await (forge as any).validateTXInputs(
+      { ins: [jwt], outs: attackerOuts },
+      [witness],
+    );
+    expect(replayErr).toMatch(/witness/i);
   });
 });
