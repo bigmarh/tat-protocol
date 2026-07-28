@@ -13,10 +13,59 @@ export interface NonFungibleOut {
 
 }
 
+/**
+ * Read a JWT's payload without verifying it — for display and selection only.
+ *
+ * Uses `atob` where it exists and Node's Buffer otherwise. This runs inside a
+ * browser Pocket, where `Buffer` is not defined unless something polyfills it,
+ * and reaching for it there throws at the exact moment a payment is being
+ * assembled.
+ */
+export function decodeTokenPayload(jwt: string): Record<string, unknown> | null {
+    try {
+        const part = jwt.split('.')[1];
+        if (!part) return null;
+        const base64 = part.replace(/-/g, '+').replace(/_/g, '/');
+        const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), '=');
+        const json =
+            typeof atob === 'function'
+                ? atob(padded)
+                : Buffer.from(padded, 'base64').toString('utf8');
+        return JSON.parse(json) as Record<string, unknown>;
+    } catch {
+        return null;
+    }
+}
+
+/** The BotBuck class a token carries, or null when it is untagged. */
+export function tokenClassOf(jwt: string): string | null {
+    const payload = decodeTokenPayload(jwt);
+    const uri = payload?.['data_uri'];
+    if (typeof uri !== 'string') return null;
+    try {
+        const meta = JSON.parse(uri) as { class?: unknown };
+        return typeof meta.class === 'string' ? meta.class : null;
+    } catch {
+        return null;
+    }
+}
+
 export class Transaction {
     private tatIndex: Map<string, Map<string, string>>;
     private tokenIndex: Map<string, Map<number, string[]>>;
     private tokens: Map<string, Map<string, string>>;
+
+    /**
+     * Only spend tokens of this class, when set.
+     *
+     * BotBuck classes never convert, and a recipient may accept only one of
+     * them — an escrow takes the class its first contribution set, and bonus
+     * BotBucks are not redeemable at all. Selection that ignores class will
+     * happily reach for bonus tokens to pay a purchased-only recipient while
+     * the purchased ones sit right there, and the payer is told their money is
+     * the wrong kind with no idea why.
+     */
+    private requiredClass: string | null = null;
 
     constructor(
         public readonly method: string,
@@ -30,6 +79,23 @@ export class Transaction {
         this.tokens = this.PocketState.tokens;
     }
 
+
+    /** Restrict selection to one BotBuck class. */
+    ofClass(tokenClass: string | null | undefined) {
+        this.requiredClass = tokenClass ?? null;
+        return this;
+    }
+
+    /**
+     * The class of a held token, read from its `data_uri`.
+     *
+     * Unreadable or absent metadata is treated as no class rather than guessed
+     * at: an issuer that tags nothing would otherwise have every token excluded
+     * the moment a class was requested.
+     */
+    private classOf(jwt: string): string | null {
+        return tokenClassOf(jwt);
+    }
 
     to(issuer: string, to: string, amount: number) {
         this.outs.push({ to: to, amount: amount, issuer: issuer });
@@ -111,18 +177,47 @@ export class Transaction {
         if (!tokenMap) {
             throw new Error(`No tokens found for issuer: ${issuer}`);
         }
+        // Hashes eligible under the class restriction, per denomination. Built
+        // once so selection and collection cannot disagree about which tokens
+        // are spendable.
+        const eligible = new Map<number, string[]>();
         for (const [denomination, tokens] of tokenMap) {
-            denominations.push({ d: Number(denomination), c: tokens ? tokens.length : 0 });
+            const d = Number(denomination);
+            const usable = (tokens ?? []).filter((hash) => {
+                if (!this.requiredClass) return true;
+                const jwt = this.tokens?.get(issuer)?.get(hash);
+                if (!jwt) return false;
+                const cls = this.classOf(jwt);
+                // Untagged tokens count as purchased, which is how the bank
+                // treats them when it merges input metadata.
+                return cls === null
+                    ? this.requiredClass === 'purchased'
+                    : cls === this.requiredClass;
+            });
+            eligible.set(d, usable);
+            denominations.push({ d, c: usable.length });
         }
         // Calculate total amount needed
         const amountNeeded = this.outs.reduce((acc, out) => acc + (out.amount || 0), 0);
+        const available = denominations.reduce((sum, x) => sum + x.d * x.c, 0);
+        if (available < amountNeeded) {
+            throw new Error(
+                this.requiredClass
+                    ? `Not enough "${this.requiredClass}" BotBucks: need ${amountNeeded}, hold ${available}. ` +
+                      'Classes cannot be converted.'
+                    : `Not enough BotBucks: need ${amountNeeded}, hold ${available}.`,
+            );
+        }
         const [change, use] = this.greedy(denominations, amountNeeded);
         // Collect JWTs
         let jwts: string[] = [];
         for (const { d, used } of use) {
-            const tokenHashes = tokenMap.get(d);
+            const tokenHashes = eligible.get(d);
             if (!tokenHashes || tokenHashes.length < used) {
-                throw new Error(`Not enough tokens for issuer: ${issuer}, denomination: ${d}`);
+                throw new Error(
+                    `Not enough tokens for issuer: ${issuer}, denomination: ${d}` +
+                    (this.requiredClass ? ` of class "${this.requiredClass}"` : ''),
+                );
             }
             // Look up JWTs for each token hash
             for (const tokenHash of tokenHashes.slice(0, used)) {

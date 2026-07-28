@@ -12,7 +12,7 @@ import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest } from "@tat-pro
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
-import { Transaction } from "./Transaction.js";
+import { Transaction, decodeTokenPayload, tokenClassOf } from "./Transaction.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
@@ -710,14 +710,11 @@ export class Pocket extends NWPCPeer {
         for (const byHash of this.state.tokens.values()) {
             for (const jwt of byHash.values()) {
                 count += 1;
-                try {
-                    const payload = JSON.parse(
-                        Buffer.from(jwt.split('.')[1], 'base64').toString('utf8'),
-                    );
-                    if (typeof payload.amount === 'number') amount += payload.amount;
-                } catch {
-                    // A token whose payload will not parse still counts as one
-                    // token; its amount is simply unknown to this tally.
+                const payload = decodeTokenPayload(jwt);
+                // A token whose payload will not parse still counts as one
+                // token; its amount is simply unknown to this tally.
+                if (typeof payload?.['amount'] === 'number') {
+                    amount += payload['amount'] as number;
                 }
             }
         }
@@ -1225,7 +1222,13 @@ export class Pocket extends NWPCPeer {
      * @param changeKey Address to send change to (optional)
      * @returns The built transaction structure
      */
-    public async createFungibleTransferTx(issuer: string, to: string, amount: number, changeKey?: string) {
+    public async createFungibleTransferTx(
+        issuer: string,
+        to: string,
+        amount: number,
+        changeKey?: string,
+        options: { tokenClass?: string | null } = {},
+    ) {
         // Always use a new single-use key for change outputs
         const singleUseKey = await this.deriveSingleUseKey();
         // Save the new key to state (deriveSingleUseKey already does this)
@@ -1235,6 +1238,11 @@ export class Pocket extends NWPCPeer {
             [],
             changeKey || singleUseKey.publicKey // Use the new single-use key for change
         );
+        // Spend one class or the other, never a mixture: the bank merges input
+        // metadata down to the most restrictive class present, so a single bonus
+        // token dragged into an otherwise purchased payment turns the whole
+        // thing — and the change that comes back — into bonus.
+        tx.ofClass(options.tokenClass ?? null);
         tx.to(issuer, to, amount);
         return tx.build();
     }
@@ -1321,10 +1329,40 @@ export class Pocket extends NWPCPeer {
      *
      * @see getBalance to check available balance before transfer
      */
-    public async transfer(issuer: string, to: string, amount: number, changeKey?: string) {
-        const [method, tx] = await this.createFungibleTransferTx(issuer, to, amount, changeKey);
+    public async transfer(
+        issuer: string,
+        to: string,
+        amount: number,
+        changeKey?: string,
+        options: { tokenClass?: string | null } = {},
+    ) {
+        const [method, tx] = await this.createFungibleTransferTx(
+            issuer,
+            to,
+            amount,
+            changeKey,
+            options,
+        );
         Debug.log("transfer" + tx, 'Pocket');
         return this.sendTx(method, issuer, tx);
+    }
+
+    /**
+     * What this pocket holds, split by BotBuck class.
+     *
+     * Classes never convert and a recipient may take only one of them, so the
+     * single total that a balance usually means cannot answer "can I pay this".
+     */
+    public balanceByClass(issuer: string): Record<string, number> {
+        const totals: Record<string, number> = {};
+        for (const [, jwt] of this.state.tokens.get(issuer) ?? []) {
+            const payload = decodeTokenPayload(jwt);
+            const amount =
+                typeof payload?.['amount'] === 'number' ? (payload['amount'] as number) : 0;
+            const cls = tokenClassOf(jwt) ?? 'unknown';
+            totals[cls] = (totals[cls] ?? 0) + amount;
+        }
+        return totals;
     }
 
     /**
