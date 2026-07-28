@@ -5,6 +5,8 @@ import { NWPCRouter } from "./NWPCRouter.js";
 export interface INWPCBase {
   router: NWPCRouter;
   ensureConnected(): Promise<void>;
+  /** Live socket state, so a caller can report connectivity truthfully. */
+  relayHealth(): { total: number; live: number; urls: string[] };
   sendResponse(response: NWPCResponse, recipientPubkey: string): Promise<void>;
   broadcastResponse(
     response: NWPCResponse,

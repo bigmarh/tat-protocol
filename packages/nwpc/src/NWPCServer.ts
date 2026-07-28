@@ -68,6 +68,30 @@ export class NWPCServer extends NWPCBase {
         Debug.log("Original Event is not valid:" + event.id, "NWPCServer");
         return;
       }
+
+      // A server answers requests. A message carrying no `method` is a
+      // RESPONSE — someone answering us — and must be ignored here.
+      //
+      // Without this check it fell through to the router, matched no route, and
+      // came back as METHOD_NOT_FOUND, which the code below dutifully SENT to
+      // the sender. If that sender is also a server, it saw a message with no
+      // method, replied METHOD_NOT_FOUND, and the two of them ping-ponged
+      // forever: an unkillable loop, one gift-wrapped NIP-44 encryption per
+      // hop, saturating the event loop and flooding the relays. Observed in
+      // production between two BotBank-side servers — HTTP stopped answering
+      // entirely while the process sat there talking to itself.
+      //
+      // The auto-ack a handler sends on a multi-recipient reply is exactly this
+      // shape, so any server that ever received one was one message away from
+      // this. Peers (NWPCPeer) match responses to pending requests by id and
+      // drop unknown ones, which is why only server-to-server traffic looped.
+      if (typeof request?.method !== "string" || request.method.length === 0) {
+        Debug.log(
+          `Ignoring a non-request message (no method) from ${unwrapped.sender?.slice(0, 8)}…`,
+          "NWPCServer",
+        );
+        return;
+      }
       requestId = request.id;
       senderPubkey = unwrapped.sender;
 

@@ -68,6 +68,16 @@ export interface PocketState extends NWPCState {
     singleUseKeys: Map<string, SingleUseKeyPair>; //[pubkey, singleUseKey], Hold the singleUseKey for each pubkey
     /** HD derivation counter — always >= singleUseKeys.size. Persisted to avoid index collisions after key deletion. */
     singleUseKeyNextIndex: number;
+    /**
+     * Unix SECONDS of the most recent event this wallet has processed.
+     *
+     * Subscriptions resume from here. Without it every subscription asked the
+     * relay for the last ten minutes only, so anything delivered while the
+     * wallet was closed — a change token above all, which is usually most of a
+     * balance — was never requested again. The event stayed on the relay,
+     * addressed to a key this wallet holds, and simply went unclaimed.
+     */
+    lastSeenAt?: number;
     tokens: Map<string, Map<string, string>>; //[issuerPubkey, tokenHash, tokenJWT], Hold the tokenJWT for each tokenHash
     balances: Map<string, Map<string, number>>;         //[issuerPubkey,setID, balance]. Hold the balance for each issuer
     tokenIndex: Map<string, Map<number, string[]>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
@@ -82,6 +92,12 @@ export interface HDKeys {
 
 const Debug = DebugLogger.getInstance();
 const SINGLE_USE_KEY_DERIVATION_BASE_PATH = "m/7'/23'/11'/16'/0";
+/** Slack on the resume point, for clock skew and in-flight writes. */
+const RESUME_SLACK_SEC = 60 * 60;
+/** Cap on how far back an ordinary open will look. Beyond this, rescan. */
+const MAX_RESUME_LOOKBACK_SEC = 30 * 24 * 60 * 60;
+/** Unallocated single-use indices a rescan checks, BIP44-style. */
+const SINGLE_USE_KEY_GAP_LIMIT = 20;
 
 /**
  * Transaction data structure
@@ -231,6 +247,7 @@ export class Pocket extends NWPCPeer {
                     },
                     singleUseKeys: new Map(),
                     singleUseKeyNextIndex: 0,
+                    lastSeenAt: Math.floor(Date.now() / 1000),
                     tokens: new Map(),
                     tokenIndex: new Map(),
                     tatIndex: new Map(),
@@ -579,6 +596,134 @@ export class Pocket extends NWPCPeer {
     // =============================
     // 4. Event Handling & Subscriptions
     // =============================
+    /**
+     * How far back a subscription should ask the relay to look.
+     *
+     * From the last event this wallet processed, minus an hour of slack for
+     * clock skew and for events written while the last batch was in flight.
+     * The default in NWPCBase is ten minutes, which is only safe for a wallet
+     * that is never closed: a token pushed to a single-use change key while the
+     * tab was shut is never asked for again, and the balance is simply gone.
+     *
+     * Floored at 30 days so a wallet that has been dormant for a year does not
+     * ask a relay to replay its whole history on open. Anything older than that
+     * needs `rescanMissedTokens`, which is explicit about the cost.
+     */
+    protected resumeSince(): number {
+        const nowSec = Math.floor(Date.now() / 1000);
+        const floor = nowSec - MAX_RESUME_LOOKBACK_SEC;
+        const last = this.state.lastSeenAt;
+        if (typeof last !== 'number' || !Number.isFinite(last)) {
+            return floor;
+        }
+        return Math.max(floor, Math.min(nowSec, last) - RESUME_SLACK_SEC);
+    }
+
+    /**
+     * Move the resume point up to this event.
+     *
+     * Kept one hour behind the newest thing seen (`resumeSince` applies the
+     * slack) so a burst of events written while a batch was in flight is not
+     * skipped by the next open. Never moves backwards, and never past now.
+     */
+    protected noteEventSeen(event: NDKEvent): void {
+        const at = typeof event.created_at === 'number' ? event.created_at : 0;
+        if (!at) return;
+        const nowSec = Math.floor(Date.now() / 1000);
+        const capped = Math.min(at, nowSec);
+        if (capped > (this.state.lastSeenAt ?? 0)) {
+            this.state.lastSeenAt = capped;
+        }
+    }
+
+    /**
+     * Re-ask the relays for everything addressed to this wallet since `sinceMs`,
+     * and import any tokens found.
+     *
+     * The repair for value that was delivered while nothing was listening. A
+     * transfer's change goes to a fresh single-use key; if the wallet was closed
+     * when it landed, the ordinary resume window may already have passed it by.
+     * The event is still on the relay, still encrypted to a key held here, and
+     * nothing but a wider question will surface it.
+     *
+     * Also scans `gapLimit` single-use keys beyond the ones on record, because a
+     * wallet restored from a backup taken before the last transfer does not know
+     * the index its change was sent to.
+     *
+     * @returns what changed, so a caller can tell "nothing was missing" from
+     *          "nothing was found because the relays no longer have it".
+     */
+    public async rescanMissedTokens(options: {
+        sinceMs?: number;
+        gapLimit?: number;
+        settleMs?: number;
+    } = {}): Promise<{ scannedKeys: number; recoveredTokens: number; recoveredAmount: number }> {
+        const sinceSec = Math.floor(
+            (options.sinceMs ?? Date.now() - MAX_RESUME_LOOKBACK_SEC * 1000) / 1000,
+        );
+        const gapLimit = options.gapLimit ?? SINGLE_USE_KEY_GAP_LIMIT;
+        const before = this.totalTokenCount();
+
+        const keys: string[] = [this.publicKey || this.keys.publicKey];
+        for (const pubkey of this.state.singleUseKeys.keys()) keys.push(pubkey);
+
+        // Indices this wallet has not allocated yet. A backup restored from
+        // before the last few transfers is missing exactly these, and they are
+        // where the change from those transfers went.
+        const next = this.state.singleUseKeyNextIndex ?? 0;
+        for (let index = next; index < next + gapLimit; index++) {
+            const derived = this.deriveSingleUseKeyAtIndex(index);
+            if (this.state.singleUseKeys.has(derived.publicKey)) continue;
+            await this.addSingleUseKey(derived.publicKey, {
+                ...derived,
+                createdAt: Date.now(),
+                used: false,
+            });
+            keys.push(derived.publicKey);
+        }
+
+        for (const pubkey of keys) {
+            try {
+                await this.subscribe(pubkey, undefined, sinceSec);
+            } catch (error) {
+                Debug.log(`rescan: could not subscribe ${pubkey}: ${error}`, 'Pocket');
+            }
+        }
+
+        // Relays answer at their own pace and NDK delivers as events arrive;
+        // there is no completion signal that covers every relay, so this waits
+        // a fixed settling period rather than pretending to know when it is done.
+        await new Promise((resolve) => setTimeout(resolve, options.settleMs ?? 8000));
+
+        const after = this.totalTokenCount();
+        await this.savePocketState();
+        return {
+            scannedKeys: keys.length,
+            recoveredTokens: after.count - before.count,
+            recoveredAmount: after.amount - before.amount,
+        };
+    }
+
+    private totalTokenCount(): { count: number; amount: number } {
+        let count = 0;
+        let amount = 0;
+        for (const byHash of this.state.tokens.values()) {
+            for (const jwt of byHash.values()) {
+                count += 1;
+                try {
+                    const payload = JSON.parse(
+                        Buffer.from(jwt.split('.')[1], 'base64').toString('utf8'),
+                    );
+                    if (typeof payload.amount === 'number') amount += payload.amount;
+                } catch {
+                    // A token whose payload will not parse still counts as one
+                    // token; its amount is simply unknown to this tally.
+                }
+            }
+        }
+        return { count, amount };
+    }
+
     public async subscribe(
         pubkey: string,
         handler?: (event: NDKEvent) => Promise<void>,
@@ -591,15 +736,24 @@ export class Pocket extends NWPCPeer {
         if (existing) {
             await this.unsubscribe(pubkey);
         }
+        // Resume from where this wallet stopped listening rather than from the
+        // base class's fixed ten-minute window, which silently drops anything
+        // delivered while the wallet was closed.
+        const from = since ?? this.resumeSince();
         if (handler) {
-            return super.subscribe(pubkey, handler, since);
+            return super.subscribe(pubkey, handler, from);
         }
         else {
-            return super.subscribe(pubkey, this.handleEvent.bind(this), since);
+            return super.subscribe(pubkey, this.handleEvent.bind(this), from);
         }
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
+        // Advance the resume point even for events that turn out to be
+        // duplicates or undecryptable: they are still proof this wallet has
+        // seen everything up to that timestamp. Advancing only on success would
+        // make the window creep forward more slowly than the relay's history.
+        this.noteEventSeen(event);
         // Dedup check before the expensive decrypt/unwrap.
         if (this.isEventProcessed(event.id)) {
             Debug.log("duplicate event detected (early)" + event.id, 'Pocket');

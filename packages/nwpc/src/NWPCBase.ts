@@ -49,6 +49,9 @@ const Debug = DebugLogger.getInstance();
  * }
  * ```
  */
+/** Floor between pool reconnect attempts, so a dead relay cannot stall publishes. */
+const RECONNECT_COOLDOWN_MS = 10_000;
+
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
   public router: NWPCRouter;
@@ -70,6 +73,12 @@ export abstract class NWPCBase implements INWPCBase {
   private deduplication: boolean = true; // Enable deduplication for event processing
   private _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private _keepaliveTick = 0;
+  /**
+   * When the pool was last redialled. `ensureConnected` runs before every
+   * publish, so without a floor a permanently-unreachable relay would make each
+   * one wait on a fresh connect attempt.
+   */
+  private _lastReconnectAt = 0;
 
   // Hybrid LRU + Bloom filter for processed events
   private processedEventLRU: LRUCache<string, true>;
@@ -190,23 +199,39 @@ export abstract class NWPCBase implements INWPCBase {
    */
   public async ensureConnected(): Promise<void> {
     const relays = Array.from(this.ndk.pool.relays.values());
-    const live = relays.filter((r) => r.connected).length;
-    if (live > 0) return;
+    const dead = relays.filter((r) => !r.connected);
+    if (dead.length === 0) return;
+
+    // Repair ANY dead relay, not only a pool where every one is dead.
+    //
+    // This used to return as soon as a single relay looked alive, on the theory
+    // that one live relay is enough. It is not: a publish goes to the whole
+    // pool and needs at least one ACK, and after a phone sleeps or a tab is
+    // backgrounded the pool typically comes back half-stale — one relay marked
+    // connected whose socket is finished, one genuinely gone. Every publish
+    // then failed with "0 published, 1 required" while the pool still reported
+    // itself connected, so transfers timed out, backups failed, and nothing
+    // ever tried to fix it. Whatever the bank pushed in the meantime went to a
+    // wallet that was not listening.
+    const now = Date.now();
+    if (now - this._lastReconnectAt < RECONNECT_COOLDOWN_MS) return;
+    this._lastReconnectAt = now;
 
     Debug.log(
-      `All ${relays.length} relays have dead WebSockets — forcing reconnect`,
+      `${dead.length}/${relays.length} relays have dead WebSockets — reconnecting`,
       "NWPCBase",
     );
 
-    // Force-disconnect each relay so NDK resets its internal status.
-    for (const relay of relays) {
+    // Force-disconnect the dead ones so NDK resets their internal status; a
+    // relay it still believes is connected will not be redialled.
+    for (const relay of dead) {
       try {
         relay.disconnect();
       } catch {
         /* ignore */
       }
     }
-    this.connected = false;
+    if (dead.length === relays.length) this.connected = false;
 
     await this.ndk.connect(3000);
     this.connected = true;
@@ -215,10 +240,28 @@ export abstract class NWPCBase implements INWPCBase {
     Debug.log("Reconnected to " + reconnected.join(", "), "NWPCBase");
     this.state.relays = new Set([...this.state.relays, ...reconnected]);
 
-    // Re-subscribe so incoming messages are received on fresh connections.
+    // Re-subscribe so incoming messages are received on fresh connections. A
+    // reconnected relay has no record of the REQ that was open on the socket
+    // that died, so without this the wallet is silently deaf on it.
     if (this.publicKey) {
       await this.subscribe(this.publicKey, this.handleEvent.bind(this));
     }
+  }
+
+  /**
+   * Live relay state, for a UI that wants to say something true about it.
+   *
+   * `relay.connected` checks the actual WebSocket readyState as well as NDK's
+   * status enum, so this reports sockets rather than intent.
+   */
+  public relayHealth(): { total: number; live: number; urls: string[] } {
+    const relays = Array.from(this.ndk.pool.relays.values());
+    const liveRelays = relays.filter((r) => r.connected);
+    return {
+      total: relays.length,
+      live: liveRelays.length,
+      urls: liveRelays.map((r) => r.url),
+    };
   }
 
   public async disconnect(): Promise<void> {
