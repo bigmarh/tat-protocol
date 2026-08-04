@@ -12,7 +12,7 @@ import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest } from "@tat-pro
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
-import { Transaction, decodeTokenPayload, tokenClassOf } from "./Transaction.js";
+import { Transaction, decodeTokenPayload, effectiveTokenClass, bySpendOrder } from "./Transaction.js";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
 import { HDKey } from "@tat-protocol/hdkeys";
@@ -78,6 +78,24 @@ export interface PocketState extends NWPCState {
      * addressed to a key this wallet holds, and simply went unclaimed.
      */
     lastSeenAt?: number;
+    /**
+     * Tokens this wallet has spent, as `issuer:tokenHash` → unix seconds.
+     *
+     * A spent bearer token stays perfectly valid-looking: same signature, same
+     * amount, same hash. Deleting it locally is therefore not durable, because
+     * the event that delivered it is still sitting on the relay addressed to a
+     * key held here, and every subscription that reaches back in time — the
+     * resume window on open, a rescan, a backup restore — finds it again and
+     * hands it to `storeToken`, whose duplicate check compares against what is
+     * held *now* and so sees a brand new token. The balance goes back up, and
+     * the money it claims to be cannot be spent.
+     *
+     * This is the memory that stops that: a hash recorded here is one this
+     * wallet knows is gone, and nothing re-imports it. Entries older than the
+     * furthest a subscription will ever look back are dropped, since past that
+     * point no replay can reach them.
+     */
+    spentTokens?: Map<string, number>;
     tokens: Map<string, Map<string, string>>; //[issuerPubkey, tokenHash, tokenJWT], Hold the tokenJWT for each tokenHash
     balances: Map<string, Map<string, number>>;         //[issuerPubkey,setID, balance]. Hold the balance for each issuer
     tokenIndex: Map<string, Map<number, string[]>>; //[issuerPubkey, identifier(denomination), [tokenhash]], Hold the tokenhash for each denomination
@@ -98,6 +116,25 @@ const RESUME_SLACK_SEC = 60 * 60;
 const MAX_RESUME_LOOKBACK_SEC = 30 * 24 * 60 * 60;
 /** Unallocated single-use indices a rescan checks, BIP44-style. */
 const SINGLE_USE_KEY_GAP_LIMIT = 20;
+/** Token hashes per spent-check request; the question travels as an encrypted DM. */
+const SPENT_CHECK_BATCH = 200;
+/**
+ * How long a spent-token tombstone is kept.
+ *
+ * Exactly the deepest an ordinary open or a rescan will look back: past that
+ * point no subscription can hand the token back, so remembering it costs
+ * storage and buys nothing. Tied to the constant rather than restated, so
+ * widening the lookback cannot silently outlive the memory that protects it.
+ */
+const SPENT_TOMBSTONE_TTL_SEC = MAX_RESUME_LOOKBACK_SEC;
+/**
+ * Hard cap on tombstones, oldest evicted first.
+ *
+ * The TTL bounds this for any ordinary wallet; the cap bounds it for a busy
+ * agent that spends thousands of tokens a day, whose state blob should not grow
+ * without limit because of a safety net.
+ */
+const SPENT_TOMBSTONE_MAX = 20000;
 
 /**
  * Transaction data structure
@@ -248,6 +285,7 @@ export class Pocket extends NWPCPeer {
                     singleUseKeys: new Map(),
                     singleUseKeyNextIndex: 0,
                     lastSeenAt: Math.floor(Date.now() / 1000),
+                    spentTokens: new Map(),
                     tokens: new Map(),
                     tokenIndex: new Map(),
                     tatIndex: new Map(),
@@ -275,6 +313,10 @@ export class Pocket extends NWPCPeer {
             } else {
                 this.state.singleUseKeyNextIndex = Math.max(this.state.singleUseKeyNextIndex, minNextIndex);
             }
+            // Wallets saved before spent tokens were remembered have no map, and
+            // an old one may be carrying tombstones nothing can reach any more.
+            if (!(this.state.spentTokens instanceof Map)) this.state.spentTokens = new Map();
+            this.pruneSpentMemory();
             await this.rebuildIndexesAndBalances();
 
             // Subscribe to all single-use key pubkeys after loading state
@@ -465,7 +507,50 @@ export class Pocket extends NWPCPeer {
     // =============================
     // 3. Token Management
     // =============================
-    private async storeToken(tokenJWT: string) {
+    /** Key for the spent-token memory. Issuer-scoped: hashes are only unique per issuer. */
+    private spentKey(issuer: string, tokenHash: string): string {
+        return `${issuer}:${tokenHash}`;
+    }
+
+    /**
+     * Remember that a token is gone, so a replay of the event that delivered it
+     * cannot bring it back.
+     *
+     * Called from `deleteToken`, which is the single place tokens leave this
+     * wallet and is only ever reached because something authoritative — the
+     * forge accepting a transfer, an issuer's spent feed, a TOKEN_SPENT
+     * refusal, a reconciliation — said the token was spent.
+     */
+    private rememberSpent(issuer: string, tokenHash: string): void {
+        if (!this.state.spentTokens) this.state.spentTokens = new Map();
+        this.state.spentTokens.set(this.spentKey(issuer, tokenHash), Math.floor(Date.now() / 1000));
+        this.pruneSpentMemory();
+    }
+
+    /** Drop tombstones no replay can reach, then the oldest of whatever is left over the cap. */
+    private pruneSpentMemory(): void {
+        const memory = this.state.spentTokens;
+        if (!memory) return;
+        const cutoff = Math.floor(Date.now() / 1000) - SPENT_TOMBSTONE_TTL_SEC;
+        for (const [key, at] of memory) {
+            if (at < cutoff) memory.delete(key);
+        }
+        if (memory.size <= SPENT_TOMBSTONE_MAX) return;
+        // Insertion order is spend order, so the head of the map is the oldest.
+        const excess = memory.size - SPENT_TOMBSTONE_MAX;
+        let dropped = 0;
+        for (const key of memory.keys()) {
+            if (dropped++ >= excess) break;
+            memory.delete(key);
+        }
+    }
+
+    /**
+     * @returns false when the token was rejected — unverifiable, already held,
+     *          or known to have been spent — so a caller counting imports
+     *          reports what actually landed.
+     */
+    private async storeToken(tokenJWT: string): Promise<boolean> {
         const token = await new Token().restore(tokenJWT);
         // Verify integrity before trusting or indexing this token. A malicious
         // sender can deliver a token whose header hash mismatches its payload,
@@ -475,21 +560,30 @@ export class Pocket extends NWPCPeer {
         // must not display or act on unverified value.
         if (!(await token.verifyTokenHash())) {
             Debug.log('Rejecting received token: hash does not match payload', 'Pocket');
-            return;
+            return false;
         }
         if (!(await token.verifyTokenSignature())) {
             Debug.log('Rejecting received token: invalid issuer signature', 'Pocket');
-            return;
+            return false;
         }
         const issuer = token.payload.iss;
         // Subscribe to spent events for this issuer if not already
         await this.subscribeToIssuerSpent(issuer);
         // Key by the verified (recomputed) hash, never the claimed header value.
         const tokenHash = token.header.token_hash;
+        // Already spent. The signature checks above pass on a spent token —
+        // nothing in the JWT changes when it is spent — so without this memory a
+        // replayed delivery is indistinguishable from a new one, and the wallet
+        // adds money it cannot spend. This is the check the duplicate test below
+        // cannot make, because the token is genuinely no longer held.
+        if (this.state.spentTokens?.has(this.spentKey(issuer, tokenHash))) {
+            Debug.log(`Ignoring replay of spent token (hash: ${tokenHash}).`, 'Pocket');
+            return false;
+        }
         const issuerTokens = this.state.tokens.get(issuer);
         if (issuerTokens && issuerTokens.has(tokenHash)) {
             Debug.log(`Duplicate token received (hash: ${tokenHash}), ignoring.`, 'Pocket');
-            return;
+            return false;
         }
         if (issuerTokens) {
             issuerTokens.set(tokenHash, tokenJWT);
@@ -499,6 +593,7 @@ export class Pocket extends NWPCPeer {
         await this.reindexIssuerState(issuer);
         await this.savePocketState();
         this.onTokenChange?.();
+        return true;
     }
 
     /**
@@ -650,19 +745,44 @@ export class Pocket extends NWPCPeer {
      * wallet restored from a backup taken before the last transfer does not know
      * the index its change was sent to.
      *
+     * A rescan asks for history, and history contains tokens that have since
+     * been spent. Nothing in the ingest path knows that: `storeToken` verifies a
+     * token's hash and signature but has no notion of spent-ness, and its
+     * duplicate check compares against tokens held *now* — so one that was
+     * correctly deleted when it was spent no longer looks like a duplicate and
+     * is taken straight back in. The issuer's spent feed cannot clean up after
+     * it either, because that subscription only looks ten minutes back while
+     * this looks thirty days. So every rescan ends by asking the issuer which of
+     * these are actually still unspent.
+     *
      * @returns what changed, so a caller can tell "nothing was missing" from
      *          "nothing was found because the relays no longer have it".
+     *          `prunedSpent` counts ghosts removed, which may exceed what this
+     *          pass imported when earlier rescans left some behind.
      */
     public async rescanMissedTokens(options: {
         sinceMs?: number;
         gapLimit?: number;
         settleMs?: number;
-    } = {}): Promise<{ scannedKeys: number; recoveredTokens: number; recoveredAmount: number }> {
+    } = {}): Promise<{
+        scannedKeys: number;
+        recoveredTokens: number;
+        recoveredAmount: number;
+        prunedSpent: number;
+        /** False when an issuer could not be reached, so ghosts may remain. */
+        reconciled: boolean;
+    }> {
         const sinceSec = Math.floor(
             (options.sinceMs ?? Date.now() - MAX_RESUME_LOOKBACK_SEC * 1000) / 1000,
         );
         const gapLimit = options.gapLimit ?? SINGLE_USE_KEY_GAP_LIMIT;
-        const before = this.totalTokenCount();
+        // Which tokens were already here. Counting survivors against this set
+        // measures what the rescan actually added, rather than netting new
+        // arrivals off against ghosts this pass happened to clear.
+        const held = new Set<string>();
+        for (const [issuer, byHash] of this.state.tokens) {
+            for (const hash of byHash.keys()) held.add(`${issuer}:${hash}`);
+        }
 
         const keys: string[] = [this.publicKey || this.keys.publicKey];
         for (const pubkey of this.state.singleUseKeys.keys()) keys.push(pubkey);
@@ -695,31 +815,100 @@ export class Pocket extends NWPCPeer {
         // a fixed settling period rather than pretending to know when it is done.
         await new Promise((resolve) => setTimeout(resolve, options.settleMs ?? 8000));
 
-        const after = this.totalTokenCount();
-        await this.savePocketState();
-        return {
-            scannedKeys: keys.length,
-            recoveredTokens: after.count - before.count,
-            recoveredAmount: after.amount - before.amount,
-        };
-    }
+        // Drop anything the issuer says is already spent before counting, so the
+        // figure reported back is money the wallet can actually use.
+        const { pruned, reconciled } = await this.pruneSpentTokens();
 
-    private totalTokenCount(): { count: number; amount: number } {
-        let count = 0;
-        let amount = 0;
-        for (const byHash of this.state.tokens.values()) {
-            for (const jwt of byHash.values()) {
-                count += 1;
+        let recoveredTokens = 0;
+        let recoveredAmount = 0;
+        for (const [issuer, byHash] of this.state.tokens) {
+            for (const [hash, jwt] of byHash) {
+                if (held.has(`${issuer}:${hash}`)) continue;
+                recoveredTokens += 1;
                 const payload = decodeTokenPayload(jwt);
-                // A token whose payload will not parse still counts as one
-                // token; its amount is simply unknown to this tally.
                 if (typeof payload?.['amount'] === 'number') {
-                    amount += payload['amount'] as number;
+                    recoveredAmount += payload['amount'] as number;
                 }
             }
         }
-        return { count, amount };
+
+        await this.savePocketState();
+        return {
+            scannedKeys: keys.length,
+            recoveredTokens,
+            recoveredAmount,
+            prunedSpent: pruned,
+            reconciled,
+        };
     }
+
+    /**
+     * Ask every issuer which held tokens it has already marked spent, and delete
+     * those.
+     *
+     * The wallet cannot answer this itself. A token is a bearer JWT that stays
+     * perfectly valid-looking after it is spent — only the issuer knows. The
+     * ordinary path for learning it is the issuer's spent feed, which is a live
+     * subscription with a short window; anything that imports history in bulk
+     * (a rescan, a backup restore) lands outside that window and needs to ask
+     * directly.
+     *
+     * Failure is reported, never thrown. Losing an issuer's answer means some
+     * ghosts survive until the next attempt, which is worth strictly less than
+     * aborting the recovery that called this.
+     */
+    public async pruneSpentTokens(
+        issuers?: string[],
+    ): Promise<{ pruned: number; reconciled: boolean }> {
+        let pruned = 0;
+        let reconciled = true;
+        const targets = issuers ?? [...this.state.tokens.keys()];
+
+        for (const issuer of targets) {
+            const byHash = this.state.tokens.get(issuer);
+            if (!byHash || byHash.size === 0) continue;
+            const hashes = [...byHash.keys()];
+
+            // Chunked: the question travels as an encrypted DM, and a wallet
+            // with a long history would otherwise build one too large to send.
+            for (let i = 0; i < hashes.length; i += SPENT_CHECK_BATCH) {
+                const batch = hashes.slice(i, i + SPENT_CHECK_BATCH);
+                let response: { result?: { spent?: Record<string, boolean> }; error?: unknown };
+                try {
+                    response = (await this.request(
+                        'verify',
+                        { token_hashes: batch },
+                        issuer,
+                        undefined,
+                        20000,
+                    )) as typeof response;
+                } catch (error) {
+                    Debug.log(`pruneSpentTokens: ${issuer} unreachable: ${error}`, 'Pocket');
+                    reconciled = false;
+                    break;
+                }
+                if (response?.error || !response?.result?.spent) {
+                    reconciled = false;
+                    break;
+                }
+                for (const [hash, isSpent] of Object.entries(response.result.spent)) {
+                    if (!isSpent) continue;
+                    const jwt = this.state.tokens.get(issuer)?.get(hash);
+                    if (!jwt) continue;
+                    try {
+                        await this.deleteToken(jwt);
+                        pruned += 1;
+                    } catch (error) {
+                        Debug.log(`pruneSpentTokens: could not delete ${hash}: ${error}`, 'Pocket');
+                    }
+                }
+            }
+        }
+
+        if (pruned > 0) await this.savePocketState();
+        return { pruned, reconciled };
+    }
+
 
     public async subscribe(
         pubkey: string,
@@ -831,12 +1020,7 @@ export class Pocket extends NWPCPeer {
             // Delete spent token from state
             if (message.result?.spent) {
                 Debug.log("received spent token" + message.result, 'Pocket');
-                const tokenHash = message.result.spent;
-                const tokenJWT = this.state.tokens.get(message.result.issuer)?.get(tokenHash);
-                if (tokenJWT) {
-                    await this.deleteToken(tokenJWT);
-                }
-                await this.savePocketState();
+                await this.forgetSpentToken(message.result.issuer, message.result.spent);
             }
 
             // Always resolve a pending request() — even when a token was embedded.
@@ -870,13 +1054,8 @@ export class Pocket extends NWPCPeer {
                             const result = message.result as { spent?: string; issuer?: string } | undefined;
                             spentMeta = result;
                         }
-                        const tokenHash = spentMeta?.spent;
-                        const issuer = spentMeta?.issuer;
-                        const tokenJWT = tokenHash && issuer
-                            ? this.state.tokens.get(issuer)?.get(tokenHash)
-                            : undefined;
-                        if (tokenJWT) {
-                            await this.deleteToken(tokenJWT);
+                        if (spentMeta?.spent && spentMeta.issuer) {
+                            await this.forgetSpentToken(spentMeta.issuer, spentMeta.spent);
                         }
                     }
                     if (this.hooks.afterResponse) {
@@ -991,8 +1170,11 @@ export class Pocket extends NWPCPeer {
                     duplicates++;
                     continue;
                 }
-                await this.storeToken(jwt);
-                imported++;
+                // A restore or a claim can hand back tokens this wallet already
+                // spent. `storeToken` refuses those, so counting its answer
+                // rather than the attempt keeps "imported" meaning "spendable".
+                if (await this.storeToken(jwt)) imported++;
+                else duplicates++;
             } catch {
                 failed++;
             }
@@ -1238,13 +1420,16 @@ export class Pocket extends NWPCPeer {
             [],
             changeKey || singleUseKey.publicKey // Use the new single-use key for change
         );
-        // Spend one class or the other, never a mixture: the bank merges input
-        // metadata down to the most restrictive class present, so a single bonus
-        // token dragged into an otherwise purchased payment turns the whole
-        // thing — and the change that comes back — into bonus.
+        // Name a class only when the caller has a constraint to impose. Left
+        // unset, selection still spends a single class — it just gets to pick
+        // which, and picks the most usable money the pocket holds.
         tx.ofClass(options.tokenClass ?? null);
         tx.to(issuer, to, amount);
-        return tx.build();
+        const [method, built] = tx.build();
+        // Third element, so every existing `const [method, tx] = …` call site is
+        // untouched while a caller that wants to report which BotBucks went out
+        // can have it.
+        return [method, built, tx.selectedClass] as const;
     }
 
     /**
@@ -1352,6 +1537,12 @@ export class Pocket extends NWPCPeer {
      *
      * Classes never convert and a recipient may take only one of them, so the
      * single total that a balance usually means cannot answer "can I pay this".
+     *
+     * Untagged tokens count as purchased, matching how selection and the bank's
+     * own merge treat them. That is deliberately not what a *display* of the
+     * split should do — "unknown" is the honest answer there, since the wallet
+     * genuinely cannot see a class. This total exists to be compared against an
+     * amount, and for that question only the bank's reading matters.
      */
     public balanceByClass(issuer: string): Record<string, number> {
         const totals: Record<string, number> = {};
@@ -1359,10 +1550,30 @@ export class Pocket extends NWPCPeer {
             const payload = decodeTokenPayload(jwt);
             const amount =
                 typeof payload?.['amount'] === 'number' ? (payload['amount'] as number) : 0;
-            const cls = tokenClassOf(jwt) ?? 'unknown';
+            const cls = effectiveTokenClass(jwt);
             totals[cls] = (totals[cls] ?? 0) + amount;
         }
         return totals;
+    }
+
+    /**
+     * Which class a payment of `amount` would be spent from, or null when none
+     * can cover it on its own.
+     *
+     * The question `build()` answers internally, asked without building
+     * anything — so a caller can find out whether a payment is possible, and
+     * which BotBucks it would use, before committing a user to it. Checking a
+     * plain total instead is what lets a wallet show 40 BB and then refuse a
+     * 30 BB payment, because the 40 was two classes that cannot be pooled.
+     */
+    public chooseSpendClass(
+        issuer: string,
+        amount: number,
+        tokenClass?: string | null,
+    ): string | null {
+        const totals = this.balanceByClass(issuer);
+        const candidates = tokenClass ? [tokenClass] : Object.keys(totals).sort(bySpendOrder);
+        return candidates.find((cls) => (totals[cls] ?? 0) >= amount) ?? null;
     }
 
     /**
@@ -1522,11 +1733,42 @@ export class Pocket extends NWPCPeer {
         if (issuerTokens) {
             issuerTokens.delete(tokenHash);
         }
+        // Recorded whether or not the map still had it. The same spend can be
+        // reported twice — the forge's reply and the issuer's feed both arrive —
+        // and the second report must refresh the memory rather than find nothing
+        // to delete and record nothing.
+        this.rememberSpent(issuer, tokenHash);
         await this.reindexIssuerState(issuer);
 
         // Save state after deletion
         await this.savePocketState();
         this.onTokenChange?.();
+    }
+
+    /**
+     * Drop a token named as spent by the issuer, and remember it either way.
+     *
+     * The "either way" is the point. These reports arrive as replies to this
+     * wallet's own requests — a transfer's spent list, a TOKEN_SPENT refusal —
+     * so they name a token this wallet is dealing with, and the two events (the
+     * one that delivers a token, the one that says it is spent) travel over
+     * separate subscriptions with no ordering between them. Recording only when
+     * the token happens to be in hand loses the race, and the delivery that
+     * lands afterwards is then indistinguishable from new money.
+     *
+     * Deliberately not used for the issuer's public spent feed, which reports
+     * every token that issuer has ever burned for anyone: remembering those
+     * would grow this wallet's state by the bank's volume rather than its own.
+     */
+    private async forgetSpentToken(issuer: string | undefined, tokenHash: string): Promise<void> {
+        if (!issuer || !tokenHash) return;
+        const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
+        if (tokenJWT) {
+            await this.deleteToken(tokenJWT);
+            return;
+        }
+        this.rememberSpent(issuer, tokenHash);
+        await this.savePocketState();
     }
 
     // Subscribe to spent events for a given issuer
