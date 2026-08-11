@@ -22,7 +22,11 @@ import {
 } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
-import { StorageInterface } from "@tat-protocol/storage";
+import {
+  StorageInterface,
+  SpentSetStore,
+  DEFAULT_KEYSET_ID,
+} from "@tat-protocol/storage";
 import { NDKEvent, type NostrEvent as NostrEventRaw } from "@nostr-dev-kit/ndk";
 
 const Debug = DebugLogger.getInstance();
@@ -303,7 +307,7 @@ export abstract class ForgeBase extends NWPCServer {
     timeWindow?: number,
     currentTime?: number,
   ): Promise<boolean> {
-    if (this.state.spentTokens.has(tokenHash)) {
+    if (await this.isTokenSpent(tokenHash)) {
       throw new Error("Token is already spent");
     }
     const dataToSign = new TextEncoder().encode(tokenHash);
@@ -406,6 +410,114 @@ export abstract class ForgeBase extends NWPCServer {
    * requests. Callbacks are chained regardless of prior success/failure, and a
    * failing callback never poisons the lock for the next caller.
    */
+  /**
+   * Move any spent hashes sitting in blob state into the configured store.
+   *
+   * A forge that has been running accumulated its spent set in the state blob.
+   * Pointing it at a store without carrying those across would present every
+   * previously spent token as unspent — every one of them replayable, which is
+   * a mint of free money rather than a migration inconvenience. So this runs on
+   * every load, is idempotent (`tryMarkSpent` on a hash already present is a
+   * no-op returning false), and clears the blob copy only once the store has
+   * accepted the hashes.
+   *
+   * No-op when no store is configured, which is what keeps existing forges on
+   * exactly their current behaviour.
+   */
+  protected async importBlobSpentSet(): Promise<void> {
+    const store = this.spentSet;
+    if (!store) return;
+    const pending = Array.from(this.state.spentTokens ?? []);
+    if (pending.length === 0) return;
+
+    let imported = 0;
+    for (const tokenHash of pending) {
+      // Skip anything malformed rather than aborting the whole import: one bad
+      // entry must not strand every other spent hash outside the store.
+      try {
+        if (await store.tryMarkSpent(this.spentKeysetId, tokenHash)) imported++;
+      } catch (err) {
+        Debug.error(
+          `importBlobSpentSet: skipping unusable spent hash ${tokenHash}: ${err}`,
+          "ForgeBase",
+        );
+      }
+    }
+
+    // Only now drop the blob copy — if the process dies mid-import the blob is
+    // still authoritative and the next start redoes it.
+    this.state.spentTokens = new Set();
+    await this._saveState();
+    Debug.log(
+      `importBlobSpentSet: moved ${imported} spent hash(es) out of blob state into the spent-set store`,
+      "ForgeBase",
+    );
+  }
+
+  /** The spent set, when one is configured. See ForgeConfig.spentSetStore. */
+  protected get spentSet(): SpentSetStore | undefined {
+    return this.config.spentSetStore;
+  }
+
+  protected get spentKeysetId(): string {
+    return this.config.spentKeysetId ?? DEFAULT_KEYSET_ID;
+  }
+
+  /**
+   * Has this token hash already been spent?
+   *
+   * Every read of the spent set goes through here so there is exactly one place
+   * that knows whether the store or the legacy blob is authoritative.
+   */
+  protected async isTokenSpent(tokenHash: string): Promise<boolean> {
+    if (this.spentSet) {
+      return await this.spentSet.isSpent(this.spentKeysetId, tokenHash);
+    }
+    return this.state.spentTokens.has(tokenHash);
+  }
+
+  /**
+   * Batch form of {@link isTokenSpent}, for the verify RPC.
+   */
+  protected async getTokenSpentStates(
+    tokenHashes: string[],
+  ): Promise<Record<string, boolean>> {
+    if (this.spentSet) {
+      return await this.spentSet.getStates(this.spentKeysetId, tokenHashes);
+    }
+    const out: Record<string, boolean> = {};
+    for (const hash of tokenHashes) {
+      out[hash] = this.state.spentTokens.has(hash);
+    }
+    return out;
+  }
+
+  /**
+   * Record a token hash as spent.
+   *
+   * @returns `true` if this call marked it, `false` if it was already spent.
+   *
+   * With a store this is a single atomic test-and-insert that is durable before
+   * it resolves, and it does NOT touch blob state — which is what removes the
+   * O(N^2) write amplification, since the blob write was the quadratic term
+   * rather than the Set insert.
+   *
+   * Without a store this keeps the original behaviour exactly: add to the
+   * in-memory Set and re-serialise the whole state blob.
+   */
+  protected async markTokenSpent(tokenHash: string): Promise<boolean> {
+    if (this.spentSet) {
+      return await this.spentSet.tryMarkSpent(this.spentKeysetId, tokenHash);
+    }
+    if (this.state.spentTokens.has(tokenHash)) return false;
+    this.state.spentTokens.add(tokenHash);
+    // Await the write: the spent-set must be durable before the transfer
+    // response releases newly signed tokens, otherwise a crash after the
+    // response leaves the spent input replayable on restart.
+    await this._saveState();
+    return true;
+  }
+
   protected async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     const result = this.spendLock.then(fn, fn);
     // Advance the lock even if fn rejects, swallowing the settled value so the
@@ -431,6 +543,7 @@ export abstract class ForgeBase extends NWPCServer {
         authorizedForgers: new Set(forgeState.authorizedForgers || []),
         tokenUsage: new Map(forgeState.tokenUsage || []),
       };
+      await this.importBlobSpentSet();
     } else {
       this.state = {
         ...this.state,
@@ -449,9 +562,21 @@ export abstract class ForgeBase extends NWPCServer {
   }
 
   public async publishSpentToken(tokenHash: string) {
-    // Mark spent in state first so subsequent validation sees it immediately
-    this.state.spentTokens.add(tokenHash);
-    await this._saveState();
+    // Mark spent first so subsequent validation sees it immediately, and so the
+    // record is durable before the caller's response releases newly signed
+    // tokens. With a store this is one atomic O(1) write and touches no blob.
+    const newlyMarked = await this.markTokenSpent(tokenHash);
+    if (!newlyMarked) {
+      // Callers check isTokenSpent under runExclusive before getting here, so a
+      // false means the store's uniqueness constraint caught an interleaving
+      // the in-process lock did not — which is exactly what it is for, and
+      // worth surfacing rather than swallowing. The notice is still published:
+      // it is idempotent, and a holder reconciling is better off seeing it.
+      Debug.warn(
+        `publishSpentToken: ${tokenHash} was already spent — the store rejected a duplicate mark`,
+        "ForgeBase",
+      );
+    }
 
     // Fire-and-forget relay publication — don't block the transfer response.
     // Pockets subscribe to these "spent:<hash>" notices to reconcile spent
@@ -559,7 +684,7 @@ export abstract class ForgeBase extends NWPCServer {
         }
 
         const tokenHash = restoredToken.header.token_hash;
-        if (this.state.spentTokens.has(tokenHash)) {
+        if (await this.isTokenSpent(tokenHash)) {
           return await res.error(
             NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
             NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
@@ -596,8 +721,6 @@ export abstract class ForgeBase extends NWPCServer {
         "token_hashes is required",
       );
     }
-    const spent: Record<string, boolean> = {};
-    const valid: Record<string, boolean> = {};
     for (const hash of tokenHashes) {
       if (typeof hash !== "string") {
         return await res.error(
@@ -605,9 +728,14 @@ export abstract class ForgeBase extends NWPCServer {
           "token_hashes must be strings",
         );
       }
-      const isSpent = this.state.spentTokens.has(hash);
-      spent[hash] = isSpent;
-      valid[hash] = !isSpent;
+    }
+    // One batch read rather than a lookup per hash: a store may answer the
+    // whole set in a single round trip, and this endpoint is asked about many
+    // hashes at a time.
+    const spent = await this.getTokenSpentStates(tokenHashes);
+    const valid: Record<string, boolean> = {};
+    for (const hash of tokenHashes) {
+      valid[hash] = !spent[hash];
     }
     return await res.send({ valid, spent }, context.sender);
   }
@@ -733,7 +861,7 @@ export abstract class ForgeBase extends NWPCServer {
       }
 
       const tokenHash = token.header.token_hash;
-      if (this.state.spentTokens.has(tokenHash)) {
+      if (await this.isTokenSpent(tokenHash)) {
         return [
           null,
           "Token is already spent",

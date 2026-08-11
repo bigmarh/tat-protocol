@@ -2,6 +2,14 @@ export { Storage } from './src/Storage.js';
 export { NodeStore } from './src/DiskStorage.js';
 export { NodeStore as Backend } from './src/DiskStorage.js';
 export * from './src/StorageInterface.js';
+export * from './src/SpentSetStore.js';
+export { MemorySpentSetStore } from './src/MemorySpentSetStore.js';
+export { SqliteSpentSetStore } from './src/SqliteSpentSetStore.js';
+export type {
+  SqliteDatabaseHandle,
+  SqliteStatementHandle,
+  SqliteSpentSetStoreOptions,
+} from './src/SqliteSpentSetStore.js';
 
 // Stub so packages that import BrowserStore don't crash when loaded in Node.js.
 // Instantiating this in a Node environment will throw at runtime, which is correct.

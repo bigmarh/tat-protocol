@@ -1,5 +1,5 @@
 import { TokenType } from "@tat-protocol/token";
-import { StorageInterface } from "@tat-protocol/storage";
+import { StorageInterface, SpentSetStore } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import type { Signer } from "@tat-protocol/types";
 
@@ -109,6 +109,51 @@ export interface ForgeConfig {
    * already fixed regardless of this setting.
    */
   publishLegacySpentNotes?: boolean;
+
+  /**
+   * Where the spent set lives.
+   *
+   * Supply one and the forge stops keeping spent token hashes in its blob
+   * state. That is the whole point: without it, every spend re-serialises the
+   * entire state — the spent set, the Bloom filter, tokenUsage, pendingTxs —
+   * and writes it back whole, so the cumulative cost of reaching N spends is
+   * O(N^2) and the synchronous JSON.stringify blocks the event loop, which
+   * stalls the relay subscription and turns into dropped events rather than
+   * merely slow responses. A forge is unusable somewhere around 50k-100k
+   * lifetime spends.
+   *
+   * With a store the check-and-mark is one atomic O(1) operation and the
+   * rejection of a double-spend becomes a uniqueness constraint the store
+   * enforces rather than a race the application has to keep winning.
+   *
+   * Omitting it preserves the existing blob behaviour exactly, so upgrading the
+   * SDK changes nothing until a forge opts in. On the first init WITH a store,
+   * any spent hashes already in blob state are imported (see `_loadState`), so
+   * no previously spent token becomes replayable.
+   *
+   * ```ts
+   * import { DatabaseSync } from "node:sqlite";
+   * import { SqliteSpentSetStore } from "@tat-protocol/storage";
+   *
+   * new FungibleForge({
+   *   ...config,
+   *   spentSetStore: new SqliteSpentSetStore(new DatabaseSync("forge.db")),
+   * });
+   * ```
+   */
+  spentSetStore?: SpentSetStore;
+
+  /**
+   * Keyset the spent set is recorded under.
+   *
+   * Defaults to a single sentinel, which is correct while epoch keysets do not
+   * exist yet. Token hashes commit to the issuer (`iss` is in the payload), so
+   * two forges cannot produce the same hash and sharing one store is safe
+   * without setting this. It exists so that landing epoch keysets later is a
+   * new value in an existing column rather than a migration of the one table
+   * that must never be lost.
+   */
+  spentKeysetId?: string;
 
   /**
    * Allow arbitrary properties for NWPC compatibility
