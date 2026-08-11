@@ -8,7 +8,7 @@ import {
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest } from "@tat-protocol/utils";
+import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
@@ -1775,11 +1775,17 @@ export class Pocket extends NWPCPeer {
     private async subscribeToIssuerSpent(issuerPubkey: string) {
         if (this.subscribedIssuers.has(issuerPubkey)) return;
         this.subscribedIssuers.add(issuerPubkey);
-        // Issuers publish spent markers as kind 1 feed notes ("spent:<tokenHash>").
-        // Subscribe directly to issuer feed events so pockets can reconcile spent
-        // tokens even if they were spent on another device.
+        // Issuers publish spent markers as "spent:<tokenHash>" notices. Subscribe
+        // directly to them so pockets can reconcile spent tokens even if they were
+        // spent on another device.
+        //
+        // Both kinds are requested: KIND_TOKEN_SPENT is where notices live now,
+        // and the legacy kind-1 note is still emitted by forges that have not yet
+        // set `publishLegacySpentNotes: false`. A forge in either state is handled,
+        // and handleIssuerSpentEvent is idempotent per token hash, so the
+        // transitional period — where a forge publishes both — costs nothing.
         const filter = {
-            kinds: [1],
+            kinds: [KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT],
             authors: [issuerPubkey],
             "#p": [issuerPubkey],
             since: Math.floor(Date.now() / 1000) - 10 * 60,
@@ -1812,7 +1818,11 @@ export class Pocket extends NWPCPeer {
                         spentMeta = parsed as { spent?: string; issuer?: string };
                     }
                 } catch {
-                    const tokenHashFromTag = event.tags.find((tag) => tag[0] === "t")?.[1];
+                    // Prefer the current tag; `t` is only still read so notices
+                    // already sitting on relays from before the move keep parsing.
+                    const tokenHashFromTag =
+                        event.tags.find((tag) => tag[0] === TAG_TOKEN_HASH)?.[1]
+                        ?? event.tags.find((tag) => tag[0] === "t")?.[1];
                     if (tokenHashFromTag) {
                         spentMeta = {
                             spent: tokenHashFromTag,

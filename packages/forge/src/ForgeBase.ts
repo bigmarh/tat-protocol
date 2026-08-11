@@ -16,6 +16,9 @@ import {
   spendAuthDigest,
   postToFeed,
   DebugLogger,
+  KIND_TOKEN_SPENT,
+  LEGACY_KIND_TOKEN_SPENT,
+  TAG_TOKEN_HASH,
 } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
@@ -451,43 +454,66 @@ export abstract class ForgeBase extends NWPCServer {
     await this._saveState();
 
     // Fire-and-forget relay publication — don't block the transfer response.
-    // Pockets subscribe to these kind-1 "spent:<hash>" notes to reconcile
-    // spent tokens across devices, so every forge flavor must publish them.
+    // Pockets subscribe to these "spent:<hash>" notices to reconcile spent
+    // tokens across devices, so every forge flavor must publish them.
     const forgePubkey = this.getPublicKey();
     if (!forgePubkey) {
       Debug.error("publishSpentToken skipped: no forge pubkey", "ForgeBase");
       return;
     }
+
+    // The hash rides in the multi-letter `token` tag, never in `t`. `t` is the
+    // NIP-01 hashtag tag: relays index it globally, so publishing token hashes
+    // there wrote every spend into the public hashtag index of every relay the
+    // note reached — a transaction-graph leak, and tag abuse that relays
+    // rate-limit or ban for. Nothing consumes the old `t` tag (pockets filter
+    // on kind + author and read the hash from content), so it is simply gone.
     const tags: string[][] = [
-      ["t", tokenHash],
       ["p", forgePubkey],
+      [TAG_TOKEN_HASH, tokenHash],
     ];
-    if (this.signer) {
-      // Signer-based forge: keys.secretKey is intentionally empty, so sign
-      // the note through the signer instead of skipping publication.
-      this.signer
-        .signEvent({
-          kind: 1,
-          content: `spent:${tokenHash}`,
-          tags,
-          created_at: Math.floor(Date.now() / 1000),
-        })
-        .then(async (signed) => {
-          const ev = new NDKEvent(this.ndk, signed as NostrEventRaw);
-          await ev.publish();
-        })
-        .catch((err) =>
+    const content = `spent:${tokenHash}`;
+
+    const kinds: number[] = [KIND_TOKEN_SPENT];
+    // Transition: also emit the legacy kind-1 note so pockets on an older SDK,
+    // which subscribe only to kind 1, keep reconciling. Set
+    // `publishLegacySpentNotes: false` once holders have updated.
+    if (this.config.publishLegacySpentNotes !== false) {
+      kinds.push(LEGACY_KIND_TOKEN_SPENT);
+    }
+
+    const publishOne = (kind: number) => {
+      if (this.signer) {
+        // Signer-based forge: keys.secretKey is intentionally empty, so sign
+        // the note through the signer instead of skipping publication.
+        this.signer
+          .signEvent({
+            kind,
+            content,
+            tags,
+            created_at: Math.floor(Date.now() / 1000),
+          })
+          .then(async (signed) => {
+            const ev = new NDKEvent(this.ndk, signed as NostrEventRaw);
+            await ev.publish();
+          })
+          .catch((err) =>
+            Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
+          );
+      } else if (this.keys.publicKey && this.keys.secretKey) {
+        postToFeed(this.ndk, content, this.keys, tags, kind).catch((err) =>
           Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
         );
-    } else if (this.keys.publicKey && this.keys.secretKey) {
-      postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, tags).catch((err) =>
-        Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
-      );
-    } else {
-      Debug.error(
-        "publishSpentToken skipped: no signer or secret key available",
-        "ForgeBase",
-      );
+      } else {
+        Debug.error(
+          "publishSpentToken skipped: no signer or secret key available",
+          "ForgeBase",
+        );
+      }
+    };
+
+    for (const kind of kinds) {
+      publishOne(kind);
     }
   }
 

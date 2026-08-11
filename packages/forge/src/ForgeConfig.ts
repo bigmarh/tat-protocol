@@ -95,6 +95,22 @@ export interface ForgeConfig {
   allowLegacyWitness?: boolean;
 
   /**
+   * Transition control for the spent-notice event kind.
+   *
+   * Spent-token notices moved from kind 1 (the short-text-note kind, which
+   * renders them as garbage posts in social clients) to the dedicated
+   * `KIND_TOKEN_SPENT`. When `true` (the default), the forge publishes the
+   * notice under BOTH kinds so pockets on an older SDK — which only subscribe
+   * to kind 1 — keep reconciling tokens spent on another device.
+   *
+   * Set to `false` once all pockets are updated. That is what stops the forge
+   * writing spend notices into public social feeds. The token hash is no longer
+   * published in a `t` tag under either kind, so relay hashtag-index abuse is
+   * already fixed regardless of this setting.
+   */
+  publishLegacySpentNotes?: boolean;
+
+  /**
    * Allow arbitrary properties for NWPC compatibility
    */
   [key: string]: unknown;
