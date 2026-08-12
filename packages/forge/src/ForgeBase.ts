@@ -25,6 +25,7 @@ import { generateSecretKey, getPublicKey } from "nostr-tools";
 import {
   StorageInterface,
   SpentSetStore,
+  SupplyStore,
   DEFAULT_KEYSET_ID,
 } from "@tat-protocol/storage";
 import { NDKEvent, type NostrEvent as NostrEventRaw } from "@nostr-dev-kit/ndk";
@@ -454,6 +455,92 @@ export abstract class ForgeBase extends NWPCServer {
     );
   }
 
+  /**
+   * Adopt the cap and any already-issued supply into the configured store.
+   *
+   * Without this an upgrading forge would start from zero issued and hand
+   * itself a full cap's worth of fresh headroom — an over-issue by exactly the
+   * amount already in circulation. Runs on load, and only seeds when the store
+   * has nothing recorded, so restarts do not double-count.
+   */
+  protected async adoptSupplyIntoStore(): Promise<void> {
+    const store = this.supply;
+    if (!store) return;
+
+    const cap = this.state.totalSupply > 0 ? this.state.totalSupply : null;
+    const alreadyIssued = await store.getIssued(this.spentKeysetId);
+    const circulating = this.state.circulatingSupply ?? 0;
+
+    if (alreadyIssued === 0 && circulating > 0) {
+      await store.tryIssue(this.spentKeysetId, circulating);
+      Debug.log(
+        `adoptSupplyIntoStore: carried ${circulating} already-issued supply into the store`,
+        "ForgeBase",
+      );
+    }
+    // Set the cap after seeding: setting it first would reject a seed that is
+    // legitimately at or near the cap.
+    if ((await store.getMaxSupply(this.spentKeysetId)) === null) {
+      await store.setMaxSupply(this.spentKeysetId, cap);
+    }
+  }
+
+  /** Supply enforcement, when configured. See ForgeConfig.supplyStore. */
+  protected get supply(): SupplyStore | undefined {
+    return this.config.supplyStore;
+  }
+
+  /**
+   * Reserve `amount` against the cap before minting.
+   *
+   * @returns `true` if the reservation fit, `false` if it would exceed the cap.
+   *
+   * Reserve BEFORE minting: if the mint then fails the forge has under-issued,
+   * which is the safe direction. Reserving afterwards would let a token exist
+   * that the cap never counted.
+   */
+  protected async reserveSupply(amount: number): Promise<boolean> {
+    const store = this.supply;
+    if (store) {
+      const issued = await store.tryIssue(this.spentKeysetId, amount);
+      if (issued === null) return false;
+      // Mirror into state for observability only — the store is authoritative.
+      this.state.circulatingSupply = issued;
+      return true;
+    }
+    // Legacy in-process path, preserved exactly.
+    if (
+      this.state.totalSupply > 0 &&
+      (this.state.circulatingSupply ?? 0) + amount > this.state.totalSupply
+    ) {
+      return false;
+    }
+    this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + amount;
+    return true;
+  }
+
+  /** Remaining headroom, for error messages. */
+  protected async remainingSupply(): Promise<number> {
+    const store = this.supply;
+    if (store) {
+      const cap = await store.getMaxSupply(this.spentKeysetId);
+      if (cap === null) return Infinity;
+      return cap - (await store.getIssued(this.spentKeysetId));
+    }
+    return this.state.totalSupply - (this.state.circulatingSupply ?? 0);
+  }
+
+  /** Allocate the next sequential asset id. */
+  protected async allocateAssetId(): Promise<number> {
+    const store = this.supply;
+    if (store) {
+      return await store.nextAssetId(this.spentKeysetId);
+    }
+    const id = this.state.lastAssetId;
+    this.state.lastAssetId += 1;
+    return id;
+  }
+
   /** The spent set, when one is configured. See ForgeConfig.spentSetStore. */
   protected get spentSet(): SpentSetStore | undefined {
     return this.config.spentSetStore;
@@ -544,6 +631,7 @@ export abstract class ForgeBase extends NWPCServer {
         tokenUsage: new Map(forgeState.tokenUsage || []),
       };
       await this.importBlobSpentSet();
+      await this.adoptSupplyIntoStore();
     } else {
       this.state = {
         ...this.state,

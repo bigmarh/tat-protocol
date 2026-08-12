@@ -43,13 +43,11 @@ export class NonFungibleForge extends ForgeBase {
         "Missing required parameters",
       );
     }
-    if (
-      this.state.totalSupply > 0 &&
-      (this.state.circulatingSupply ?? 0) + 1 > this.state.totalSupply
-    ) {
+    // Reserve before minting — see the note in FungibleForge.forgeToken.
+    if (!(await this.reserveSupply(1))) {
       return await res.error(
         NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
-        `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
+        `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${await this.remainingSupply()}`,
       );
     }
     // Choose tokenID strategy
@@ -57,8 +55,10 @@ export class NonFungibleForge extends ForgeBase {
     if (this.config.assetIdStrategy === "unique") {
       tokenID = uuidv4();
     } else {
-      tokenID = this.state.lastAssetId;
-      this.state.lastAssetId += 1;
+      // Same defect as the supply counter, one degree less dangerous: N
+      // processes each holding their own lastAssetId mint duplicate ids rather
+      // than duplicate money. Allocated atomically when a store is configured.
+      tokenID = await this.allocateAssetId();
     }
     const token = new Token();
     await token.build({
@@ -69,7 +69,6 @@ export class NonFungibleForge extends ForgeBase {
         P2PKlock: to,
       }),
     });
-    this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + 1;
     const tokenJWT = await this.signAndCreateJWT(token);
     await this._saveState();
     return await res.send({ token: tokenJWT }, to);

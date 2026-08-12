@@ -1,5 +1,9 @@
 import { TokenType } from "@tat-protocol/token";
-import { StorageInterface, SpentSetStore } from "@tat-protocol/storage";
+import {
+  StorageInterface,
+  SpentSetStore,
+  SupplyStore,
+} from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import type { Signer } from "@tat-protocol/types";
 
@@ -154,6 +158,30 @@ export interface ForgeConfig {
    * that must never be lost.
    */
   spentKeysetId?: string;
+
+  /**
+   * Where supply enforcement and asset-id allocation live.
+   *
+   * Supply was a counter in process memory compared against `totalSupply` by
+   * application code. That is a read-compare-write: with N processes every one
+   * reads the same value, every one concludes it is under the cap, and the mint
+   * collectively over-issues by up to N times the headroom while each process
+   * believes it obeyed the limit. Supplying a store makes the cap a constraint
+   * the store evaluates during the issuing transaction, so no code path decides
+   * whether the cap was met.
+   *
+   * It also closes a durability hole at N = 1: `forgeToken` incremented the
+   * counter in memory and returned the signed token without awaiting a write,
+   * so a crash before the next state save released a token the supply never
+   * counted — and the cap under-counts permanently afterwards. `tryIssue` does
+   * not resolve until the increment is durable.
+   *
+   * Omitting it preserves the existing in-process behaviour exactly. On the
+   * first init WITH a store, `totalSupply` is adopted as the cap and any
+   * `circulatingSupply` already in blob state is carried across, so an
+   * upgrading forge does not reset to full headroom.
+   */
+  supplyStore?: SupplyStore;
 
   /**
    * Allow arbitrary properties for NWPC compatibility

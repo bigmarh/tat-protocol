@@ -49,14 +49,14 @@ export class FungibleForge extends ForgeBase {
         "Amount must be a positive, finite number",
       );
     }
-    if (
-      this.state.totalSupply > 0 &&
-      (this.state.circulatingSupply ?? 0) + amountToForge >
-        this.state.totalSupply
-    ) {
+    // Reserve against the cap BEFORE minting. With a supply store this is one
+    // atomic, durable operation the store evaluates — not a read-compare-write
+    // in this process, which N replicas would each pass independently and
+    // collectively over-issue by up to N times the headroom.
+    if (!(await this.reserveSupply(amountToForge))) {
       return await res.error(
         NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
-        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
+        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${await this.remainingSupply()}`,
       );
     }
     const token = new Token();
@@ -68,9 +68,13 @@ export class FungibleForge extends ForgeBase {
         P2PKlock: to,
       }),
     });
-    this.state.circulatingSupply =
-      (this.state.circulatingSupply ?? 0) + amountToForge;
     const tokenJWT = await this.signAndCreateJWT(token);
+    // Persist before releasing the token. Without a supply store the increment
+    // lives only in memory until the next queued save, so a crash between this
+    // response and that save released a token the supply never counted — and
+    // the cap under-counts permanently afterwards. With a store the reservation
+    // is already durable and this only flushes the mirrored state.
+    await this._saveState();
     return await res.send({ token: tokenJWT }, to);
   }
 
