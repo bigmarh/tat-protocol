@@ -1,5 +1,9 @@
 export * from './StorageInterface.js';
 export * from './SpentSetStore.js';
+export * from './ProcessedRequestStore.js';
+export { MemoryProcessedRequestStore } from './MemoryProcessedRequestStore.js';
+export { SqliteProcessedRequestStore } from './SqliteProcessedRequestStore.js';
+export type { MemoryProcessedRequestStoreOptions } from './MemoryProcessedRequestStore.js';
 export { MemorySpentSetStore } from './MemorySpentSetStore.js';
 export { SqliteSpentSetStore } from './SqliteSpentSetStore.js';
 export type {

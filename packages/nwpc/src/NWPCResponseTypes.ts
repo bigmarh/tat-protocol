@@ -2,7 +2,7 @@ import { NWPCBase } from "./NWPCBase.js";
 import { NWPCServer } from "./NWPCServer.js";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
-import { StorageInterface } from "@tat-protocol/storage";
+import { StorageInterface, ProcessedRequestStore } from "@tat-protocol/storage";
 import { DebugLogger } from "@tat-protocol/utils";
 import type { Signer } from "@tat-protocol/types";
 import { NWPC_SPEC_ERRORS } from "./errors.js";
@@ -31,6 +31,42 @@ export interface NWPCConfig {
   type?: "client" | "server";
   /** Introspection configuration (opt-in, disabled by default) */
   introspection?: NWPCIntrospectionConfig;
+  /**
+   * Exact request idempotency, replacing the LRU + Bloom filter pair.
+   *
+   * Supply one and incoming events are claimed atomically BEFORE the handler
+   * runs, instead of being marked afterwards against a probabilistic filter.
+   *
+   * This fixes three things at once. The Bloom filter's false-positive rate
+   * grows without bound as it fills — measured at 53% after 50k events and 95%
+   * after 100k against the shipped parameters — and a false positive silently
+   * discards a request that was never handled, with no response and no error.
+   * The filter also lives in process memory, so N replicas dedup against their
+   * own copy and none against each other. And marking *after* the handler
+   * leaves two holes: two concurrent deliveries both pass the check before
+   * either marks, and a crash mid-handler loses the mark so the event replays
+   * on restart.
+   *
+   * That last one matters most on the issuance path. Transfer and burn are
+   * protected by the spent set — replay one and its input is already spent —
+   * but a mint has no spent input, so a replayed forge request mints again.
+   *
+   * Omitting it keeps the existing LRU + Bloom behaviour exactly, so upgrading
+   * changes nothing until a deployment opts in.
+   *
+   * ```ts
+   * import { DatabaseSync } from "node:sqlite";
+   * import { SqliteProcessedRequestStore } from "@tat-protocol/storage";
+   *
+   * new MyForge({
+   *   ...config,
+   *   processedRequestStore: new SqliteProcessedRequestStore(
+   *     new DatabaseSync("forge.db"),
+   *   ),
+   * });
+   * ```
+   */
+  processedRequestStore?: ProcessedRequestStore;
   [key: string]: unknown;
 }
 

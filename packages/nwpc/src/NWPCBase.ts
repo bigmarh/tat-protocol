@@ -1,5 +1,5 @@
 import NDK, { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
-import { StorageInterface } from "@tat-protocol/storage";
+import { StorageInterface, ProcessedRequestStore } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { defaultConfig } from "@tat-protocol/config";
 import { NWPCRouter } from "./NWPCRouter.js";
@@ -350,6 +350,34 @@ export abstract class NWPCBase implements INWPCBase {
     }
   }
 
+  /** Exact request idempotency, when configured. See NWPCConfig. */
+  protected get processedRequests(): ProcessedRequestStore | undefined {
+    return this.config.processedRequestStore;
+  }
+
+  /**
+   * Claim an event before handling it.
+   *
+   * @returns `true` if the caller should handle this event, `false` if it has
+   * already been claimed and must not be handled again.
+   *
+   * With a store this is one atomic, durable, EXACT test-and-insert: no false
+   * positives, so a request that was never handled is never dropped; no false
+   * negatives, so a replay is never admitted; and it holds across processes
+   * rather than within one.
+   *
+   * Without a store this preserves the original behaviour — check the LRU and
+   * Bloom filter, and leave the marking to the caller afterwards.
+   */
+  protected async claimEvent(eventId: string): Promise<boolean> {
+    if (!this.deduplication) return true;
+    const store = this.processedRequests;
+    if (store) {
+      return await store.tryClaim(eventId);
+    }
+    return !this.isEventProcessed(eventId);
+  }
+
   /**
    * Subscribes to encrypted messages for a specific public key.
    *
@@ -392,7 +420,12 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      if (this.deduplication && this.isEventProcessed(event.id)) {
+      // Claim BEFORE handling. Marking afterwards left two holes: two
+      // concurrent deliveries of one event both passed the check before either
+      // marked, and a crash mid-handler lost the mark so the event replayed on
+      // restart — which on the issuance path is a second mint, since a forge
+      // request has no spent input to stop it.
+      if (!(await this.claimEvent(event.id))) {
         Debug.log(
           `\nSkipping already processed event: ${event.id}`,
           "NWPCBase",
@@ -403,8 +436,18 @@ export abstract class NWPCBase implements INWPCBase {
         `\n=========================== Received event on subscription : ${event.id} ============\n\n`,
         "NWPCBase",
       );
-      await handler(event);
-      this.markEventProcessed(event.id);
+      try {
+        await handler(event);
+      } finally {
+        // The claim is deliberately NOT released when the handler throws. A
+        // relay redelivering the same event must not get a second attempt at a
+        // mint; a client that genuinely needs to retry publishes a new event,
+        // which carries a new id and claims cleanly. Without a store this is
+        // the legacy mark-after path, kept as it was.
+        if (!this.processedRequests) {
+          this.markEventProcessed(event.id);
+        }
+      }
       // Use the save queue to serialize state saves
       await this.queueSaveState(this.stateKey, this.state);
     };

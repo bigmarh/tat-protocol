@@ -3,6 +3,10 @@ export { NodeStore } from './src/DiskStorage.js';
 export { NodeStore as Backend } from './src/DiskStorage.js';
 export * from './src/StorageInterface.js';
 export * from './src/SpentSetStore.js';
+export * from './src/ProcessedRequestStore.js';
+export { MemoryProcessedRequestStore } from './src/MemoryProcessedRequestStore.js';
+export { SqliteProcessedRequestStore } from './src/SqliteProcessedRequestStore.js';
+export type { MemoryProcessedRequestStoreOptions } from './src/MemoryProcessedRequestStore.js';
 export { MemorySpentSetStore } from './src/MemorySpentSetStore.js';
 export { SqliteSpentSetStore } from './src/SqliteSpentSetStore.js';
 export type {
