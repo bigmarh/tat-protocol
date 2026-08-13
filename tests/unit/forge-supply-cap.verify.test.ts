@@ -112,11 +112,18 @@ function describeSupplyStore(name: string, make: () => Promise<{
       await expect(store.setMaxSupply(KS, 10)).rejects.toThrow(/below/i);
     });
 
-    it('rejects a non-positive or non-finite amount', async () => {
-      await expect(store.tryIssue(KS, 0)).rejects.toThrow(/positive/i);
-      await expect(store.tryIssue(KS, -5)).rejects.toThrow(/positive/i);
-      await expect(store.tryIssue(KS, NaN)).rejects.toThrow(/positive/i);
-      await expect(store.tryIssue(KS, Infinity)).rejects.toThrow(/positive/i);
+    it('rejects any amount that is not a positive whole number', async () => {
+      await expect(store.tryIssue(KS, 0)).rejects.toThrow(/greater than zero/i);
+      await expect(store.tryIssue(KS, -5)).rejects.toThrow(/greater than zero/i);
+      await expect(store.tryIssue(KS, NaN)).rejects.toThrow(/finite/i);
+      await expect(store.tryIssue(KS, Infinity)).rejects.toThrow(/finite/i);
+      // Fractions are what make an accumulated total drift.
+      await expect(store.tryIssue(KS, 0.5)).rejects.toThrow(/whole number/i);
+      await expect(store.tryIssue(KS, 1.0000001)).rejects.toThrow(/whole number/i);
+      // Beyond 2^53 integers stop being exactly representable.
+      await expect(
+        store.tryIssue(KS, Number.MAX_SAFE_INTEGER + 2)
+      ).rejects.toThrow(/too large/i);
     });
 
     it('returns headroom on redemption', async () => {

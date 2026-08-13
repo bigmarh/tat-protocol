@@ -1,4 +1,5 @@
 import { SupplyStore } from './SupplyStore.js';
+import { invalidTokenAmountReason } from '@tat-protocol/utils';
 import type { SqliteDatabaseHandle, SqliteSpentSetStoreOptions } from './SqliteSpentSetStore.js';
 
 /**
@@ -70,8 +71,10 @@ export class SqliteSupplyStore implements SupplyStore {
   }
 
   private assertAmount(amount: number): void {
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error(`SupplyStore: amount must be positive and finite: ${amount}`);
+    // Same rule as the mint path: positive safe integers keep `issued` exact.
+    const reason = invalidTokenAmountReason(amount);
+    if (reason) {
+      throw new Error(`SupplyStore: ${reason} (got ${amount})`);
     }
   }
 

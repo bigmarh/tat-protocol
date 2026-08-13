@@ -8,7 +8,11 @@ import {
 } from "@tat-protocol/nwpc";
 import { ForgeConfig } from "./ForgeConfig.js";
 import { Recipient } from "./Types.js";
-import { DebugLogger } from "@tat-protocol/utils";
+import {
+  DebugLogger,
+  isValidTokenAmount,
+  invalidTokenAmountReason,
+} from "@tat-protocol/utils";
 
 const Debug = DebugLogger.getInstance();
 
@@ -40,14 +44,16 @@ export class FungibleForge extends ForgeBase {
       );
     }
     const amountToForge = Number(amount);
-    // Reject NaN and ±Infinity: `Number("abc")` is NaN and `NaN <= 0` is false,
-    // so a bare `<= 0` check would let a valueless token through and, once spent
-    // as a transfer input, defeat the conservation check.
-    if (!Number.isFinite(amountToForge) || amountToForge <= 0) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
-        "Amount must be a positive, finite number",
-      );
+    // Amounts are positive safe integers. Doubles represent integers exactly up
+    // to 2^53, so this is what makes the conservation arithmetic exact — a
+    // fractional amount accumulates float drift and lets a transfer output
+    // marginally more than its inputs while still passing the check. NaN and
+    // ±Infinity are covered too: `Number("abc")` is NaN and every comparison
+    // against NaN is false, so a bare `<= 0` check would let a valueless token
+    // through and defeat conservation once it was spent as an input.
+    const badAmount = invalidTokenAmountReason(amountToForge);
+    if (badAmount) {
+      return await res.error(NWPC_SPEC_ERRORS.INVALID_PARAMS.code, badAmount);
     }
     // Reserve against the cap BEFORE minting. With a supply store this is one
     // atomic, durable operation the store evaluates — not a read-compare-write
@@ -208,26 +214,20 @@ export class FungibleForge extends ForgeBase {
     }
     let inputTotal = 0;
     for (const token of inputs) {
-      // Non-finite amounts (NaN/±Infinity) must be rejected: a single NaN input
-      // makes inputTotal NaN, and `outputTotal > NaN` is always false, so the
-      // conservation check below would pass for arbitrary outputs.
-      if (
-        typeof token.payload.amount !== "number" ||
-        !Number.isFinite(token.payload.amount) ||
-        token.payload.amount <= 0
-      ) {
-        return "Each input token must have a valid positive amount";
+      // Must be a positive safe integer, so this sum stays exact. A fractional
+      // input makes inputTotal drift, which lets the outputs below claim more
+      // than was put in. Non-finite is covered by the same check: a single NaN
+      // input makes inputTotal NaN, and `outputTotal > NaN` is always false, so
+      // the conservation check would pass for arbitrary outputs.
+      if (!isValidTokenAmount(token.payload.amount)) {
+        return "Each input token must have a positive whole-number amount";
       }
       inputTotal += token.payload.amount;
     }
     let outputTotal = 0;
     for (const entry of outs) {
-      if (
-        typeof entry.amount !== "number" ||
-        !Number.isFinite(entry.amount) ||
-        entry.amount <= 0
-      ) {
-        return "Invalid or missing amount for recipient";
+      if (!isValidTokenAmount(entry.amount)) {
+        return "Each recipient needs a positive whole-number amount";
       }
       if (!entry.to) {
         return "Recipient 'to' is required";

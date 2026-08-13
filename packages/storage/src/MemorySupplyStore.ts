@@ -1,4 +1,5 @@
 import { SupplyStore } from './SupplyStore.js';
+import { invalidTokenAmountReason } from '@tat-protocol/utils';
 
 interface SupplyRow {
   issued: number;
@@ -30,6 +31,14 @@ export class MemorySupplyStore implements SupplyStore {
     }
   }
 
+  private assertAmount(amount: number): void {
+    // Same rule as the mint path: positive safe integers keep `issued` exact.
+    const reason = invalidTokenAmountReason(amount);
+    if (reason) {
+      throw new Error(`SupplyStore: ${reason} (got ${amount})`);
+    }
+  }
+
   private rowFor(keysetId: string): SupplyRow {
     let row = this.rows.get(keysetId);
     if (!row) {
@@ -40,9 +49,7 @@ export class MemorySupplyStore implements SupplyStore {
   }
 
   async tryIssue(keysetId: string, amount: number): Promise<number | null> {
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error(`SupplyStore: amount must be positive and finite: ${amount}`);
-    }
+    this.assertAmount(amount);
     const row = this.rowFor(keysetId);
     // No await between the check and the write — see the class comment.
     if (row.maxSupply !== null && row.issued + amount > row.maxSupply) {
@@ -53,9 +60,7 @@ export class MemorySupplyStore implements SupplyStore {
   }
 
   async recordRedemption(keysetId: string, amount: number): Promise<number> {
-    if (!Number.isFinite(amount) || amount <= 0) {
-      throw new Error(`SupplyStore: amount must be positive and finite: ${amount}`);
-    }
+    this.assertAmount(amount);
     const row = this.rowFor(keysetId);
     // Clamped at zero: redeeming more than was ever issued is a bug upstream,
     // and letting issued go negative would silently hand the mint extra
