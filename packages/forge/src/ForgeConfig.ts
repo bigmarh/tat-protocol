@@ -218,9 +218,11 @@ export interface ForgeConfig {
 
   /**
    * Header version — and so token-hash rule — of the tokens this forge mints.
-   * Default "2.0.0" (lossless hash). A pocket on an SDK before v2 rejects v2
-   * tokens as corrupt, so set "1.0.0" until every holder has updated; tokens
-   * of either version are accepted as inputs regardless.
+   * Default "1.0.0" for the rollout: a pocket on an SDK before v2 rejects a v2
+   * token as corrupt, after the forge has already spent the inputs, so switch
+   * to "2.0.0" (the lossless hash) once every holder has updated. Minting v1
+   * keeps producing tokens exposed to the v1 hash's weakness — see
+   * `acceptV1Tokens`.
    */
   tokenHashVersion?: "1.0.0" | "2.0.0";
 

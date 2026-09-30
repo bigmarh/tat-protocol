@@ -1,6 +1,6 @@
 // Rolling out token hash v2 (A7). A pocket on an older SDK verifies incoming
 // tokens with the v1 hash rule and rejects v2 tokens as corrupt, so a forge
-// whose holders have not all updated must be able to keep minting v1.
+// mints v1 until its operator switches it to v2.
 import "@tat-protocol/nwpc";
 import { FungibleForge } from "@tat-protocol/forge";
 import { Token } from "@tat-protocol/token";
@@ -48,11 +48,13 @@ async function mintedVersion(extra: Record<string, unknown>) {
 }
 
 describe("forge token hash version", () => {
-  it("mints v2 tokens by default", async () => {
-    expect(await mintedVersion({})).toBe("2.0.0");
+  it("mints v1 tokens by default, so pockets that have not updated keep receiving", async () => {
+    // A pocket on an SDK before v2 rejects a v2 token as corrupt — after the
+    // forge has spent the inputs. Rebuilding a forge must not strand them.
+    expect(await mintedVersion({})).toBe("1.0.0");
   });
 
-  it("keeps minting v1 tokens while holders update, when configured", async () => {
-    expect(await mintedVersion({ tokenHashVersion: "1.0.0" })).toBe("1.0.0");
+  it("mints v2 tokens once the operator switches over", async () => {
+    expect(await mintedVersion({ tokenHashVersion: "2.0.0" })).toBe("2.0.0");
   });
 });

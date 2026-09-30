@@ -902,8 +902,8 @@ export abstract class ForgeBase extends NWPCServer {
   // ---------------------------------------------------------------------------
 
   /** Header version for tokens this forge mints. See ForgeConfig.tokenHashVersion. */
-  protected get tokenVersion(): string | undefined {
-    return this.config.tokenHashVersion;
+  protected get tokenVersion(): string {
+    return this.config.tokenHashVersion ?? "1.0.0";
   }
 
   /** The commit/outbox ledger: the configured one, or the state blob. */
