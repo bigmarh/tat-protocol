@@ -213,6 +213,14 @@ export interface ForgeConfig {
   outboxIntervalMs?: number;
 
   /**
+   * End of the transition window for pockets that sign the retired v1 spend
+   * digest (unix seconds). Until then a v1 witness is accepted for plain
+   * transfers — no timeLock on any output — and afterwards it is answered with
+   * UPGRADE_REQUIRED. Default 2026-11-01T00:00:00Z; 0 closes it immediately.
+   */
+  acceptV1SpendDigestUntil?: number;
+
+  /**
    * Allow arbitrary properties for NWPC compatibility
    */
   [key: string]: unknown;

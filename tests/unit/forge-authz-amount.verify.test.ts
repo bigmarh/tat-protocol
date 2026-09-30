@@ -132,12 +132,12 @@ describe("Fix 2: non-finite amount rejection", () => {
     expect(err).toMatch(/input token must have a positive/i);
   });
 
-  it("still accepts a normal transfer within balance", async () => {
+  it("still accepts a normal transfer that spends its inputs exactly", async () => {
     const forge = makeForge();
     const input = await fungibleToken(100);
     const err = await forge.validateFungibleTransfer(
       [input],
-      [{ to: ATTACKER, amount: 40 } as any],
+      [{ to: ATTACKER, amount: 40 } as any, { to: OWNER, amount: 60 } as any],
     );
     expect(err).toBeNull();
   });

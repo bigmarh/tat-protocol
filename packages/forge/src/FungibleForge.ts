@@ -268,18 +268,24 @@ export class FungibleForge extends ForgeBase {
     if (outputTotal > inputTotal) {
       return "Insufficient total input token amount for transfer";
     }
+    // Change is an explicit output. The forge used to mint any remainder as
+    // change locked to whoever submitted the request — value no witness bound,
+    // so a relayer holding someone else's witness could collect it.
+    if (outputTotal !== inputTotal) {
+      return "Outputs must spend the inputs exactly; include change as an explicit output";
+    }
     return null;
   }
 
   public async prepareFungibleTransfer(
     inputs: Token[],
     outs: Recipient[],
-    sender: string,
+    _sender: string,
   ): Promise<{
     recipientTokens: { to: string; jwt: string }[];
     changeTokenJWT?: string;
   }> {
-    // For simplicity, use the first input token's properties for timeLock/data_uri/change lock
+    // For simplicity, use the first input token's data_uri for every output
     const baseToken = inputs[0];
     const recipientTokens: { to: string; jwt: string }[] = [];
     for (const entry of outs) {
@@ -297,31 +303,9 @@ export class FungibleForge extends ForgeBase {
       const jwt = await this.signAndCreateJWT(newToken);
       recipientTokens.push({ to: entry.to, jwt });
     }
-    // Calculate change
-    const inputTotal = inputs.reduce(
-      (sum, t) => sum + (t.payload.amount || 0),
-      0,
-    );
-    const outputTotal = outs.reduce(
-      (sum, entry) => sum + (entry.amount ?? 0),
-      0,
-    );
-    let changeTokenJWT: string | undefined = undefined;
-    if (inputTotal > outputTotal) {
-      const changeToken = new Token();
-      await changeToken.build({
-        token_type: TokenType.FUNGIBLE,
-        payload: Token.createPayload({
-          iss: this.keys.publicKey!,
-          amount: inputTotal - outputTotal,
-          P2PKlock: sender,
-          timeLock: baseToken.payload.timeLock,
-          data_uri: baseToken.payload.data_uri,
-        }),
-      });
-      changeTokenJWT = await this.signAndCreateJWT(changeToken);
-    }
-    return { recipientTokens, changeTokenJWT };
+    // No implicit change: validateFungibleTransfer requires outputs to spend
+    // the inputs exactly. The field stays for subclasses that still return it.
+    return { recipientTokens, changeTokenJWT: undefined };
   }
 
   async burnToken(

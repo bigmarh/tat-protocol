@@ -152,7 +152,7 @@ describe('the forge rejects fractional amounts end to end', () => {
     const forge = makeForge();
     const err = await forge.validateFungibleTransfer(
       [await fungibleToken(100)],
-      [{ to: BOB, amount: 40 } as any]
+      [{ to: BOB, amount: 40 } as any, { to: OWNER, amount: 60 } as any]
     );
     expect(err).toBeNull();
   });

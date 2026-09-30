@@ -19,6 +19,8 @@ export const NWPC_SPEC_ERRORS = {
   INSUFFICIENT_BALANCE: { code: 2003, message: "Insufficient Balance" },
   UNAUTHORIZED: { code: 2004, message: "Unauthorized" },
   SUPPLY_LIMIT: { code: 2005, message: "Supply Limit" },
+  TOKEN_REQUIRED: { code: 2006, message: "Token Required" },
+  UPGRADE_REQUIRED: { code: 2010, message: "Upgrade Required" },
   INTERNAL_ERROR: { code: 3000, message: "Internal Error" },
 } as const;
 

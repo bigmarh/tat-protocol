@@ -14,6 +14,8 @@ import {
   signMessage,
   verifySignature,
   spendAuthDigest,
+  spendAuthDigestV1,
+  unboundOutFields,
   burnAuthDigest,
   postToFeed,
   DebugLogger,
@@ -46,6 +48,12 @@ const OUTBOX_TTL_MS = 7 * DAY_MS;
 const MIN_TX_RETENTION_DAYS = 30;
 const OUTBOX_MAX_BACKOFF_MS = 5 * 60 * 1000;
 const PRUNE_EVERY_MS = 60 * 60 * 1000;
+/**
+ * Default end of the v1 spend-digest window (2026-11-01T00:00:00Z, unix
+ * seconds). Announced with the release; override with
+ * `ForgeConfig.acceptV1SpendDigestUntil` (0 closes it now).
+ */
+const DEFAULT_V1_SPEND_DIGEST_UNTIL = Date.UTC(2026, 10, 1) / 1000;
 
 /**
  * Transaction data structure
@@ -1257,6 +1265,50 @@ export abstract class ForgeBase extends NWPCServer {
   }
 
   /**
+   * Transition for pockets still signing the v1 spend digest, which binds only
+   * to/amount/tokenID.
+   *
+   * Accepted only while the announced window is open and only where v1 already
+   * covers everything that matters: no output carries a timeLock (v1 does not
+   * bind it), every output's issuer is this forge (checked for all outputs),
+   * and outputs spend the inputs exactly (enforced for every transfer, since
+   * change is always explicit). After the window the pocket gets an explicit
+   * UPGRADE_REQUIRED rather than a generic authorization failure.
+   *
+   * @returns `null` if the v1 witness is accepted, `undefined` if it is not a
+   * valid v1 witness either, or `[message, code]` to reject with.
+   */
+  protected checkV1SpendWitness(
+    tokenHash: string,
+    outs: Record<string, unknown>[],
+    witness: Uint8Array,
+    lock: string,
+  ): null | undefined | [string, number] {
+    if (!verifySignature(spendAuthDigestV1(tokenHash, outs), witness, lock)) {
+      return undefined;
+    }
+    const until =
+      this.config.acceptV1SpendDigestUntil ?? DEFAULT_V1_SPEND_DIGEST_UNTIL;
+    if (Math.floor(Date.now() / 1000) >= until) {
+      return [
+        "This Pocket signs with a retired witness format (v1); update your Pocket to spend",
+        NWPC_SPEC_ERRORS.UPGRADE_REQUIRED.code,
+      ];
+    }
+    if (outs.some((o) => o.timeLock !== undefined && o.timeLock !== null)) {
+      return [
+        "A v1 witness does not cover timeLock; update your Pocket to send time-locked outputs",
+        NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+      ];
+    }
+    Debug.log(
+      `Accepted a v1 spend witness; the v1 window closes at ${new Date(until * 1000).toISOString()}`,
+      "ForgeBase",
+    );
+    return null;
+  }
+
+  /**
    * Signs a token and converts it to JWT format.
    *
    * This method prepares the token for issuance by creating a signature using the
@@ -1335,6 +1387,54 @@ export abstract class ForgeBase extends NWPCServer {
         "",
       ];
     }
+    // Every output field must be one the spend digest binds, and an output can
+    // only be issued by this forge. Anything else could change what an output
+    // is without changing what the spender signed.
+    let outs: Record<string, unknown>[];
+    try {
+      outs = (tx.outs ?? []).map((o) =>
+        typeof o === "string" ? JSON.parse(o) : (o as unknown),
+      ) as Record<string, unknown>[];
+    } catch {
+      return [
+        null,
+        "Transaction outputs are not valid JSON",
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
+    }
+    for (const out of outs) {
+      if (!out || typeof out !== "object" || Array.isArray(out)) {
+        return [
+          null,
+          "Each output must be an object",
+          NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "",
+        ];
+      }
+    }
+    const unbound = unboundOutFields(outs);
+    if (unbound.length > 0) {
+      return [
+        null,
+        `Output field(s) not covered by the witness: ${unbound.join(", ")}`,
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
+    }
+    if (
+      outs.some(
+        (o) => o.issuer !== undefined && o.issuer !== this.keys.publicKey,
+      )
+    ) {
+      return [
+        null,
+        "Output issuer is not this forge",
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
+    }
+
     // Reject transactions that list the same input token more than once.
     // Without this, `validateFungibleTransfer` sums each duplicate as
     // additional value and the spent-set (idempotent Set.add) never notices,
@@ -1434,15 +1534,25 @@ export abstract class ForgeBase extends NWPCServer {
         }
         const witnessMessage = opts.witnessDigest
           ? opts.witnessDigest(token.header.token_hash)
-          : spendAuthDigest(token.header.token_hash, tx.outs ?? []);
-        // Only the bound digest verifies. A signature over the bare token hash
+          : spendAuthDigest(token.header.token_hash, outs);
+        // Only a bound digest verifies. A signature over the bare token hash
         // (the pre-C6 scheme) is bound to no outputs, so anyone who saw it could
         // attach it to outputs of their own; it is not accepted in any mode.
-        const isValid = verifySignature(
+        let isValid = verifySignature(
           witnessMessage,
           witnessBytes,
           token.payload.P2PKlock,
         );
+        if (!isValid && !opts.witnessDigest) {
+          const v1Error = this.checkV1SpendWitness(
+            token.header.token_hash,
+            outs,
+            witnessBytes,
+            token.payload.P2PKlock,
+          );
+          if (v1Error === null) isValid = true;
+          else if (v1Error) return [null, v1Error[0], v1Error[1], ""];
+        }
         if (!isValid) {
           return [
             null,
