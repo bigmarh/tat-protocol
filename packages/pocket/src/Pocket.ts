@@ -1861,6 +1861,21 @@ export class Pocket extends NWPCPeer {
     private async subscribeToIssuerSpent(issuerPubkey: string) {
         if (this.subscribedIssuers.has(issuerPubkey)) return;
         this.subscribedIssuers.add(issuerPubkey);
+        this.openSpentFeed(issuerPubkey);
+    }
+
+    /**
+     * Re-open every subscription after a reconnect — the DM subscriptions for
+     * the main and single-use keys (base class) and each issuer's spent feed —
+     * all resuming from the persisted point rather than from now.
+     */
+    protected async resubscribeAll(): Promise<void> {
+        await super.resubscribeAll();
+        for (const issuer of this.subscribedIssuers) this.openSpentFeed(issuer);
+    }
+
+    private openSpentFeed(issuerPubkey: string): void {
+        this.spentFeedSubscriptions.get(issuerPubkey)?.stop();
         // Issuers publish spent markers as "spent:<tokenHash>" notices. Subscribe
         // directly to them so pockets can reconcile spent tokens even if they were
         // spent on another device.
@@ -1874,7 +1889,10 @@ export class Pocket extends NWPCPeer {
             kinds: [KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT],
             authors: [issuerPubkey],
             "#p": [issuerPubkey],
-            since: Math.floor(Date.now() / 1000) - 10 * 60,
+            // From where this pocket stopped listening, like its DM feeds: a
+            // token spent on another device while this one was closed is still
+            // reconciled on reopen.
+            since: this.resumeSince(),
         };
         const subscription = this.ndk.subscribe(filter, { closeOnEose: false });
         subscription.on("event", async (event: NDKEvent) => {

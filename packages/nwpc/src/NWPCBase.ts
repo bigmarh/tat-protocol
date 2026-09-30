@@ -52,6 +52,19 @@ const Debug = DebugLogger.getInstance();
 /** Floor between pool reconnect attempts, so a dead relay cannot stall publishes. */
 const RECONNECT_COOLDOWN_MS = 10_000;
 
+/** Window asked for on a first start, when nothing has been seen yet. */
+const FIRST_START_WINDOW_SEC = 10 * 60;
+/**
+ * How far behind the newest event seen a resumed subscription starts, to cover
+ * events published while the last batch was in flight and relay clock skew.
+ * Gift-wrap `created_at` is currently the real send time; once wraps randomize
+ * it (NIP-59 allows up to two days in the past) this must grow to >= 2 days,
+ * or wraps backdated behind the resume point are never asked for.
+ */
+const RESUME_MARGIN_SEC = 10 * 60;
+/** Never ask relays for more than this much history on resume. */
+const MAX_RESUME_LOOKBACK_SEC = 7 * 24 * 60 * 60;
+
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
   public router: NWPCRouter;
@@ -70,6 +83,11 @@ export abstract class NWPCBase implements INWPCBase {
   protected stateKey!: string;
   protected connected: boolean = false;
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
+  /** Handler per subscribed pubkey, so a reconnect can re-open every one. */
+  protected subscriptionHandlers: Map<
+    string,
+    (event: NDKEvent) => Promise<void>
+  > = new Map();
   private deduplication: boolean = true; // Enable deduplication for event processing
   private _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private _keepaliveTick = 0;
@@ -242,10 +260,47 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Re-subscribe so incoming messages are received on fresh connections. A
     // reconnected relay has no record of the REQ that was open on the socket
-    // that died, so without this the wallet is silently deaf on it.
-    if (this.publicKey) {
-      await this.subscribe(this.publicKey, this.handleEvent.bind(this));
+    // that died, so without this the peer is silently deaf on it — on EVERY
+    // pubkey it listens on, not just the main one.
+    await this.resubscribeAll();
+  }
+
+  /**
+   * Re-open every subscription, resuming from the last event seen. Subclasses
+   * with other feeds extend this to re-open them too.
+   */
+  protected async resubscribeAll(): Promise<void> {
+    const pubkeys = new Set(this.activeSubscriptions?.keys() ?? []);
+    if (this.publicKey) pubkeys.add(this.publicKey);
+    for (const pubkey of pubkeys) {
+      const handler =
+        this.subscriptionHandlers?.get(pubkey) ?? this.handleEvent.bind(this);
+      await this.subscribe(pubkey, handler);
     }
+  }
+
+  /**
+   * Where a (re)opened subscription starts: the newest event seen, less a
+   * margin, and no further back than a week. On a first start, a short window.
+   */
+  protected resumeSince(): number {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const last = this.state?.lastSeenAt;
+    if (typeof last !== "number" || !Number.isFinite(last)) {
+      return nowSec - FIRST_START_WINDOW_SEC;
+    }
+    return Math.max(
+      nowSec - MAX_RESUME_LOOKBACK_SEC,
+      Math.min(nowSec, last) - RESUME_MARGIN_SEC,
+    );
+  }
+
+  /** Advance the persisted resume point. Never backwards, never past now. */
+  protected noteEventSeen(event: NDKEvent): void {
+    const at = typeof event.created_at === "number" ? event.created_at : 0;
+    if (!at || !this.state) return;
+    const capped = Math.min(at, Math.floor(Date.now() / 1000));
+    if (capped > (this.state.lastSeenAt ?? 0)) this.state.lastSeenAt = capped;
   }
 
   /**
@@ -297,9 +352,9 @@ export abstract class NWPCBase implements INWPCBase {
         await this.ensureConnected();
 
         // Periodic full re-subscribe to catch silently-dead sockets
-        if (this._keepaliveTick % refreshEvery === 0 && this.publicKey) {
-          Debug.log("Keepalive: refreshing subscription", "NWPCBase");
-          await this.subscribe(this.publicKey, this.handleEvent.bind(this));
+        if (this._keepaliveTick % refreshEvery === 0) {
+          Debug.log("Keepalive: refreshing subscriptions", "NWPCBase");
+          await this.resubscribeAll();
         }
       } catch (err) {
         Debug.error("Keepalive error: " + err, "NWPCBase");
@@ -411,7 +466,7 @@ export abstract class NWPCBase implements INWPCBase {
     const filter = {
       kinds: [1059],
       "#p": [pubkey],
-      since: since ?? Math.floor(Date.now() / 1000) - 10 * 60,
+      since: since ?? this.resumeSince(),
     };
 
     const subscription = this.ndk.subscribe(filter, {
@@ -420,6 +475,7 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
+      this.noteEventSeen(event);
       // Claim BEFORE handling. Marking afterwards left two holes: two
       // concurrent deliveries of one event both passed the check before either
       // marked, and a crash mid-handler lost the mark so the event replayed on
@@ -464,12 +520,14 @@ export abstract class NWPCBase implements INWPCBase {
     subscription.on("event", eventHandler);
     subscription.on("eose", eoseHandler);
     this.activeSubscriptions?.set(pubkey, subscription);
+    this.subscriptionHandlers?.set(pubkey, handler);
     return subscription;
   }
 
   public async unsubscribe(pubkey: string): Promise<boolean> {
     const sub = this.getSubscription(pubkey);
     sub?.stop();
+    this.subscriptionHandlers?.delete(pubkey);
     return this.activeSubscriptions?.delete(pubkey) ?? false;
   }
 
