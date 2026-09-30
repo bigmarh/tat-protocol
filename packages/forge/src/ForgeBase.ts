@@ -807,6 +807,17 @@ export abstract class ForgeBase extends NWPCServer {
         );
       }
       try {
+        // The same burn again — a retry after a lost reply — is answered from
+        // the ledger; validation would call it spent and strand the pocket
+        // holding a token that is already gone. A burn is a tx with no
+        // outputs, so a transfer of the same token never matches.
+        const replay = await this.replayCommittedTransfer(
+          [token],
+          [],
+          context.sender,
+          res,
+        );
+        if (replay) return replay.response as NWPCResponse;
         // Integrity, issuer, spent, expiry, timelock, HTLC and the witness —
         // the same checks a transfer input passes, with the witness verified
         // over the burn digest.

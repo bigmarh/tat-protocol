@@ -144,11 +144,27 @@ describe("burn requires the lock key and this forge's issuance", () => {
     expect(await forge.isTokenSpent(t.hash)).toBe(false);
   });
 
-  it("reports an already-spent token as spent", async () => {
+  it("answers a retried burn as committed, so a lost reply does not strand the pocket", async () => {
     const t = await token({ lock: ALICE });
     const witness = sign(burnAuthDigest(t.hash), ALICE_SK);
     await burn({ token: t.jwt, witness });
     const again = await burn({ token: t.jwt, witness });
-    expect(errorOf(again)?.[0]).toBe(2002);
+    expect(errorOf(again)).toBeUndefined();
+    const reply = again.calls.find((c: any) => c.type === "send")?.args[0];
+    expect(reply).toMatchObject({ status: "committed" });
+  });
+
+  it("reports a token already spent by a transfer as spent", async () => {
+    const t = await token({ lock: ALICE });
+    const outs = [{ to: MALLORY, amount: 50, issuer: OWNER }];
+    const tres = makeRes();
+    await forge.transferToken(
+      { id: "t", params: JSON.stringify({ ins: [t.jwt], outs, witnessData: [sign(spendAuthDigest(t.hash, outs), ALICE_SK)] }) },
+      { sender: ALICE },
+      tres,
+    );
+    expect(errorOf(tres)).toBeUndefined();
+    const res = await burn({ token: t.jwt, witness: sign(burnAuthDigest(t.hash), ALICE_SK) });
+    expect(errorOf(res)?.[0]).toBe(2002);
   });
 });
