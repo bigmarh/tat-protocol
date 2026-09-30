@@ -83,6 +83,12 @@ export abstract class NWPCBase implements INWPCBase {
   protected stateKey!: string;
   protected connected: boolean = false;
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
+  /** Subscriptions whose stored-event backfill has not reached EOSE yet. */
+  private backfilling = new Set<NDKSubscription>();
+  /** `created_at` of each event whose handler is still running. */
+  private inFlight: number[] = [];
+  /** Newest `created_at` whose handler has finished. */
+  private newestHandled = 0;
   /** Handler per subscribed pubkey, so a reconnect can re-open every one. */
   protected subscriptionHandlers: Map<
     string,
@@ -295,11 +301,21 @@ export abstract class NWPCBase implements INWPCBase {
     );
   }
 
-  /** Advance the persisted resume point. Never backwards, never past now. */
-  protected noteEventSeen(event: NDKEvent): void {
-    const at = typeof event.created_at === "number" ? event.created_at : 0;
-    if (!at || !this.state) return;
-    const capped = Math.min(at, Math.floor(Date.now() / 1000));
+  /**
+   * Advance the persisted resume point to what has actually been handled.
+   *
+   * Two things hold it back. A subscription still in backfill: relays send
+   * stored events newest first, so the newest one being handled says nothing
+   * about the older ones not yet sent. And an event still being handled: a
+   * crash mid-handler must resume from before it. Otherwise it moves to the
+   * newest handled event — never backwards, never past now.
+   */
+  protected advanceResumePoint(): void {
+    if (!this.state || this.backfilling.size > 0 || !this.newestHandled) return;
+    let point = this.newestHandled;
+    if (this.inFlight.length > 0)
+      point = Math.min(point, Math.min(...this.inFlight) - 1);
+    const capped = Math.min(point, Math.floor(Date.now() / 1000));
     if (capped > (this.state.lastSeenAt ?? 0)) this.state.lastSeenAt = capped;
   }
 
@@ -475,7 +491,22 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      this.noteEventSeen(event);
+      const at = typeof event.created_at === "number" ? event.created_at : 0;
+      if (at) this.inFlight.push(at);
+      try {
+        await handleOne(event);
+      } finally {
+        if (at) {
+          this.inFlight.splice(this.inFlight.indexOf(at), 1);
+          this.newestHandled = Math.max(this.newestHandled, at);
+        }
+        this.advanceResumePoint();
+      }
+      // Use the save queue to serialize state saves
+      await this.queueSaveState(this.stateKey, this.state);
+    };
+
+    const handleOne = async (event: NDKEvent) => {
       // Claim BEFORE handling. Marking afterwards left two holes: two
       // concurrent deliveries of one event both passed the check before either
       // marked, and a crash mid-handler lost the mark so the event replayed on
@@ -504,11 +535,11 @@ export abstract class NWPCBase implements INWPCBase {
           this.markEventProcessed(event.id);
         }
       }
-      // Use the save queue to serialize state saves
-      await this.queueSaveState(this.stateKey, this.state);
     };
 
     const eoseHandler = async () => {
+      this.backfilling.delete(subscription);
+      this.advanceResumePoint();
       Debug.log(
         "\n=========================== EOSE received ===========================\n",
         "NWPCBase",
@@ -517,6 +548,7 @@ export abstract class NWPCBase implements INWPCBase {
       await this.queueSaveState(this.stateKey, this.state);
     };
 
+    this.backfilling.add(subscription);
     subscription.on("event", eventHandler);
     subscription.on("eose", eoseHandler);
     this.activeSubscriptions?.set(pubkey, subscription);
@@ -527,6 +559,9 @@ export abstract class NWPCBase implements INWPCBase {
   public async unsubscribe(pubkey: string): Promise<boolean> {
     const sub = this.getSubscription(pubkey);
     sub?.stop();
+    // A closed subscription will never send EOSE; do not let it hold the
+    // resume point forever.
+    if (sub) this.backfilling.delete(sub);
     this.subscriptionHandlers?.delete(pubkey);
     return this.activeSubscriptions?.delete(pubkey) ?? false;
   }

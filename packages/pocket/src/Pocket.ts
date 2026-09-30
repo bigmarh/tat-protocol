@@ -739,22 +739,6 @@ export class Pocket extends NWPCPeer {
         return Math.max(floor, Math.min(nowSec, last) - RESUME_SLACK_SEC);
     }
 
-    /**
-     * Move the resume point up to this event.
-     *
-     * Kept one hour behind the newest thing seen (`resumeSince` applies the
-     * slack) so a burst of events written while a batch was in flight is not
-     * skipped by the next open. Never moves backwards, and never past now.
-     */
-    protected noteEventSeen(event: NDKEvent): void {
-        const at = typeof event.created_at === 'number' ? event.created_at : 0;
-        if (!at) return;
-        const nowSec = Math.floor(Date.now() / 1000);
-        const capped = Math.min(at, nowSec);
-        if (capped > (this.state.lastSeenAt ?? 0)) {
-            this.state.lastSeenAt = capped;
-        }
-    }
 
     /**
      * Re-ask the relays for everything addressed to this wallet since `sinceMs`,
@@ -960,11 +944,6 @@ export class Pocket extends NWPCPeer {
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
-        // Advance the resume point even for events that turn out to be
-        // duplicates or undecryptable: they are still proof this wallet has
-        // seen everything up to that timestamp. Advancing only on success would
-        // make the window creep forward more slowly than the relay's history.
-        this.noteEventSeen(event);
         // Dedup check before the expensive decrypt/unwrap.
         if (this.isEventProcessed(event.id)) {
             Debug.log("duplicate event detected (early)" + event.id, 'Pocket');

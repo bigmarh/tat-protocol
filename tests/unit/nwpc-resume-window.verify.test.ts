@@ -88,19 +88,49 @@ describe("servers resume from the last event they saw", () => {
     expect(s.ndk.subs[0].filter.since).toBe(NOW() - 7 * 24 * HOUR);
   });
 
-  it("records the time of each event it receives", async () => {
+  const flush = () => new Promise((r) => setTimeout(r, 10));
+
+  it("advances the resume point only as events are handled, never past one in flight", async () => {
     const s = server(NOW() - 3 * HOUR);
-    const seen: string[] = [];
-    await s.subscribe(s.publicKey, async (e: any) => void seen.push(e.id));
-    const at = NOW() - 60;
-    s.ndk.subs[0].sub.emit("event", { id: "e1".padEnd(64, "0"), created_at: at });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(seen).toHaveLength(1);
-    expect(s.state.lastSeenAt).toBe(at);
+    const release: Record<string, () => void> = {};
+    await s.subscribe(s.publicKey, (e: any) => new Promise<void>((r) => (release[e.id] = r)));
+    const sub = s.ndk.subs[0].sub;
+    sub.emit("eose");
+    const older = NOW() - 120;
+    const newer = NOW() - 60;
+    sub.emit("event", { id: "o".padEnd(64, "0"), created_at: older });
+    sub.emit("event", { id: "n".padEnd(64, "0"), created_at: newer });
+    await flush();
+    release["n".padEnd(64, "0")]();
+    await flush();
+    // The newer one finished, but the older is still being handled: a crash
+    // now must resume from before it.
+    expect(s.state.lastSeenAt).toBeLessThan(older);
+    release["o".padEnd(64, "0")]();
+    await flush();
+    expect(s.state.lastSeenAt).toBe(newer);
     // Never moves backwards.
-    s.ndk.subs[0].sub.emit("event", { id: "e2".padEnd(64, "0"), created_at: at - HOUR });
-    await new Promise((r) => setTimeout(r, 10));
-    expect(s.state.lastSeenAt).toBe(at);
+    sub.emit("event", { id: "b".padEnd(64, "0"), created_at: newer - HOUR });
+    await flush();
+    release["b".padEnd(64, "0")]?.();
+    await flush();
+    expect(s.state.lastSeenAt).toBe(newer);
+  });
+
+  it("does not advance during a relay's backfill, which arrives newest first", async () => {
+    const s = server(NOW() - 3 * HOUR);
+    await s.subscribe(s.publicKey, async () => undefined);
+    const sub = s.ndk.subs[0].sub;
+    // The newest stored event arrives and is handled before the older ones
+    // have even been sent. Advancing now would skip them after a crash.
+    sub.emit("event", { id: "x".padEnd(64, "0"), created_at: NOW() - 30 });
+    await flush();
+    expect(s.state.lastSeenAt).toBe(NOW() - 3 * HOUR);
+    sub.emit("event", { id: "y".padEnd(64, "0"), created_at: NOW() - 2 * HOUR });
+    await flush();
+    sub.emit("eose");
+    await flush();
+    expect(s.state.lastSeenAt).toBe(NOW() - 30);
   });
 
   it("re-opens every subscription on reconnect, resuming rather than starting over", async () => {
@@ -131,6 +161,9 @@ describe("pockets keep every feed open across reconnects", () => {
       state: { relays: new Set(), lastSeenAt, singleUseKeys: new Map() },
       activeSubscriptions: new Map(),
       subscriptionHandlers: new Map(),
+      backfilling: new Set(),
+      inFlight: [],
+      newestHandled: 0,
       subscribedIssuers: new Set(),
       spentFeedSubscriptions: new Map(),
       _lastReconnectAt: 0,
