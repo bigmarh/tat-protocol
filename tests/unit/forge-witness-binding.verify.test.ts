@@ -109,9 +109,10 @@ describe("C6: P2PK witness is bound to the transfer outputs", () => {
     expect(tx).toBeNull();
   });
 
-  it("accepts a legacy (token-hash-only) witness during the transition (default)", async () => {
-    // Backward compatibility: wallets on the pre-C6 SDK keep working while
-    // allowLegacyWitness is left at its default (true).
+  it("rejects a legacy (token-hash-only) witness", async () => {
+    // A signature over the bare token hash is bound to nothing: whoever sees it
+    // on the wire can attach it to outputs of their choosing. It is refused
+    // outright — there is no transition window for this one.
     const forge = makeForge();
     const jwt = await mintP2PK(forge, 100);
     const hash = await tokenHashOf(jwt);
@@ -121,25 +122,25 @@ describe("C6: P2PK witness is bound to the transfer outputs", () => {
       { ins: [jwt], outs },
       [legacyWitness(hash)],
     );
-    expect(err).toBeNull();
-    expect(tx).not.toBeNull();
+    expect(err).toMatch(/witness/i);
+    expect(tx).toBeNull();
   });
 
-  it("rejects a legacy witness once allowLegacyWitness is false (C6 fully closed)", async () => {
-    const forge = makeForge({ allowLegacyWitness: false });
+  it("does not let configuration re-enable the legacy witness", async () => {
+    const forge = makeForge({ allowLegacyWitness: true });
     const jwt = await mintP2PK(forge, 100);
     const hash = await tokenHashOf(jwt);
-    const outs = [{ to: BOB, amount: 100, issuer: OWNER }];
+    const attackerOuts = [{ to: ATTACKER, amount: 100, issuer: OWNER }];
 
     const [, err] = await (forge as any).validateTXInputs(
-      { ins: [jwt], outs },
+      { ins: [jwt], outs: attackerOuts },
       [legacyWitness(hash)],
     );
     expect(err).toMatch(/witness/i);
   });
 
-  it("in strict mode, the bound witness still works and replay is rejected", async () => {
-    const forge = makeForge({ allowLegacyWitness: false });
+  it("accepts the bound witness and rejects its replay", async () => {
+    const forge = makeForge();
     const jwt = await mintP2PK(forge, 100);
     const hash = await tokenHashOf(jwt);
     const honestOuts = [{ to: BOB, amount: 100, issuer: OWNER }];

@@ -799,14 +799,13 @@ export abstract class ForgeBase extends NWPCServer {
       try {
         // Integrity, issuer, spent, expiry, timelock, HTLC and the witness —
         // the same checks a transfer input passes, with the witness verified
-        // over the burn digest and no legacy fallback.
+        // over the burn digest.
         const [validTx, error, code, params] = await this.validateTXInputs(
           { ins: [token] },
           [witness ?? ""],
           undefined,
           {
             witnessDigest: burnAuthDigest,
-            allowLegacyWitness: false,
             requireLock: true,
           },
         );
@@ -1321,8 +1320,6 @@ export abstract class ForgeBase extends NWPCServer {
     opts: {
       /** Digest the P2PK witness must sign. Default: spendAuthDigest over tx.outs. */
       witnessDigest?: (tokenHash: string) => Uint8Array;
-      /** `false` refuses the legacy bare-token-hash witness regardless of config. */
-      allowLegacyWitness?: boolean;
       /** Refuse inputs with no P2PK lock (nothing could authorize them). */
       requireLock?: boolean;
     } = {},
@@ -1438,33 +1435,14 @@ export abstract class ForgeBase extends NWPCServer {
         const witnessMessage = opts.witnessDigest
           ? opts.witnessDigest(token.header.token_hash)
           : spendAuthDigest(token.header.token_hash, tx.outs ?? []);
-        let isValid = verifySignature(
+        // Only the bound digest verifies. A signature over the bare token hash
+        // (the pre-C6 scheme) is bound to no outputs, so anyone who saw it could
+        // attach it to outputs of their own; it is not accepted in any mode.
+        const isValid = verifySignature(
           witnessMessage,
           witnessBytes,
           token.payload.P2PKlock,
         );
-        // Transition (C6): unless disabled, also accept the legacy witness
-        // signed over the bare token hash so wallets on an older SDK keep
-        // working. Flip `allowLegacyWitness: false` once all wallets are updated
-        // to fully close the replay vector.
-        if (
-          !isValid &&
-          opts.allowLegacyWitness !== false &&
-          this.config.allowLegacyWitness !== false
-        ) {
-          const legacyValid = verifySignature(
-            hexToBytes(token.header.token_hash),
-            witnessBytes,
-            token.payload.P2PKlock,
-          );
-          if (legacyValid) {
-            Debug.log(
-              "Accepted a LEGACY (unbound) P2PK witness — a wallet still needs updating for C6",
-              "ForgeBase",
-            );
-            isValid = true;
-          }
-        }
         if (!isValid) {
           return [
             null,
