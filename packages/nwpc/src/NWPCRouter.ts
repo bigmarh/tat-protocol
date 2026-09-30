@@ -82,8 +82,12 @@ export class NWPCRouter {
       );
     }
 
-    this.handlerEngine.addAll(route.handlers);
-    const response = await this.handlerEngine.execute(request, context, res);
+    const response = await this.handlerEngine.execute(
+      request,
+      context,
+      res,
+      route.handlers,
+    );
     return response as NWPCResponse;
   }
 

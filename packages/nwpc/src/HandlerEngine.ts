@@ -15,6 +15,10 @@ export class HandlerEngine {
 
   constructor() {}
 
+  /**
+   * @deprecated Pass the chain to `execute` instead. The engine may be shared
+   * by concurrent requests, so a chain stored on it can be replaced mid-flight.
+   */
   public addAll(handlers: NWPCHandler[]): void {
     this.handlers = handlers;
   }
@@ -23,7 +27,12 @@ export class HandlerEngine {
     request: NWPCRequest,
     context: NWPCContext,
     res: NWPCResponseObject,
+    handlers: NWPCHandler[] = this.handlers,
   ): Promise<NWPCResponse | void> {
+    // Capture the chain once, per request. Reading `this.handlers` on each
+    // `next()` let a middleware that awaited resume into whatever chain a
+    // concurrent request had installed meanwhile — past its own route's gate.
+    const chain = handlers.slice();
     let currentIndex = 0;
     let responseSent = false;
     // Patch: wrap res.send and res.error to detect if a response was sent
@@ -38,7 +47,7 @@ export class HandlerEngine {
     res.error = async (...args: unknown[]) => {
       responseSent = true;
       // Ensure at least two arguments (code, message)
-      const [code, message, recipient] =
+      const [code, message, params, recipient] =
         args.length < 2
           ? [
               NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
@@ -48,16 +57,17 @@ export class HandlerEngine {
       return originalError(
         code as number,
         message as string,
-        recipient as string | undefined,
+        params as string | undefined,
+        recipient as string | string[] | undefined,
       );
     };
 
     const next = async (): Promise<void> => {
-      if (currentIndex >= this.handlers.length) {
+      if (currentIndex >= chain.length) {
         return;
       }
 
-      const handler = this.handlers[currentIndex++];
+      const handler = chain[currentIndex++];
       await handler(request, context, res, next);
     };
 

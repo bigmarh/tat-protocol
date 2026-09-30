@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- **NWPC: per-request handler chains (A6)** — the router shared one `HandlerEngine` across requests and the engine read its chain lazily on each `next()`, so a middleware that awaited could resume into a concurrent request's route (e.g. a `transfer` request running `forge`'s mint handler past its auth gate). `HandlerEngine.execute` now takes the chain per call and captures it once; `addAll` is deprecated.
+- **NWPC: `res.error` recipient** — the engine's `res.error` wrapper dropped a fourth-argument recipient, so errors addressed to a specific party went to the request sender instead.
+
 ## [1.3.0] - 2026-07-24
 
 ### Security
