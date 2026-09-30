@@ -49,6 +49,14 @@ export class MemorySupplyStore implements SupplyStore {
   }
 
   async tryIssue(keysetId: string, amount: number): Promise<number | null> {
+    return this.tryIssueSync(keysetId, amount);
+  }
+
+  /**
+   * @internal Synchronous form of {@link tryIssue}, so a MemoryForgeLedger
+   * commit can reserve supply with no suspension point before its other writes.
+   */
+  tryIssueSync(keysetId: string, amount: number): number | null {
     this.assertAmount(amount);
     const row = this.rowFor(keysetId);
     // No await between the check and the write — see the class comment.

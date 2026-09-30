@@ -4,6 +4,8 @@ export * from './src/StorageInterface.js';
 export * from './src/SpentSetStore.js';
 export * from './src/ProcessedRequestStore.js';
 export * from './src/SupplyStore.js';
+export * from './src/ForgeLedger.js';
+export { MemoryForgeLedger } from './src/MemoryForgeLedger.js';
 export { MemorySupplyStore } from './src/MemorySupplyStore.js';
 export { SqliteSupplyStore } from './src/SqliteSupplyStore.js';
 export { MemoryProcessedRequestStore } from './src/MemoryProcessedRequestStore.js';
@@ -15,3 +17,4 @@ export { MemorySpentSetStore } from './src/MemorySpentSetStore.js';
 // something actually constructs it. Pockets do not use the spent set at all —
 // it is forge-side — so this costs browser targets nothing.
 export { SqliteSpentSetStore } from './src/SqliteSpentSetStore.js';
+export { SqliteForgeLedger } from './src/SqliteForgeLedger.js';

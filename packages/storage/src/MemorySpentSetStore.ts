@@ -35,6 +35,27 @@ export class MemorySpentSetStore implements SpentSetStore {
     return true;
   }
 
+  /**
+   * @internal All-or-nothing mark, synchronous so a {@link MemoryForgeLedger}
+   * commit has no suspension point between its checks and its writes.
+   *
+   * @returns the hashes that were already spent (or repeated in the list); when
+   * non-empty, NOTHING was marked.
+   */
+  markAllIfUnspentSync(keysetId: string, tokenHashes: string[]): string[] {
+    const keys = tokenHashes.map(normalizeTokenHash);
+    const set = this.setFor(keysetId);
+    const seen = new Set<string>();
+    const conflicts: string[] = [];
+    for (const key of keys) {
+      if (set.has(key) || seen.has(key)) conflicts.push(key);
+      seen.add(key);
+    }
+    if (conflicts.length > 0) return conflicts;
+    for (const key of keys) set.add(key);
+    return [];
+  }
+
   async getStates(keysetId: string, tokenHashes: string[]): Promise<Record<string, boolean>> {
     const set = this.setFor(keysetId);
     const out: Record<string, boolean> = {};

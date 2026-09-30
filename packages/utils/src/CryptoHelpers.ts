@@ -1,6 +1,6 @@
 import { sha256 } from "@noble/hashes/sha256";
 import { schnorr } from "@noble/curves/secp256k1.js";
-import { hexToBytes } from "@noble/hashes/utils";
+import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { DebugLogger } from "./debug.js";
 
@@ -58,6 +58,38 @@ export function spendAuthDigest(
   const message =
     "TAT-P2PK-SPEND-v1\n" + inputTokenHash + "\n" + JSON.stringify(normalized);
   return sha256(new TextEncoder().encode(message));
+}
+
+/**
+ * Identifier of a transfer, derived from its inputs alone.
+ *
+ * Inputs can each be spent exactly once, so the set of input hashes identifies
+ * the one transfer that consumed them. Deriving the id from them (rather than
+ * from anything the forge assigns) is what lets a pocket that lost every reply
+ * still ask the forge `status {tx_id}` about the transfer it sent. Sorted, so
+ * input order does not change the id.
+ *
+ * Versioned: the spec's v2 id hashes the whole transaction body. That lands as
+ * a new tag, not a change to this one.
+ */
+export function txIdForInputs(inputTokenHashes: string[]): string {
+  const sorted = [...inputTokenHashes].map((h) => h.toLowerCase()).sort();
+  return bytesToHex(
+    sha256(new TextEncoder().encode("TAT-TX-v1\n" + sorted.join("\n"))),
+  );
+}
+
+/**
+ * Identifier of a mint: one per (requester, nonce).
+ *
+ * The nonce is the client's explicit `nonce` param when it sends one, else the
+ * NWPC request id (stable across the peer's own republish). A retried mint with
+ * the same id is answered from the ledger instead of minting again.
+ */
+export function mintTxId(requester: string, nonce: string): string {
+  return bytesToHex(
+    sha256(new TextEncoder().encode(`TAT-MINT-v1\n${requester}\n${nonce}`)),
+  );
 }
 
 export async function createHash(data: string) {

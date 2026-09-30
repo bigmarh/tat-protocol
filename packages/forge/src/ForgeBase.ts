@@ -19,6 +19,7 @@ import {
   KIND_TOKEN_SPENT,
   LEGACY_KIND_TOKEN_SPENT,
   TAG_TOKEN_HASH,
+  txIdForInputs,
 } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
@@ -27,10 +28,23 @@ import {
   SpentSetStore,
   SupplyStore,
   DEFAULT_KEYSET_ID,
+  type StoredTx,
+  type TxOutput,
+  type TxRecord,
+  type CommitTransferResult,
+  type CommitMintResult,
 } from "@tat-protocol/storage";
+import { BlobLedger, type TxLedger } from "./BlobLedger.js";
 import { NDKEvent, type NostrEvent as NostrEventRaw } from "@nostr-dev-kit/ndk";
 
 const Debug = DebugLogger.getInstance();
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Outputs stop being pushed after this; `status` still serves them. */
+const OUTBOX_TTL_MS = 7 * DAY_MS;
+const MIN_TX_RETENTION_DAYS = 30;
+const OUTBOX_MAX_BACKOFF_MS = 5 * 60 * 1000;
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
 
 /**
  * Transaction data structure
@@ -79,6 +93,11 @@ export abstract class ForgeBase extends NWPCServer {
   // without this two concurrent transfers of the same input could both pass the
   // check before either marks it spent — a double-spend.
   private spendLock: Promise<unknown> = Promise.resolve();
+
+  private blobLedger?: BlobLedger;
+  private outboxTimer?: ReturnType<typeof setInterval>;
+  private outboxDraining = false;
+  private lastPruneAt = 0;
 
   /**
    * Creates a new ForgeBase instance.
@@ -182,6 +201,8 @@ export abstract class ForgeBase extends NWPCServer {
     this.use("transfer", this.transferToken.bind(this));
     this.use("burn", this.burnToken.bind(this));
     this.use("verify", this.handleVerify.bind(this));
+    // Read-only recovery: re-fetch the outputs of a committed transfer or mint.
+    this.use("status", this.handleStatus.bind(this));
   }
 
   public onlyAuthorized(
@@ -236,6 +257,7 @@ export abstract class ForgeBase extends NWPCServer {
    */
   public async initialize(): Promise<void> {
     try {
+      this.assertLedgerConfig();
       // Resolve keys, set the state key, and load persisted state (spent-set
       // and replay bloom) BEFORE super.init() connects and subscribes.
       // Relays replay up to the subscription's `since` window on connect; if we
@@ -282,6 +304,8 @@ export abstract class ForgeBase extends NWPCServer {
 
       // Connect + subscribe only now that spent-set and replay state are loaded.
       await super.init();
+      // Anything committed but undelivered before a restart goes out now.
+      this.startOutbox();
     } catch (error) {
       Debug.error("Failed to initialize Forge:" + error, "Forge");
       throw error;
@@ -487,7 +511,7 @@ export abstract class ForgeBase extends NWPCServer {
 
   /** Supply enforcement, when configured. See ForgeConfig.supplyStore. */
   protected get supply(): SupplyStore | undefined {
-    return this.config.supplyStore;
+    return this.config.ledger?.supply ?? this.config.supplyStore;
   }
 
   /**
@@ -543,7 +567,7 @@ export abstract class ForgeBase extends NWPCServer {
 
   /** The spent set, when one is configured. See ForgeConfig.spentSetStore. */
   protected get spentSet(): SpentSetStore | undefined {
-    return this.config.spentSetStore;
+    return this.config.ledger?.spentSet ?? this.config.spentSetStore;
   }
 
   protected get spentKeysetId(): string {
@@ -665,7 +689,15 @@ export abstract class ForgeBase extends NWPCServer {
         "ForgeBase",
       );
     }
+    this.announceSpent(tokenHash);
+  }
 
+  /**
+   * Publish the public "spent" notice for a hash already recorded as spent.
+   * Fire-and-forget: the spend is authoritative in the spent set, this only
+   * lets other devices reconcile early.
+   */
+  protected announceSpent(tokenHash: string): void {
     // Fire-and-forget relay publication — don't block the transfer response.
     // Pockets subscribe to these "spent:<hash>" notices to reconcile spent
     // tokens across devices, so every forge flavor must publish them.
@@ -826,6 +858,386 @@ export abstract class ForgeBase extends NWPCServer {
       valid[hash] = !spent[hash];
     }
     return await res.send({ valid, spent }, context.sender);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Committed transfers and mints: one commit, then delivery
+  // ---------------------------------------------------------------------------
+
+  /** The commit/outbox ledger: the configured one, or the state blob. */
+  protected get txLedger(): TxLedger {
+    if (this.config.ledger) return this.config.ledger;
+    this.blobLedger ??= new BlobLedger({
+      state: () => this.state,
+      save: () => this._saveState(),
+    });
+    return this.blobLedger;
+  }
+
+  /**
+   * Refuse configurations that cannot commit a transfer together with its
+   * outputs, and non-durable state in production.
+   */
+  protected assertLedgerConfig(): void {
+    const { ledger, spentSetStore, supplyStore } = this.config;
+    if (!ledger && (spentSetStore || supplyStore)) {
+      throw new Error(
+        "spentSetStore/supplyStore cannot commit a transfer's spent inputs together with its outputs. " +
+          "Configure a ForgeLedger instead (e.g. `ledger: new SqliteForgeLedger(db)`), which carries both.",
+      );
+    }
+    if (ledger && spentSetStore && spentSetStore !== ledger.spentSet) {
+      throw new Error(
+        "spentSetStore differs from ledger.spentSet; configure the ledger alone",
+      );
+    }
+    if (ledger && supplyStore && supplyStore !== ledger.supply) {
+      throw new Error(
+        "supplyStore differs from ledger.supply; configure the ledger alone",
+      );
+    }
+    if (process.env.NODE_ENV === "production" && !ledger?.durable) {
+      if (!this.config.allowBlobState) {
+        throw new Error(
+          "A forge in production requires a durable ledger (e.g. `ledger: new SqliteForgeLedger(db)`). " +
+            "Set `allowBlobState: true` to run on the state blob anyway.",
+        );
+      }
+      Debug.warn(
+        "Running in production on blob state (allowBlobState). Spent set, supply and tx records are " +
+          "rewritten whole on every commit; configure a durable ForgeLedger.",
+        "ForgeBase",
+      );
+    }
+  }
+
+  /** A committed transfer or mint, with each output's delivery state. */
+  public async getTx(txId: string): Promise<StoredTx | null> {
+    return await this.txLedger.getTx(this.spentKeysetId, txId);
+  }
+
+  /**
+   * Commit a transfer: every input marked spent, the record and its outbox
+   * rows written, as one unit. Nothing is sent before this resolves.
+   */
+  protected async commitTransfer(
+    record: TxRecord,
+  ): Promise<CommitTransferResult> {
+    return await this.txLedger.commitTransfer(this.spentKeysetId, record);
+  }
+
+  /** Commit a mint: supply reserved and the record written, as one unit. */
+  protected async commitMint(
+    record: TxRecord,
+    amount: number,
+  ): Promise<CommitMintResult> {
+    const result = await this.txLedger.commitMint(
+      this.spentKeysetId,
+      record,
+      amount,
+    );
+    // Mirror into state for observability; the ledger is authoritative. The
+    // blob ledger has already applied it to state itself.
+    if ("issued" in result && this.config.ledger)
+      this.state.circulatingSupply = result.issued;
+    return result;
+  }
+
+  /**
+   * The outputs `requester` may see: all of them for the key that submitted
+   * the tx, otherwise only those addressed to the requester. `tx_id` is
+   * derivable from input hashes, which spent notices publish, so knowing it
+   * proves nothing.
+   */
+  protected outputsVisibleTo(
+    tx: StoredTx,
+    requester: string,
+  ): { to: string; token: string }[] {
+    return tx.outputs
+      .filter((o) => requester === tx.submitter || o.to === requester)
+      .map((o) => ({ to: o.to, token: o.jwt }));
+  }
+
+  /**
+   * Transfer path shared by the fungible and non-fungible forges: commit, then
+   * announce the spends, then deliver.
+   */
+  protected async commitAndDeliverTransfer(
+    params: {
+      inputHashes: string[];
+      outputs: TxOutput[];
+      submitter: string;
+      requestId?: string;
+    },
+    res: NWPCResponseObject,
+  ) {
+    const txId = txIdForInputs(params.inputHashes);
+    const record: TxRecord = {
+      txId,
+      kind: "transfer",
+      requestId: params.requestId ?? txId,
+      submitter: params.submitter,
+      inputHashes: params.inputHashes,
+      outputs: params.outputs,
+      createdAt: Date.now(),
+    };
+    let result: CommitTransferResult;
+    try {
+      result = await this.commitTransfer(record);
+    } catch (err) {
+      Debug.error(
+        `Transfer ${txId} could not be committed: ${err}`,
+        "ForgeBase",
+      );
+      return await res.error(
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+        "Transfer could not be committed; nothing was spent. Retry.",
+      );
+    }
+    if ("spent" in result) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+        JSON.stringify({
+          spent: result.spent[0],
+          issuer: this.keys.publicKey!,
+        }),
+      );
+    }
+    if ("existing" in result) {
+      return await this.deliverAndReply(result.existing, res, params.submitter);
+    }
+    for (const hash of params.inputHashes) this.announceSpent(hash);
+    return await this.deliverAndReply(
+      {
+        ...record,
+        outputs: record.outputs.map((o) => ({ ...o, delivered: false })),
+      },
+      res,
+      params.submitter,
+    );
+  }
+
+  /**
+   * If `ins` were already consumed by a committed transfer, answer with that
+   * transfer instead of re-validating (the inputs are spent now, so validation
+   * would report a double-spend at a payer whose transfer succeeded). Returns
+   * `undefined` when there is nothing to replay.
+   */
+  protected async replayCommittedTransfer(
+    ins: unknown[] | undefined,
+    requester: string,
+    res: NWPCResponseObject,
+  ): Promise<{ replayed: true; response: unknown } | undefined> {
+    if (!Array.isArray(ins) || ins.length === 0) return undefined;
+    try {
+      const hashes = await Promise.all(
+        ins.map(async (jwt) =>
+          (await new Token().restore(String(jwt))).create_token_hash(),
+        ),
+      );
+      const existing = await this.getTx(txIdForInputs(hashes));
+      if (!existing) return undefined;
+      return {
+        replayed: true,
+        response: await this.deliverAndReply(existing, res, requester),
+      };
+    } catch {
+      // Malformed inputs: let normal validation produce the real error.
+      return undefined;
+    }
+  }
+
+  /**
+   * Try each undelivered output once, then tell the requester the tx is
+   * committed. Delivery failures never fail the request: the value has moved,
+   * the output stays in the outbox, and a caller told otherwise would retry.
+   */
+  protected async deliverAndReply(
+    tx: StoredTx,
+    res: NWPCResponseObject,
+    requester: string,
+  ) {
+    let pending = 0;
+    for (const [index, out] of tx.outputs.entries()) {
+      if (out.delivered) continue;
+      if (
+        await this.tryDeliver(
+          tx.txId,
+          index,
+          () => res.send({ token: out.jwt }, out.to),
+          0,
+          Date.now(),
+        )
+      ) {
+        continue;
+      }
+      pending++;
+    }
+    const reply = {
+      tx_id: tx.txId,
+      status: "committed",
+      outputs: this.outputsVisibleTo(tx, requester),
+      pending,
+    };
+    try {
+      return await res.send(reply, requester);
+    } catch (err) {
+      Debug.error(
+        `Reply for ${tx.txId} undelivered (status can recover it): ${err}`,
+        "ForgeBase",
+      );
+      return undefined;
+    }
+  }
+
+  /** One delivery attempt, recorded in the ledger either way. */
+  private async tryDeliver(
+    txId: string,
+    index: number,
+    send: () => Promise<unknown>,
+    priorAttempts: number,
+    now: number,
+  ): Promise<boolean> {
+    try {
+      await send();
+    } catch (err) {
+      const backoff = Math.min(
+        1000 * 2 ** priorAttempts,
+        OUTBOX_MAX_BACKOFF_MS,
+      );
+      Debug.error(
+        `Output ${txId}:${index} undelivered (${err}); retrying in ${backoff}ms`,
+        "ForgeBase",
+      );
+      await this.txLedger
+        .recordFailedAttempt(this.spentKeysetId, txId, index, now + backoff)
+        .catch((e) =>
+          Debug.error(`recordFailedAttempt failed: ${e}`, "ForgeBase"),
+        );
+      return false;
+    }
+    await this.txLedger
+      .markDelivered(this.spentKeysetId, txId, index, now)
+      .catch((e) => Debug.error(`markDelivered failed: ${e}`, "ForgeBase"));
+    return true;
+  }
+
+  /**
+   * Retry every due, undelivered output. Runs on a timer once initialized;
+   * callable directly (tests, or an operator draining by hand).
+   */
+  public async drainOutbox(now: number = Date.now()): Promise<number> {
+    if (this.outboxDraining) return 0;
+    this.outboxDraining = true;
+    let delivered = 0;
+    try {
+      const due = await this.txLedger.pendingDeliveries(this.spentKeysetId, {
+        now,
+        createdAfter: now - OUTBOX_TTL_MS,
+      });
+      for (const d of due) {
+        const ok = await this.tryDeliver(
+          d.txId,
+          d.index,
+          () =>
+            this.sendResponse(
+              {
+                id: d.requestId,
+                timestamp: Date.now(),
+                result: { token: d.jwt },
+              },
+              d.to,
+            ),
+          d.attempts,
+          now,
+        );
+        if (ok) delivered++;
+      }
+    } finally {
+      this.outboxDraining = false;
+    }
+    return delivered;
+  }
+
+  /** Drop tx records older than the retention window (never less than 30 days). */
+  public async pruneTxRecords(now: number = Date.now()): Promise<number> {
+    const days = Math.max(
+      MIN_TX_RETENTION_DAYS,
+      this.config.txRecordRetentionDays ?? MIN_TX_RETENTION_DAYS,
+    );
+    return await this.txLedger.pruneTx(this.spentKeysetId, now - days * DAY_MS);
+  }
+
+  protected startOutbox(): void {
+    if (this.outboxTimer) return;
+    const tick = async () => {
+      try {
+        await this.drainOutbox();
+        if (Date.now() - this.lastPruneAt > PRUNE_EVERY_MS) {
+          this.lastPruneAt = Date.now();
+          await this.pruneTxRecords();
+        }
+      } catch (err) {
+        Debug.error("Outbox tick failed: " + err, "ForgeBase");
+      }
+    };
+    this.outboxTimer = setInterval(tick, this.config.outboxIntervalMs ?? 5000);
+    this.outboxTimer.unref?.();
+    void tick();
+  }
+
+  protected stopOutbox(): void {
+    if (this.outboxTimer) clearInterval(this.outboxTimer);
+    this.outboxTimer = undefined;
+  }
+
+  public async disconnect(): Promise<void> {
+    this.stopOutbox();
+    await super.disconnect?.();
+  }
+
+  /**
+   * `status {tx_id}`: the committed transfer or mint and the outputs the
+   * requester may see, so a pocket that lost its replies can recover.
+   */
+  public async handleStatus(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
+    let parsed: { tx_id?: unknown };
+    try {
+      parsed = JSON.parse(req.params);
+    } catch {
+      return await res.error(
+        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+      );
+    }
+    const txId = parsed.tx_id;
+    if (typeof txId !== "string" || !/^[0-9a-f]{64}$/.test(txId)) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "tx_id must be a 64-character lowercase hex string",
+      );
+    }
+    const tx = await this.getTx(txId);
+    if (!tx) {
+      return await res.send(
+        { tx_id: txId, status: "unknown", outputs: [] },
+        context.sender,
+      );
+    }
+    return await res.send(
+      {
+        tx_id: txId,
+        status: "committed",
+        kind: tx.kind,
+        outputs: this.outputsVisibleTo(tx, context.sender),
+      },
+      context.sender,
+    );
   }
 
   /**

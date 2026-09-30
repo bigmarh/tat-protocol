@@ -82,10 +82,45 @@ export class NodeStore implements StorageInterface {
     }
   }
 
+  /**
+   * Write-to-temp, fsync, rename. `fs.writeFile` on the target truncates it and
+   * then writes, so a crash or a failed write in between left the key holding a
+   * torn value — for a forge, its whole state blob. rename(2) replaces the
+   * target atomically, so a reader sees the old value or the new one, never
+   * part of either; the directory fsync makes the rename itself survive power
+   * loss.
+   */
   async setItem(key: string, value: string): Promise<void> {
     const filePath = this.getFilePath(key);
     const payload = this.encrypt(value);
-    await fs.writeFile(filePath, payload, { encoding: 'utf-8', mode: 0o600 });
+    const tmpPath = `${filePath}.tmp-${randomBytes(6).toString('hex')}`;
+    try {
+      await fs.writeFile(tmpPath, payload, { encoding: 'utf-8', mode: 0o600 });
+      const handle = await fs.open(tmpPath, 'r');
+      try {
+        await handle.sync();
+      } finally {
+        await handle.close();
+      }
+      await fs.rename(tmpPath, filePath);
+    } catch (error) {
+      await fs.unlink(tmpPath).catch(() => undefined);
+      throw error;
+    }
+    await this.syncDir();
+  }
+
+  private async syncDir(): Promise<void> {
+    let dir: Awaited<ReturnType<typeof fs.open>> | undefined;
+    try {
+      dir = await fs.open(this.baseDir, 'r');
+      await dir.sync();
+    } catch {
+      // Not every platform can fsync a directory (Windows cannot open one);
+      // the rename is still atomic there, only its durability is weaker.
+    } finally {
+      await dir?.close();
+    }
   }
 
   async removeItem(key: string): Promise<void> {

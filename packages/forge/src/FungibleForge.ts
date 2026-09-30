@@ -12,7 +12,9 @@ import {
   DebugLogger,
   isValidTokenAmount,
   invalidTokenAmountReason,
+  mintTxId,
 } from "@tat-protocol/utils";
+import type { TxOutput, TxRecord } from "@tat-protocol/storage";
 
 const Debug = DebugLogger.getInstance();
 
@@ -23,10 +25,10 @@ export class FungibleForge extends ForgeBase {
   }
   async forgeToken(
     req: NWPCRequest,
-    _context: NWPCContext,
+    context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    let reqObj: { to?: string; amount?: number | string };
+    let reqObj: { to?: string; amount?: number | string; nonce?: string };
     try {
       reqObj = JSON.parse(req.params);
     } catch (error) {
@@ -55,16 +57,18 @@ export class FungibleForge extends ForgeBase {
     if (badAmount) {
       return await res.error(NWPC_SPEC_ERRORS.INVALID_PARAMS.code, badAmount);
     }
-    // Reserve against the cap BEFORE minting. With a supply store this is one
-    // atomic, durable operation the store evaluates — not a read-compare-write
-    // in this process, which N replicas would each pass independently and
-    // collectively over-issue by up to N times the headroom.
-    if (!(await this.reserveSupply(amountToForge))) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
-        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${await this.remainingSupply()}`,
-      );
-    }
+
+    // One mint per (requester, nonce). A retry after a lost reply — same
+    // request id, or the same explicit nonce — is answered from the ledger
+    // rather than minting again.
+    const requester = context.sender;
+    const txId = mintTxId(
+      requester,
+      String(reqObj.nonce ?? req.id ?? globalThis.crypto.randomUUID()),
+    );
+    const existing = await this.getTx(txId);
+    if (existing) return await this.deliverAndReply(existing, res, requester);
+
     const token = new Token();
     await token.build({
       token_type: TokenType.FUNGIBLE,
@@ -75,13 +79,49 @@ export class FungibleForge extends ForgeBase {
       }),
     });
     const tokenJWT = await this.signAndCreateJWT(token);
-    // Persist before releasing the token. Without a supply store the increment
-    // lives only in memory until the next queued save, so a crash between this
-    // response and that save released a token the supply never counted — and
-    // the cap under-counts permanently afterwards. With a store the reservation
-    // is already durable and this only flushes the mirrored state.
-    await this._saveState();
-    return await res.send({ token: tokenJWT }, to);
+    const record: TxRecord = {
+      txId,
+      kind: "mint",
+      requestId: req.id ?? txId,
+      submitter: requester,
+      inputHashes: [],
+      outputs: [{ to, jwt: tokenJWT }],
+      createdAt: Date.now(),
+    };
+
+    // Reserve against the cap and record the output in one commit, BEFORE the
+    // token is released. With a durable ledger the cap is a constraint the
+    // store evaluates, not a read-compare-write that N replicas would each pass.
+    let result;
+    try {
+      result = await this.commitMint(record, amountToForge);
+    } catch (err) {
+      Debug.error(
+        `Mint ${txId} could not be committed: ${err}`,
+        "FungibleForge",
+      );
+      return await res.error(
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+        "Mint could not be committed; nothing was issued. Retry.",
+      );
+    }
+    if (!result.ok && !("existing" in result)) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
+        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${await this.remainingSupply()}`,
+      );
+    }
+    if ("existing" in result) {
+      return await this.deliverAndReply(result.existing, res, requester);
+    }
+    return await this.deliverAndReply(
+      {
+        ...record,
+        outputs: record.outputs.map((o) => ({ ...o, delivered: false })),
+      },
+      res,
+      requester,
+    );
   }
 
   async transferToken(
@@ -102,6 +142,10 @@ export class FungibleForge extends ForgeBase {
         );
       }
       const sender = context.sender;
+      // The same inputs again: a retry of a transfer that already committed.
+      // Answer it from the ledger — validation would call it a double-spend.
+      const replay = await this.replayCommittedTransfer(tx?.ins, sender, res);
+      if (replay) return replay.response as any;
       // Validate transaction
       const [validTx, error, code, params] = await this.validateTXInputs(
         tx,
@@ -133,6 +177,7 @@ export class FungibleForge extends ForgeBase {
         recipients,
         res,
         sender,
+        req.id,
       );
     });
   }
@@ -143,6 +188,7 @@ export class FungibleForge extends ForgeBase {
     outs: Recipient[],
     res: NWPCResponseObject,
     sender: string,
+    requestId?: string,
   ) {
     if (!inputs || !outs) {
       return await res.error(
@@ -158,40 +204,25 @@ export class FungibleForge extends ForgeBase {
         validationError,
       );
     }
-    // 2. Prepare
+    // 2. Prepare every output in memory. Nothing is spent or sent yet.
     const { recipientTokens, changeTokenJWT } =
       await this.prepareFungibleTransfer(inputs, outs, sender);
-    // 3. Commit (mark all input tokens as spent)
-    await Promise.all(
-      inputs.map(async (token) => {
-        const tokenHash = await token.create_token_hash();
-        await this.publishSpentToken(tokenHash);
-      }),
+    const outputs: TxOutput[] = recipientTokens.map(({ to, jwt }) => ({
+      to,
+      jwt,
+    }));
+    if (changeTokenJWT) outputs.push({ to: sender, jwt: changeTokenJWT });
+    Debug.log("transfer outputs:" + outputs.length, "FungibleForge");
+
+    // 3. Commit spent inputs + outputs together, then deliver. A failed send
+    // leaves the output in the outbox, never lost.
+    const inputHashes = await Promise.all(
+      inputs.map((token) => token.create_token_hash()),
     );
-
-    Debug.log("recipientTokens:" + recipientTokens.length, "FungibleForge");
-    // Send output tokens to recipients
-    for (const { to, jwt } of recipientTokens) {
-      Debug.log("sending token to:" + to, "FungibleForge");
-      await res.send({ token: jwt }, to);
-    }
-    // Send change token to sender, if any
-    if (changeTokenJWT) {
-      Debug.log("sending change token to SENDER:" + sender, "FungibleForge");
-      return await res.send({ token: changeTokenJWT }, sender);
-    }
-
-    //send spent tokens to the sender
-    inputs.forEach(async (token) => {
-      await res.send(
-        {
-          spent: await token.create_token_hash(),
-          issuer: this.keys.publicKey!,
-        },
-        sender,
-      );
-    });
-    return;
+    return await this.commitAndDeliverTransfer(
+      { inputHashes, outputs, submitter: sender, requestId },
+      res,
+    );
   }
 
   public async validateFungibleTransfer(

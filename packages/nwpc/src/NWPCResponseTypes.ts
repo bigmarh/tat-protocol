@@ -67,6 +67,11 @@ export interface NWPCConfig {
    * ```
    */
   processedRequestStore?: ProcessedRequestStore;
+  /**
+   * How long `NWPCServer.sendResponse` waits for a relay to acknowledge before
+   * it rejects. Default 10 000 ms.
+   */
+  publishTimeoutMs?: number;
   [key: string]: unknown;
 }
 
@@ -293,16 +298,23 @@ export class NWPCResponseObject {
       } else {
         await this.sender.sendResponse(this.response, targetRecipient);
       }
-      // If the recipient is not the sender, send a success response to the sender
+      // If the recipient is not the sender, send a success response to the
+      // sender. Best-effort: the addressed delivery above already succeeded,
+      // and failing it now because the courtesy ack was lost would make a
+      // caller treat a delivered output as undelivered.
       if (targetRecipient !== this.context.sender) {
-        await this.sender.sendResponse(
-          {
-            id: this.response.id,
-            timestamp: Date.now(),
-            result: { success: "ok" },
-          },
-          this.context.sender,
-        );
+        try {
+          await this.sender.sendResponse(
+            {
+              id: this.response.id,
+              timestamp: Date.now(),
+              result: { success: "ok" },
+            },
+            this.context.sender,
+          );
+        } catch (err) {
+          Debug.error("ack to sender failed: " + err, "NWPCResponseObject");
+        }
       }
     }
 

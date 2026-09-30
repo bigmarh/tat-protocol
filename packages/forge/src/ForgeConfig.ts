@@ -3,6 +3,7 @@ import {
   StorageInterface,
   SpentSetStore,
   SupplyStore,
+  ForgeLedger,
 } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import type { Signer } from "@tat-protocol/types";
@@ -182,6 +183,46 @@ export interface ForgeConfig {
    * upgrading forge does not reset to full headroom.
    */
   supplyStore?: SupplyStore;
+
+  /**
+   * The forge's system of record: spent set, supply, and every committed
+   * transfer and mint with its outputs, committed together.
+   *
+   * A transfer marks its inputs spent, records its outputs and queues them for
+   * delivery in ONE commit, before anything is sent; a failed send then leaves
+   * the output in the outbox for retry, and `status {tx_id}` can re-serve it.
+   * `spentSetStore`/`supplyStore` on their own cannot do that, so configuring
+   * either without a ledger is refused at `initialize()`.
+   *
+   * Omit it and the forge keeps all of this in its state blob (see
+   * `allowBlobState`).
+   *
+   * ```ts
+   * import { DatabaseSync } from "node:sqlite";
+   * import { SqliteForgeLedger } from "@tat-protocol/storage";
+   *
+   * new FungibleForge({ ...config, ledger: new SqliteForgeLedger(new DatabaseSync("forge.db")) });
+   * ```
+   */
+  ledger?: ForgeLedger;
+
+  /**
+   * Run in production (`NODE_ENV=production`) without a durable ledger, keeping
+   * spent set, supply and tx records in the state blob. Refused by default: the
+   * blob is rewritten whole on every commit and is only as crash-safe as the
+   * StorageInterface backend's `setItem`.
+   */
+  allowBlobState?: boolean;
+
+  /**
+   * How long committed tx records are kept for `status` and replay. Clamped to
+   * at least 30 days: a pocket that was offline must still be able to recover
+   * outputs whose delivery gave up. Default 30.
+   */
+  txRecordRetentionDays?: number;
+
+  /** How often the outbox is drained. Default 5000 ms. */
+  outboxIntervalMs?: number;
 
   /**
    * Allow arbitrary properties for NWPC compatibility

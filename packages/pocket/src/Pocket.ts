@@ -8,7 +8,7 @@ import {
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
+import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest, txIdForInputs, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
@@ -144,6 +144,14 @@ interface TransactionData {
   outs?: unknown[];
   witnessData?: string[];
   [key: string]: unknown;
+}
+
+/** A forge's answer to `status {tx_id}`. */
+export interface TxStatus {
+    tx_id: string;
+    status: 'committed' | 'unknown';
+    kind?: 'transfer' | 'mint';
+    outputs: Array<{ to: string; token: string }>;
 }
 
 export class Pocket extends NWPCPeer {
@@ -1610,7 +1618,33 @@ export class Pocket extends NWPCPeer {
         }
 
         Debug.log("sendTx finalTx" + tx, 'Pocket');
-        const response = await this.request(method, tx, issuer, undefined, timeoutMs);
+        // The forge names the transfer after its inputs, so its id is known
+        // before sending and survives losing every reply.
+        const txId = method === 'transfer' && inputs.length > 0
+            ? txIdForInputs(await Promise.all(inputs.map((t) => t.create_token_hash())))
+            : undefined;
+        let response;
+        try {
+            response = await this.request(method, tx, issuer, undefined, timeoutMs);
+        } catch (err) {
+            // No reply is not "not sent": the forge may have committed and the
+            // reply been lost. Ask. Only a committed answer spends the inputs;
+            // anything else leaves them held and the transfer safe to retry.
+            if (!txId) throw err;
+            let status: TxStatus | undefined;
+            try {
+                status = await this.fetchTxStatus(issuer, txId);
+            } catch {
+                throw err;
+            }
+            if (status?.status !== 'committed') throw err;
+            Debug.log(`sendTx: reply lost, but ${txId} committed — recovered via status`, 'Pocket');
+            response = { id: '', timestamp: Date.now(), result: status };
+        }
+        const outputs = (response?.result as Partial<TxStatus> | undefined)?.outputs;
+        if (!response?.error && Array.isArray(outputs)) {
+            await this.acceptTxOutputs(outputs);
+        }
         // On confirmed success the forge has marked every input spent, so
         // remove them locally right away instead of waiting for the issuer's
         // spent-token feed — this keeps the local balance correct immediately.
@@ -1626,6 +1660,41 @@ export class Pocket extends NWPCPeer {
             }
         }
         return response;
+    }
+
+    /**
+     * Ask an issuer whether a transfer committed, and for the outputs this
+     * pocket may see. The forge answers the submitting key with every output
+     * and anyone else with only the outputs addressed to them.
+     */
+    public async fetchTxStatus(issuer: string, txId: string, timeoutMs: number = 15000): Promise<TxStatus> {
+        const response = await this.request('status', { tx_id: txId }, issuer, undefined, timeoutMs);
+        if (response?.error) {
+            throw new Error(`status failed: ${response.error.message ?? response.error.code}`);
+        }
+        return response.result as TxStatus;
+    }
+
+    /**
+     * Store the outputs from a committed-transfer reply or a status answer that
+     * are locked to a key this pocket holds. The forge hands the submitter every
+     * output, including the ones paid to others; those are not ours to hold.
+     */
+    private async acceptTxOutputs(outputs: Array<{ to?: string; token?: string }>): Promise<void> {
+        for (const out of outputs) {
+            if (typeof out?.token !== 'string') continue;
+            try {
+                const token = await new Token().restore(out.token);
+                const lock = token.payload?.P2PKlock;
+                if (lock && this.holdsKey(lock)) await this.storeToken(out.token);
+            } catch (err) {
+                Debug.log(`acceptTxOutputs: skipping unreadable output: ${err}`, 'Pocket');
+            }
+        }
+    }
+
+    private holdsKey(pubkey: string): boolean {
+        return pubkey === (this.publicKey || this.keys?.publicKey) || !!this.state.singleUseKeys?.has(pubkey);
     }
 
     /**

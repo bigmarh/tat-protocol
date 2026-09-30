@@ -38,6 +38,20 @@ export interface SqliteSpentSetStoreOptions {
 }
 
 /**
+ * A token hash in the exact form the `spent` table stores it: 32 raw bytes of
+ * the canonical hex. Shared with SqliteForgeLedger, which writes the same rows
+ * inside its own transactions.
+ */
+export function tokenHashToBytes(tokenHash: string): Uint8Array {
+  const normalized = normalizeTokenHash(tokenHash);
+  const bytes = new Uint8Array(normalized.length / 2);
+  for (let i = 0; i < bytes.length; i++) {
+    bytes[i] = parseInt(normalized.substr(i * 2, 2), 16);
+  }
+  return bytes;
+}
+
+/**
  * SQLite-backed {@link SpentSetStore}.
  *
  * The whole spend operation is one statement:
@@ -109,12 +123,7 @@ export class SqliteSpentSetStore implements SpentSetStore {
    * counts as the same hash.
    */
   private toBytes(tokenHash: string): Uint8Array {
-    const normalized = normalizeTokenHash(tokenHash);
-    const bytes = new Uint8Array(normalized.length / 2);
-    for (let i = 0; i < bytes.length; i++) {
-      bytes[i] = parseInt(normalized.substr(i * 2, 2), 16);
-    }
-    return bytes;
+    return tokenHashToBytes(tokenHash);
   }
 
   async tryMarkSpent(keysetId: string, tokenHash: string): Promise<boolean> {
