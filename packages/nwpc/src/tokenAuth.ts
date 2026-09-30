@@ -126,13 +126,15 @@ export function createTokenAuthMiddleware(
   const claim = async (hash: string): Promise<boolean> => {
     if (trySpendToken) return await trySpendToken(hash);
     const markSpent = markTokenSpent;
-    if (!markSpent) {
+    const checkSpent = isTokenSpent;
+    if (!markSpent || !checkSpent) {
+      // Marking without checking would accept the same token forever.
       throw new Error(
-        "tokenAuth payment mode needs trySpendToken (or markTokenSpent) to spend the token",
+        "tokenAuth payment mode needs trySpendToken, or both isTokenSpent and markTokenSpent",
       );
     }
     const run = claimLock.then(async () => {
-      if (isTokenSpent && (await isTokenSpent(hash))) return false;
+      if (await checkSpent(hash)) return false;
       await markSpent(hash);
       return true;
     });

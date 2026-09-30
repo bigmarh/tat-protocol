@@ -109,6 +109,17 @@ describe("tokenAuth payment mode spends before it serves", () => {
     expect(served).toBe(false);
   });
 
+  it("refuses the legacy hooks without isTokenSpent, which could never detect reuse", async () => {
+    const mw = createSimpleTokenAuth(
+      { mode: "payment", cost: 1 },
+      { validateToken, markTokenSpent: async () => undefined },
+    );
+    let served = 0;
+    await mw(req, ctx(), makeRes(), async () => void served++);
+    await mw(req, ctx(), makeRes(), async () => void served++);
+    expect(served).toBe(0);
+  });
+
   it("keeps the token spent when the handler fails — a failed attempt is not a refund", async () => {
     const spent = new Set<string>();
     const mw = createSimpleTokenAuth(
