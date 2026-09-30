@@ -270,8 +270,9 @@ export abstract class GateBase {
       };
     }
 
-    // Verify signature (if required)
-    if (!this.accessPolicy || this.accessPolicy.policy.requireValidSignature) {
+    // Verify signature — always. A token its issuer did not sign is not a
+    // token of that issuer; no policy makes it one.
+    {
       const isValidSignature = await token.verifyTokenSignature();
       if (!isValidSignature) {
         return {
@@ -283,8 +284,8 @@ export abstract class GateBase {
       }
     }
 
-    // Check expiration
-    if (!this.accessPolicy || this.accessPolicy.policy.requireNotExpired) {
+    // Check expiration — always, as GateServerSpec does.
+    {
       if (token.isExpired()) {
         return {
           valid: false,

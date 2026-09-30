@@ -151,3 +151,34 @@ describe("GateBase fails closed when the forge cannot be asked", () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe("GateBase always checks signature and expiry", () => {
+  class OfflineGate extends (GateBase as any) {
+    async validateTokenWithForge(): Promise<boolean> {
+      return true;
+    }
+  }
+  function lenient() {
+    const g = new (OfflineGate as any)({ storage: new MemoryStore(), offlineMode: true }) as any;
+    g.state = { blockedTokens: new Set(), redemptions: new Map(), attempts: [] };
+    g.recordAttempt = async () => undefined;
+    // A policy that switches both checks off.
+    g.accessPolicy = {
+      policy: { requireValidSignature: false, requireNotExpired: false },
+      evaluate: async () => ({ allowed: true }),
+    };
+    return g;
+  }
+
+  it("refuses an expired token even when the policy says not to check", async () => {
+    const tat = await issued({ tokenID: 1, exp: Math.floor(Date.now() / 1000) - 60 });
+    expect((await lenient().validateToken(tat)).valid).toBe(false);
+  });
+
+  it("refuses a token not signed by its issuer even when the policy says not to check", async () => {
+    const t = new Token();
+    await t.build({ token_type: TokenType.TAT, payload: Token.createPayload({ iss: ISSUER, tokenID: 1 }) });
+    const forged = await t.toJWT(bytesToHex(schnorr.sign(await t.data_to_sign(), HOLDER_SK)));
+    expect((await lenient().validateToken(forged)).valid).toBe(false);
+  });
+});

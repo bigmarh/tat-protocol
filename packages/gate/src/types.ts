@@ -48,8 +48,10 @@ export interface AccessPolicy {
   allowedIssuers?: string[]; // Whitelist of forge public keys
   blockedIssuers?: string[]; // Blacklist of forge public keys
   blockedTokens?: string[]; // Blacklist of specific token hashes
-  requireValidSignature: boolean; // Verify token signature
-  requireNotExpired: boolean; // Check expiration
+  /** @deprecated Ignored: the signature is always verified. */
+  requireValidSignature: boolean;
+  /** @deprecated Ignored: expired tokens are always refused. */
+  requireNotExpired: boolean;
   requireNotSpent?: boolean; // Check with forge if token is spent
   customRules?: Array<{
     name: string;
