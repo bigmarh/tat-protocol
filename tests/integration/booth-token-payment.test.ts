@@ -1,6 +1,9 @@
 import { describe, it, expect, beforeAll } from "@jest/globals";
 import { BoothServerSpec } from "../../packages/booth/src/BoothServerSpec";
 import { Token } from "@tat-protocol/token";
+import { txIdForInputs } from "@tat-protocol/utils";
+import { schnorr } from "@noble/curves/secp256k1";
+import { bytesToHex } from "@noble/hashes/utils";
 
 class MemoryStore {
   private store = new Map<string, string>();
@@ -19,9 +22,29 @@ class MemoryStore {
 }
 
 function createKeyPair(label: string) {
+  // Real keys: the booth now signs the witness for the transfer that takes
+  // the payment.
+  const secretKey = label === "booth" ? "b0".repeat(32) : "f0".repeat(32);
   return {
-    secretKey: `${label}-secret`,
-    publicKey: `${label}-public`,
+    secretKey,
+    publicKey: bytesToHex(schnorr.getPublicKey(secretKey)),
+  };
+}
+
+/** A forge client that answers `transfer` the way a forge would. */
+function forgeClient(spentHashes: string[]) {
+  const calls: { method: string; params: any }[] = [];
+  return {
+    calls,
+    async request(method: string, params: any) {
+      calls.push({ method, params });
+      if (method !== "transfer") return { result: { status: "unknown" } };
+      const hashes = params.ins.map((j: string) => JSON.parse(j).header.token_hash);
+      if (hashes.some((h: string) => spentHashes.includes(h))) {
+        return { error: { code: 2002, message: "Token Spent" } };
+      }
+      return { result: { tx_id: txIdForInputs(hashes), status: "committed", outputs: [] } };
+    },
   };
 }
 
@@ -78,7 +101,7 @@ function mockTokenRestoreAndValidate() {
   };
 }
 
-describe("Booth TAT payments with forge spent checks", () => {
+describe("Booth TAT payments are taken by a forge transfer", () => {
   let boothKeys: { secretKey: string; publicKey: string };
   let forgeKeys: { secretKey: string; publicKey: string };
 
@@ -123,9 +146,8 @@ describe("Booth TAT payments with forge spent checks", () => {
       buyerPubkey: "buyer",
     };
 
-    (booth as any).verifyTokensNotSpent = jest
-      .fn()
-      .mockResolvedValue([tokenHash]);
+    const forge = forgeClient([tokenHash]);
+    (booth as any).getForgeClient = async () => forge;
 
     const cleanupTokenMocks = mockTokenRestoreAndValidate();
     try {
@@ -137,13 +159,13 @@ describe("Booth TAT payments with forge spent checks", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("Token already spent");
-      expect((booth as any).verifyTokensNotSpent).toHaveBeenCalled();
+      expect(forge.calls[0].method).toBe("transfer");
     } finally {
       cleanupTokenMocks();
     }
   });
 
-  it("accepts unspent fungible tokens", async () => {
+  it("accepts unspent fungible tokens once the forge commits the transfer", async () => {
     const storage = new MemoryStore();
     const booth = new BoothServerSpec({
       storage,
@@ -179,7 +201,8 @@ describe("Booth TAT payments with forge spent checks", () => {
       buyerPubkey: "buyer",
     };
 
-    (booth as any).verifyTokensNotSpent = jest.fn().mockResolvedValue([]);
+    const forge = forgeClient([]);
+    (booth as any).getForgeClient = async () => forge;
 
     const cleanupTokenMocks = mockTokenRestoreAndValidate();
     try {
@@ -191,10 +214,10 @@ describe("Booth TAT payments with forge spent checks", () => {
 
       expect(result.success).toBe(true);
       expect(result.receipt).toBeDefined();
-      expect((booth as any).verifyTokensNotSpent).toHaveBeenCalledWith(
-        [tokenHash],
-        forgeKeys.publicKey,
-      );
+      expect(result.settlement.txId).toBe(txIdForInputs([tokenHash]));
+      expect(forge.calls[0].params.outs).toEqual([
+        { issuer: forgeKeys.publicKey, to: boothKeys.publicKey, amount: 100 },
+      ]);
     } finally {
       cleanupTokenMocks();
     }

@@ -142,6 +142,14 @@ export interface Invoice {
       data?: Record<string, unknown>;
     }
   >;
+  /**
+   * How a token payment was taken: the forge transfer that moved the buyer's
+   * tokens to the booth, and the resulting outputs locked to the booth's key.
+   */
+  settlement?: {
+    txId: string;
+    collected: string[];
+  };
   fulfillment?: {
     status: "pending" | "fulfilled" | "failed";
     receiptId?: string;
