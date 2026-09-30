@@ -82,19 +82,16 @@ export class BrowserStore implements StorageInterface {
   }
 
   /**
-   * Encrypt every plaintext value this origin's localStorage holds (other than
-   * the salt), in place. @returns how many were rewritten.
+   * Encrypt the named plaintext values in place. The keys are explicit because
+   * localStorage is shared by everything on the origin: sealing keys that
+   * belong to other code would break it. @returns how many were rewritten.
    */
-  async migratePlaintext(): Promise<number> {
+  async migratePlaintext(keys: string[]): Promise<number> {
     const box = this.secretBox();
     if (!box) throw new Error('BrowserStore: migratePlaintext() needs an encryption key');
     let migrated = 0;
-    const keys: string[] = [];
-    for (let i = 0; i < this.storage.length; i++) {
-      const k = this.storage.key(i);
-      if (k && k !== SALT_KEY) keys.push(k);
-    }
     for (const k of keys) {
+      if (k === SALT_KEY) continue;
       const raw = this.storage.getItem(k);
       if (raw === null || SecretBox.isSealed(raw)) continue;
       this.storage.setItem(k, await (await box).seal(raw, k));

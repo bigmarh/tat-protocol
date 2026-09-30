@@ -176,6 +176,15 @@ describe("BrowserStore encrypts by default and fails closed", () => {
     await expect(s.getItem("b")).rejects.toThrow();
   });
 
+  it("migrates only the keys it is told to, leaving other code's data alone", async () => {
+    ls.set("pocket-idkey-x", SECRET);
+    ls.set("some-other-app-setting", "dark-mode");
+    const s = new BrowserStore({ passphrase: "p", ...FAST });
+    expect(await s.migratePlaintext(["pocket-idkey-x"])).toBe(1);
+    expect(ls.get("pocket-idkey-x")).toMatch(/^enc:v2:/);
+    expect(ls.get("some-other-app-setting")).toBe("dark-mode");
+  });
+
   it("refuses plaintext it finds", async () => {
     ls.set("pocket-idkey-x", SECRET);
     const s = new BrowserStore({ passphrase: "p", ...FAST });
