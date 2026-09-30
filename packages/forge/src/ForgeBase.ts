@@ -1529,6 +1529,22 @@ export abstract class ForgeBase extends NWPCServer {
         ];
       }
 
+      // Retired v1 tokens. Their hash (the lossy v1 rule) is what the forge
+      // signed, and that weakness is only closed once they stop being taken.
+      const until = this.config.acceptV1TokensUntil;
+      if (
+        until !== undefined &&
+        (token.header.ver ?? "1.0.0").startsWith("1.") &&
+        Math.floor(Date.now() / 1000) >= until
+      ) {
+        return [
+          null,
+          "v1 tokens are no longer accepted by this forge; they had to be re-minted before the retirement date",
+          NWPC_SPEC_ERRORS.UPGRADE_REQUIRED.code,
+          "",
+        ];
+      }
+
       // Enforce single-issuer transfer inputs. A forge must only accept
       // tokens it originally issued.
       if (token.payload.iss !== this.keys.publicKey) {

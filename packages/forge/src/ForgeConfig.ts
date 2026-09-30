@@ -226,6 +226,16 @@ export interface ForgeConfig {
    */
   tokenHashVersion?: "1.0.0" | "2.0.0";
 
+  /**
+   * Stop accepting v1 tokens as inputs at this time (unix seconds). v1 tokens
+   * are verified under the lossy v1 hash, whose weakness could in principle
+   * let a forger reuse a forge signature on another payload — closed only by
+   * retiring them. Switch `tokenHashVersion` to "2.0.0" first and announce a
+   * window: any transfer re-mints a holder's tokens as v2. Unset (the default)
+   * accepts v1 forever.
+   */
+  acceptV1TokensUntil?: number;
+
   /** How often the outbox is drained. Default 5000 ms. */
   outboxIntervalMs?: number;
 

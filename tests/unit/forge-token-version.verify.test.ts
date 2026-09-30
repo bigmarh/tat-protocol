@@ -58,3 +58,52 @@ describe("forge token hash version", () => {
     expect(await mintedVersion({ tokenHashVersion: "2.0.0" })).toBe("2.0.0");
   });
 });
+
+describe("retiring v1 tokens", () => {
+  // v1 tokens are verified under the lossy v1 hash, whose weakness a forger
+  // could in principle use to reuse a forge signature. Once holders have
+  // re-minted (any transfer on a v2 forge re-mints), the forge stops taking
+  // them.
+  function forgeWith(extra: Record<string, unknown>) {
+    const forge = new FungibleForge({
+      owner: OWNER,
+      keys: { secretKey: OWNER_SK, publicKey: OWNER },
+      storage: new MemStore(),
+      totalSupply: 0,
+      relays: [],
+      ...extra,
+    } as any) as any;
+    forge.keys = { secretKey: OWNER_SK, publicKey: OWNER };
+    return forge;
+  }
+
+  async function input(forge: any, ver: string) {
+    const t = new Token();
+    await t.build({ token_type: "FUNGIBLE" as any, payload: Token.createPayload({ iss: OWNER, amount: 5 }), ver });
+    return await forge.signAndCreateJWT(t);
+  }
+
+  const outs = [{ to: BOB, amount: 5 }];
+
+  it("accepts v1 inputs until a retirement date is set", async () => {
+    const forge = forgeWith({});
+    const [, err] = await forge.validateTXInputs({ ins: [await input(forge, "1.0.0")], outs }, []);
+    expect(err).toBeNull();
+  });
+
+  it("refuses v1 inputs after the retirement date, and still takes v2", async () => {
+    const forge = forgeWith({ acceptV1TokensUntil: Math.floor(Date.now() / 1000) - 1 });
+    const [tx, err, code] = await forge.validateTXInputs({ ins: [await input(forge, "1.0.0")], outs }, []);
+    expect(tx).toBeNull();
+    expect(err).toMatch(/v1/);
+    expect(code).toBe(2010);
+    const [, err2] = await forge.validateTXInputs({ ins: [await input(forge, "2.0.0")], outs }, []);
+    expect(err2).toBeNull();
+  });
+
+  it("still accepts v1 inputs before the retirement date", async () => {
+    const forge = forgeWith({ acceptV1TokensUntil: Math.floor(Date.now() / 1000) + 3600 });
+    const [, err] = await forge.validateTXInputs({ ins: [await input(forge, "1.0.0")], outs }, []);
+    expect(err).toBeNull();
+  });
+});
