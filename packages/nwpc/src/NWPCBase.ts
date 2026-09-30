@@ -91,6 +91,11 @@ export abstract class NWPCBase implements INWPCBase {
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
   /** Subscriptions whose stored-event backfill has not reached EOSE yet. */
   private backfilling = new Set<NDKSubscription>();
+  /** Idle timer per backfilling subscription; see armBackfillTimer. */
+  private backfillTimers = new Map<
+    NDKSubscription,
+    ReturnType<typeof setTimeout>
+  >();
   /** `created_at` of each event whose handler is still running. */
   private inFlight: number[] = [];
   /** Newest `created_at` whose handler has finished. */
@@ -308,6 +313,33 @@ export abstract class NWPCBase implements INWPCBase {
   }
 
   /**
+   * (Re)start a backfilling subscription's idle timer. EOSE may never come —
+   * NDK emits it only once enough relays have sent theirs — so a backfill
+   * that has gone quiet for backfillTimeoutMs counts as done. It is an idle
+   * timeout, not a deadline: a long but live backfill is never cut short.
+   */
+  private armBackfillTimer(subscription: NDKSubscription): void {
+    if (!this.backfilling.has(subscription)) return;
+    const previous = this.backfillTimers.get(subscription);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(() => {
+      if (!this.endBackfill(subscription)) return;
+      Debug.log("Backfill idle with no EOSE; treating it as done", "NWPCBase");
+      this.advanceResumePoint();
+    }, this.config?.backfillTimeoutMs ?? DEFAULT_BACKFILL_TIMEOUT_MS);
+    (timer as { unref?: () => void }).unref?.();
+    this.backfillTimers.set(subscription, timer);
+  }
+
+  /** @returns whether the subscription was still backfilling. */
+  private endBackfill(subscription: NDKSubscription): boolean {
+    const timer = this.backfillTimers.get(subscription);
+    if (timer) clearTimeout(timer);
+    this.backfillTimers.delete(subscription);
+    return this.backfilling.delete(subscription);
+  }
+
+  /**
    * Advance the persisted resume point to what has actually been handled.
    *
    * Two things hold it back. A subscription still in backfill: relays send
@@ -497,6 +529,8 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
+      // Still receiving: the backfill is alive, so restart its idle timer.
+      this.armBackfillTimer(subscription);
       const at = typeof event.created_at === "number" ? event.created_at : 0;
       if (at) this.inFlight.push(at);
       try {
@@ -544,7 +578,7 @@ export abstract class NWPCBase implements INWPCBase {
     };
 
     const eoseHandler = async () => {
-      this.backfilling.delete(subscription);
+      this.endBackfill(subscription);
       this.advanceResumePoint();
       Debug.log(
         "\n=========================== EOSE received ===========================\n",
@@ -555,17 +589,7 @@ export abstract class NWPCBase implements INWPCBase {
     };
 
     this.backfilling.add(subscription);
-    const backfillTimeoutMs =
-      this.config?.backfillTimeoutMs ?? DEFAULT_BACKFILL_TIMEOUT_MS;
-    const backfillTimer = setTimeout(() => {
-      if (!this.backfilling.delete(subscription)) return;
-      Debug.log(
-        "No EOSE within the backfill timeout; treating backfill as done",
-        "NWPCBase",
-      );
-      this.advanceResumePoint();
-    }, backfillTimeoutMs);
-    (backfillTimer as { unref?: () => void }).unref?.();
+    this.armBackfillTimer(subscription);
     subscription.on("event", eventHandler);
     subscription.on("eose", eoseHandler);
     this.activeSubscriptions?.set(pubkey, subscription);
@@ -578,7 +602,7 @@ export abstract class NWPCBase implements INWPCBase {
     sub?.stop();
     // A closed subscription will never send EOSE; do not let it hold the
     // resume point forever.
-    if (sub) this.backfilling.delete(sub);
+    if (sub) this.endBackfill(sub);
     this.subscriptionHandlers?.delete(pubkey);
     return this.activeSubscriptions?.delete(pubkey) ?? false;
   }

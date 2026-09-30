@@ -151,6 +151,24 @@ describe("servers resume from the last event they saw", () => {
     expect(s.state.lastSeenAt).toBe(NOW() - 30);
   });
 
+  it("keeps waiting while a long backfill is still sending events", async () => {
+    // The timeout is for a relay that went quiet, not a deadline: a healthy
+    // backfill after days offline can take longer than it, and ending it early
+    // would let the point jump past events not yet sent.
+    const s = server(NOW() - 3 * HOUR);
+    s.config.backfillTimeoutMs = 40;
+    await s.subscribe(s.publicKey, async () => undefined);
+    const sub = s.ndk.subs[0].sub;
+    for (let i = 0; i < 6; i++) {
+      sub.emit("event", { id: `k${i}`.padEnd(64, "0"), created_at: NOW() - 60 - i });
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    // 120 ms in — well past one timeout — but never idle for 40 ms.
+    expect(s.state.lastSeenAt).toBe(NOW() - 3 * HOUR);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(s.state.lastSeenAt).toBe(NOW() - 60);
+  });
+
   it("re-opens every subscription on reconnect, resuming rather than starting over", async () => {
     const s = server(NOW() - 2 * HOUR);
     await s.subscribe(s.publicKey, async () => undefined);
@@ -180,6 +198,7 @@ describe("pockets keep every feed open across reconnects", () => {
       activeSubscriptions: new Map(),
       subscriptionHandlers: new Map(),
       backfilling: new Set(),
+      backfillTimers: new Map(),
       inFlight: [],
       newestHandled: 0,
       subscribedIssuers: new Set(),
