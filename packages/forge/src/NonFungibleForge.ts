@@ -248,11 +248,22 @@ export class NonFungibleForge extends ForgeBase {
               ? Number(token.payload.tokenID)
               : token.payload.tokenID,
           P2PKlock: to,
-          timeLock: token.payload.timeLock,
+          // The output's timeLock, which the spender signed (v2 digest). The
+          // input's own timeLock has already passed — validateTXInputs checked.
+          timeLock: recipient.timeLock,
           data_uri: token.payload.data_uri,
         }),
       });
       outputs.push({ to, jwt: await this.signAndCreateJWT(newToken) });
+    }
+    // Every input must go somewhere. One left over would be neither spent nor
+    // in the tx id, so the id recorded here would not be the one the pocket
+    // computes from everything it sent, and `status` recovery would miss it.
+    if (consumedInputs.size !== inputs.length) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "Every input token must be sent to an output",
+      );
     }
     // Every output is prepared before anything is spent; commit them with the
     // spent inputs as one unit, then deliver.
