@@ -49,7 +49,10 @@ export interface GateServerSpecConfig extends NWPCConfig {
  */
 interface GateServerState {
   challenges: Map<string, ChallengeEntry>; // nonce -> challenge
-  sessions: Map<string, TurnstileSession & { holderPubkey: string }>; // sessionToken -> session
+  sessions: Map<
+    string,
+    TurnstileSession & { holderPubkey: string; resource?: string }
+  >; // sessionToken -> session
   usedNonces: Set<string>; // For replay protection
 }
 
@@ -301,6 +304,7 @@ export class GateServerSpec {
         this.state.sessions.set(session.token, {
           ...session,
           holderPubkey: verificationResult.holderPubkey || context.sender,
+          resource: challengeEntry.challenge.resource,
         });
         await this._saveState();
 
@@ -451,69 +455,23 @@ export class GateServerSpec {
    * Verify minimal disclosure proof
    */
   private async verifyMinimalProof(
-    proof: TurnstileProofMinimal,
-    challenge: TurnstileChallenge,
+    _proof: TurnstileProofMinimal,
+    _challenge: TurnstileChallenge,
   ): Promise<{
     valid: boolean;
     reason?: string;
     holderPubkey?: string;
     tatInfo?: any;
   }> {
-    try {
-      // Verify signature over nonce
-      const nonceBytes = hexToBytes(proof.nonce);
-      const sigBytes = hexToBytes(proof.signature);
-      const holderPubkey = proof.claim.holderPubkey;
-
-      const isValidSig = verifySignature(nonceBytes, sigBytes, holderPubkey);
-      if (!isValidSig) {
-        return { valid: false, reason: "Invalid signature on nonce" };
-      }
-
-      // Check issuer matches
-      if (proof.claim.issuer !== challenge.requirements.issuer) {
-        return { valid: false, reason: "Issuer mismatch" };
-      }
-
-      // Check disclosed fields match requirements
-      if (
-        challenge.requirements.notExpired &&
-        !proof.claim.disclosed.notExpired
-      ) {
-        return { valid: false, reason: "Token is expired" };
-      }
-
-      if (
-        challenge.requirements.tokenIdPattern &&
-        !proof.claim.disclosed.tokenIdPattern
-      ) {
-        return { valid: false, reason: "Token ID pattern mismatch" };
-      }
-
-      if (
-        challenge.requirements.minTier &&
-        (!proof.claim.disclosed.tier ||
-          proof.claim.disclosed.tier < challenge.requirements.minTier)
-      ) {
-        return { valid: false, reason: "Insufficient tier level" };
-      }
-
-      // All checks passed
-      return {
-        valid: true,
-        holderPubkey,
-        tatInfo: {
-          tokenId: proof.claim.tokenHash,
-          issuer: proof.claim.issuer,
-          tier: proof.claim.disclosed.tier,
-        },
-      };
-    } catch (error) {
-      return {
-        valid: false,
-        reason: error instanceof Error ? error.message : "Verification failed",
-      };
-    }
+    // A minimal proof's claim — issuer, expiry, tier, pattern match — is
+    // asserted by the client and signed only with a key the client chose.
+    // Nothing here can verify it, so accepting it granted access to anyone.
+    // Refused until a real selective-disclosure verifier exists.
+    return {
+      valid: false,
+      reason:
+        "Minimal-disclosure proofs are not supported; submit a full proof",
+    };
   }
 
   /**
@@ -528,13 +486,22 @@ export class GateServerSpec {
       return { valid: false, reason: "Token issuer mismatch" };
     }
 
-    // Check expiration
-    if (requirements.notExpired && token.isExpired()) {
+    // An expired token never grants access, whatever the rules say.
+    if (token.isExpired()) {
       return { valid: false, reason: "Token is expired" };
     }
 
-    // Check token ID pattern
-    if (requirements.tokenIdPattern && token.payload.tokenID) {
+    // Check token ID pattern — a token with no tokenID cannot match one.
+    if (requirements.tokenIdPattern) {
+      if (
+        token.payload.tokenID === undefined ||
+        token.payload.tokenID === null
+      ) {
+        return {
+          valid: false,
+          reason: "Token has no tokenID to match the required pattern",
+        };
+      }
       if (!this.isSafeTokenIdPattern(requirements.tokenIdPattern)) {
         return { valid: false, reason: "Unsafe token ID pattern" };
       }
@@ -544,7 +511,7 @@ export class GateServerSpec {
       } catch {
         return { valid: false, reason: "Invalid token ID pattern" };
       }
-      if (!regex.test(token.payload.tokenID)) {
+      if (!regex.test(String(token.payload.tokenID))) {
         return { valid: false, reason: "Token ID pattern mismatch" };
       }
     }
@@ -614,9 +581,11 @@ export class GateServerSpec {
   /**
    * Verify session token
    */
-  public verifySession(sessionToken: string): boolean {
+  public verifySession(sessionToken: string, resource: string): boolean {
     const session = this.state.sessions.get(sessionToken);
     if (!session) return false;
+    // A session is for the resource it was granted for, not every resource.
+    if (session.resource !== resource) return false;
 
     if (Date.now() > session.validUntil) {
       this.state.sessions.delete(sessionToken);
