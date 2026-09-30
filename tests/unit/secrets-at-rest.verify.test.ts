@@ -105,6 +105,16 @@ describe("NodeStore encrypts by default and fails closed", () => {
     expect(fileOf("legacy")).toMatch(/^enc:v2:/);
   });
 
+  it("will not open a ciphertext moved to a different key", async () => {
+    // Without associated data every value sealed under the store's key opened
+    // anywhere: a writer could copy one key's ciphertext over another's.
+    const s = new NodeStore(dir, { passphrase: "p", ...FAST });
+    await s.setItem("forge-state-a", JSON.stringify({ spent: ["x"] }));
+    await s.setItem("forge-state-b", JSON.stringify({ spent: [] }));
+    writeFileSync(join(dir, "forge-state-b.json"), fileOf("forge-state-a"));
+    await expect(s.getItem("forge-state-b")).rejects.toThrow();
+  });
+
   it("detects tampering", async () => {
     const s = new NodeStore(dir, { passphrase: "p", ...FAST });
     await s.setItem("k", SECRET);
@@ -158,6 +168,14 @@ describe("BrowserStore encrypts by default and fails closed", () => {
     expect(await s.getItem("pocket-state-x")).toBe(SECRET);
   });
 
+  it("will not open a ciphertext moved to a different key", async () => {
+    const s = new BrowserStore({ passphrase: "p", ...FAST });
+    await s.setItem("a", "1");
+    await s.setItem("b", "2");
+    ls.set("b", ls.get("a")!);
+    await expect(s.getItem("b")).rejects.toThrow();
+  });
+
   it("refuses plaintext it finds", async () => {
     ls.set("pocket-idkey-x", SECRET);
     const s = new BrowserStore({ passphrase: "p", ...FAST });
@@ -176,6 +194,15 @@ describe("EncryptedStorage seals any backend", () => {
     await expect(s.getItem("plain")).rejects.toThrow(/unencrypted/i);
     expect(await s.migratePlaintext(["plain"])).toBe(1);
     expect(await s.getItem("plain")).toBe(SECRET);
+  });
+
+  it("will not open a ciphertext moved to a different key", async () => {
+    const backend = new MemStore();
+    const s = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
+    await s.setItem("a", "1");
+    await s.setItem("b", "2");
+    backend.m.set("b", backend.m.get("a")!);
+    await expect(s.getItem("b")).rejects.toThrow();
   });
 });
 

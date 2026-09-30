@@ -45,11 +45,11 @@ export class EncryptedStorage implements StorageInterface {
     const raw = await this.backend.getItem(key);
     if (raw === null) return null;
     if (!SecretBox.isSealed(raw)) throw new UnencryptedDataError(key);
-    return (await this.secretBox()).open(raw);
+    return (await this.secretBox()).open(raw, key);
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    await this.backend.setItem(key, await (await this.secretBox()).seal(value));
+    await this.backend.setItem(key, await (await this.secretBox()).seal(value, key));
   }
 
   async removeItem(key: string): Promise<void> {

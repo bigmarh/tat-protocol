@@ -54,6 +54,10 @@ function fromB64(s: string): Uint8Array {
   return out;
 }
 
+function aad(context: string): BufferSource {
+  return new TextEncoder().encode(`tat-storage-v2\n${context}`) as BufferSource;
+}
+
 export function randomSalt(): Uint8Array {
   return globalThis.crypto.getRandomValues(new Uint8Array(16));
 }
@@ -97,11 +101,16 @@ export class SecretBox {
     return value.startsWith(SEALED_PREFIX);
   }
 
-  async seal(plaintext: string): Promise<string> {
+  /**
+   * @param context where the value lives (its storage key). It is bound in as
+   *   AES-GCM associated data, so a ciphertext copied to another key does not
+   *   open there. Rolling a key back to its own older value is NOT detected.
+   */
+  async seal(plaintext: string, context: string): Promise<string> {
     const iv = globalThis.crypto.getRandomValues(new Uint8Array(12));
     const ct = new Uint8Array(
       await subtle().encrypt(
-        { name: 'AES-GCM', iv: iv as BufferSource },
+        { name: 'AES-GCM', iv: iv as BufferSource, additionalData: aad(context) },
         this.key,
         new TextEncoder().encode(plaintext) as BufferSource
       )
@@ -110,19 +119,23 @@ export class SecretBox {
   }
 
   /** Throws if the value is not sealed, was sealed under another key, or was altered. */
-  async open(sealed: string): Promise<string> {
+  async open(sealed: string, context: string): Promise<string> {
     if (!SecretBox.isSealed(sealed)) throw new Error('SecretBox: value is not sealed');
     const [ivB64, ctB64] = sealed.slice(SEALED_PREFIX.length).split(':');
     if (!ivB64 || !ctB64) throw new Error('SecretBox: malformed sealed value');
     try {
       const pt = await subtle().decrypt(
-        { name: 'AES-GCM', iv: fromB64(ivB64) as BufferSource },
+        {
+          name: 'AES-GCM',
+          iv: fromB64(ivB64) as BufferSource,
+          additionalData: aad(context),
+        },
         this.key,
         fromB64(ctB64) as BufferSource
       );
       return new TextDecoder().decode(pt);
     } catch {
-      throw new Error('SecretBox: cannot decrypt — wrong key, or the value was altered');
+      throw new Error('SecretBox: cannot decrypt — wrong key, or the value was altered or moved');
     }
   }
 }

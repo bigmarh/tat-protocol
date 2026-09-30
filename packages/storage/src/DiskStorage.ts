@@ -1,6 +1,6 @@
 import { StorageInterface } from './StorageInterface.js';
 import { promises as fs } from 'fs';
-import { join } from 'path';
+import { basename, join } from 'path';
 import { DebugLogger } from '@tat-protocol/utils';
 import { createDecipheriv, createHash, randomBytes } from 'crypto';
 import { SecretBox, UnencryptedDataError, randomSalt } from './SecretBox.js';
@@ -128,14 +128,19 @@ export class NodeStore implements StorageInterface {
       }
       return raw;
     }
-    if (SecretBox.isSealed(raw)) return (await box).open(raw);
+    if (SecretBox.isSealed(raw)) return (await box).open(raw, this.locationOf(key));
     if (raw.startsWith('enc:v1:')) return this.decryptV1(raw);
     throw new UnencryptedDataError(key);
   }
 
-  private async encode(value: string): Promise<string> {
+  private async encode(key: string, value: string): Promise<string> {
     const box = this.secretBox();
-    return box ? (await box).seal(value) : value;
+    return box ? (await box).seal(value, this.locationOf(key)) : value;
+  }
+
+  /** What a value is bound to: its file name, which is what can be swapped. */
+  private locationOf(key: string): string {
+    return basename(this.getFilePath(key), '.json');
   }
 
   /**
@@ -153,7 +158,7 @@ export class NodeStore implements StorageInterface {
       const raw = await fs.readFile(path, 'utf-8');
       if (SecretBox.isSealed(raw)) continue;
       const value = raw.startsWith('enc:v1:') ? this.decryptV1(raw) : raw;
-      await this.writeAtomic(path, await (await box).seal(value));
+      await this.writeAtomic(path, await (await box).seal(value, basename(name, '.json')));
       migrated++;
     }
     return migrated;
@@ -202,7 +207,7 @@ export class NodeStore implements StorageInterface {
    * loss.
    */
   async setItem(key: string, value: string): Promise<void> {
-    await this.writeAtomic(this.getFilePath(key), await this.encode(value));
+    await this.writeAtomic(this.getFilePath(key), await this.encode(key, value));
   }
 
   private async writeAtomic(filePath: string, payload: string): Promise<void> {

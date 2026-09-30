@@ -78,7 +78,7 @@ export class BrowserStore implements StorageInterface {
     const box = this.secretBox();
     if (!box) return raw;
     if (!SecretBox.isSealed(raw)) throw new UnencryptedDataError(key);
-    return (await box).open(raw);
+    return (await box).open(raw, key);
   }
 
   /**
@@ -97,7 +97,7 @@ export class BrowserStore implements StorageInterface {
     for (const k of keys) {
       const raw = this.storage.getItem(k);
       if (raw === null || SecretBox.isSealed(raw)) continue;
-      this.storage.setItem(k, await (await box).seal(raw));
+      this.storage.setItem(k, await (await box).seal(raw, k));
       migrated++;
     }
     return migrated;
@@ -106,7 +106,7 @@ export class BrowserStore implements StorageInterface {
   async setItem(key: string, plaintext: string): Promise<void> {
     if (!isBrowser()) return;
     const box = this.secretBox();
-    const value = box ? await (await box).seal(plaintext) : plaintext;
+    const value = box ? await (await box).seal(plaintext, key) : plaintext;
     try {
       this.storage.setItem(key, value);
     } catch (e) {
