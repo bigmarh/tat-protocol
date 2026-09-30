@@ -36,6 +36,12 @@ export interface GateServerSpecConfig extends NWPCConfig {
   defaultVerificationMode?: VerificationMode;
   challengeExpiry?: number; // Seconds (default: 300 = 5 minutes)
   sessionExpiry?: number; // Seconds (default: 3600 = 1 hour)
+  /**
+   * What each resource requires, keyed by resource name. The gate's own
+   * policy: a requester only names the resource it wants, never the issuer or
+   * rules its token is checked against. A resource not listed is refused.
+   */
+  resources?: Record<string, TurnstileRequirements>;
 }
 
 /**
@@ -155,10 +161,23 @@ export class GateServerSpec {
   ): Promise<NWPCResponse | void> {
     try {
       const params = JSON.parse(req.params);
-      const { resource, requirements } = params as {
-        resource: string;
-        requirements: TurnstileRequirements;
-      };
+      // Anything else the client sends — notably `requirements` — is ignored.
+      // Letting it choose them let anyone name their own key as the issuer.
+      const { resource } = params as { resource: string };
+      const requirements =
+        typeof resource === "string" &&
+        Object.prototype.hasOwnProperty.call(
+          this.config.resources ?? {},
+          resource,
+        )
+          ? this.config.resources![resource]
+          : undefined;
+      if (!requirements) {
+        return res.error(
+          NWPC_SPEC_ERRORS.NOT_FOUND.code,
+          `No access rules for resource: ${String(resource)}`,
+        );
+      }
 
       if (
         requirements?.tokenIdPattern &&
