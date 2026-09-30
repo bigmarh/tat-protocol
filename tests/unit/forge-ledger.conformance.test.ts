@@ -77,3 +77,26 @@ describe("SqliteForgeLedger schema upgrade", () => {
     expect((await ledger.getTx("default", "ef".repeat(32)))?.outsHash).toBe("34".repeat(32));
   });
 });
+
+describe("SqliteForgeLedger driver requirements", () => {
+  it("refuses a driver without statement.all() up front, instead of silently losing outputs", () => {
+    // The ledger reads outputs and the outbox with .all(). A driver without
+    // it used to make those reads return nothing — and made the schema check
+    // think outs_hash was missing, re-adding it and crashing on a fresh DB.
+    const real = new DatabaseSync(":memory:");
+    const getOnly = {
+      exec: (sql: string) => real.exec(sql),
+      prepare: (sql: string) => {
+        const st = real.prepare(sql);
+        return { get: (...a: unknown[]) => st.get(...(a as [])), run: (...a: unknown[]) => st.run(...(a as [])) };
+      },
+    } as unknown as SqliteDatabaseHandle;
+    expect(() => new SqliteForgeLedger(getOnly, { skipPragmas: true })).toThrow(/all\(\)/);
+  });
+
+  it("opens a fresh database twice without re-adding outs_hash", () => {
+    const db = new DatabaseSync(":memory:") as unknown as SqliteDatabaseHandle;
+    new SqliteForgeLedger(db, { skipPragmas: true });
+    expect(() => new SqliteForgeLedger(db, { skipPragmas: true })).not.toThrow();
+  });
+});

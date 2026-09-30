@@ -43,6 +43,12 @@ export class SqliteForgeLedger implements ForgeLedger {
 
   constructor(db: SqliteDatabaseHandle, options: SqliteSpentSetStoreOptions = {}) {
     this.db = db;
+    // Outputs and the outbox are read with statement.all(). A driver without
+    // it would make those reads come back empty — outputs silently missing —
+    // so refuse it here rather than lose them.
+    if (typeof db.prepare('SELECT 1').all !== 'function') {
+      throw new Error('SqliteForgeLedger: the SQLite driver must support statement.all()');
+    }
     // The spent set sets the PRAGMAs (WAL, synchronous=FULL) for the shared
     // connection and creates `spent`; the supply store creates `supply`.
     this.spentSet = new SqliteSpentSetStore(db, options);
@@ -63,10 +69,10 @@ export class SqliteForgeLedger implements ForgeLedger {
     `);
     // Tables created before outs_hash existed: CREATE IF NOT EXISTS leaves
     // them as they were, and every insert below names the column.
-    const columns = (db.prepare(`PRAGMA table_info(tx_record)`).all?.() ?? []) as Array<{
-      name: string;
-    }>;
-    if (!columns.some(c => c.name === 'outs_hash')) {
+    const hasOutsHash = db
+      .prepare(`SELECT 1 AS found FROM pragma_table_info('tx_record') WHERE name = 'outs_hash'`)
+      .get();
+    if (!hasOutsHash) {
       db.exec(`ALTER TABLE tx_record ADD COLUMN outs_hash TEXT`);
     }
     db.exec(`CREATE INDEX IF NOT EXISTS tx_record_created ON tx_record (keyset_id, created_at)`);
