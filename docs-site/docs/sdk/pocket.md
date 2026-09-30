@@ -42,7 +42,8 @@ const balance = pocket.getBalance(forgePubkey, "-");
 | `relays` | `string[]` | No | Nostr relay URLs |
 | `keyID` | `string` | No | Load a previously saved keypair by ID |
 | `storageType` | `"node" \| "browser"` | No | Storage type hint |
-| `allowInsecureStorage` | `boolean` | No | Allow unencrypted browser storage |
+| `storagePassphrase` | `string` | No | Passphrase for the default (encrypting) storage |
+| `allowInsecureStorage` | `boolean` | No | Accept storage that does not encrypt at rest (keys and mnemonic in plaintext) |
 
 ## API Reference
 

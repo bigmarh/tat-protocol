@@ -209,6 +209,13 @@ export interface ForgeConfig {
    */
   txRecordRetentionDays?: number;
 
+  /**
+   * Let the forge persist a key it generated into storage that does not
+   * encrypt at rest (`storage.encryptsAtRest !== true`). Refused by default.
+   * Keys supplied in `keys` are never written to storage.
+   */
+  allowPlaintextSecrets?: boolean;
+
   /** How often the outbox is drained. Default 5000 ms. */
   outboxIntervalMs?: number;
 

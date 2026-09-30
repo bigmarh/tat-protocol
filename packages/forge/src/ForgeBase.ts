@@ -279,14 +279,15 @@ export abstract class ForgeBase extends NWPCServer {
           this.keys = { secretKey: "", publicKey: signerPubkey };
           this.stateKey = `forge-state-${signerPubkey}`;
         } else {
-          // Fall back to key-based initialization for backwards compatibility
-          const forgeKeyId = `forge-keys-${this.keys?.publicKey ?? ""}`;
+          // Keys from config are used as given and never copied into storage:
+          // writing them would only add a second place to steal them from.
+          // Only a key the forge generates itself is persisted, and only into
+          // storage that encrypts at rest.
           let keys = this.keys;
-          // Try to load keys from storage if not present
-          const storedKeys = await this.storage.getItem(forgeKeyId);
-          if (keys && keys.publicKey && !storedKeys) {
-            await this.storage.setItem(forgeKeyId, JSON.stringify(keys));
-          } else if (!keys?.publicKey || !keys?.secretKey) {
+          if (!keys?.publicKey || !keys?.secretKey) {
+            this.assertSecretStorage();
+            const forgeKeyId = `forge-keys-${keys?.publicKey ?? ""}`;
+            const storedKeys = await this.storage.getItem(forgeKeyId);
             if (storedKeys) {
               const parsedKeys = JSON.parse(storedKeys);
               keys = {
@@ -932,6 +933,24 @@ export abstract class ForgeBase extends NWPCServer {
         "ForgeBase",
       );
     }
+  }
+
+  /**
+   * Refuse to persist the forge's secret key into storage that stores it in
+   * plaintext, unless `allowPlaintextSecrets` says so.
+   */
+  protected assertSecretStorage(): void {
+    if (
+      this.storage.encryptsAtRest === true ||
+      this.config.allowPlaintextSecrets
+    ) {
+      return;
+    }
+    throw new Error(
+      "The forge would store its generated secret key in storage that does not encrypt at rest. " +
+        "Use encrypting storage (NodeStore with a passphrase, or EncryptedStorage around your backend), " +
+        "or supply `keys`/`signer` in config. Set `allowPlaintextSecrets: true` to store it unencrypted.",
+    );
   }
 
   /** A committed transfer or mint, with each output's delivery state. */

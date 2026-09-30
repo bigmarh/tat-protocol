@@ -13,6 +13,10 @@ export class Storage implements StorageInterface {
     this.storage = storage;
   }
 
+  get encryptsAtRest(): boolean {
+    return this.storage.encryptsAtRest === true;
+  }
+
   async getItem(key: string): Promise<string | null> {
     return this.storage.getItem(key);
   }

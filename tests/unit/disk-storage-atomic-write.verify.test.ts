@@ -26,7 +26,7 @@ describe("NodeStore writes are atomic", () => {
   });
 
   it("keeps the old value intact when a write dies partway", async () => {
-    const store = new NodeStore(dir);
+    const store = new NodeStore(dir, { allowPlaintext: true });
     const oldValue = JSON.stringify({ spent: ["a".repeat(64)], n: 1 });
     await store.setItem("forge-state", oldValue);
 
@@ -46,7 +46,7 @@ describe("NodeStore writes are atomic", () => {
   });
 
   it("replaces the value when the write succeeds", async () => {
-    const store = new NodeStore(dir);
+    const store = new NodeStore(dir, { allowPlaintext: true });
     await store.setItem("k", "one");
     await store.setItem("k", "two");
     expect(await store.getItem("k")).toBe("two");

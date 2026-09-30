@@ -58,7 +58,15 @@ export interface PocketConfig extends NWPCConfig {
     keys?: KeyPair;
     keyID?: string;
     requestHandlers?: Map<string, NWPCHandler>;
-    /** Allow storing sensitive state in browser storage without encryption */
+    /**
+     * Passphrase for the default storage (NodeStore, or BrowserStore with
+     * storageType 'browser'). NodeStore also reads TAT_STORAGE_ENCRYPTION_KEY.
+     */
+    storagePassphrase?: string;
+    /**
+     * Let the pocket keep its keys and mnemonic in storage that does not
+     * encrypt at rest. Refused by default, including for `config.storage`.
+     */
     allowInsecureStorage?: boolean;
 }
 
@@ -171,15 +179,14 @@ export class Pocket extends NWPCPeer {
         // Resolve storage before super() so NWPCBase always receives a concrete
         // StorageInterface. storageType:'browser' is a convenience shorthand that
         // must be materialised here — the constructor body runs too late.
+        const storeOptions = {
+            passphrase: config?.storagePassphrase,
+            allowPlaintext: config?.allowInsecureStorage === true && !config?.storagePassphrase,
+        };
         const storage = config?.storage
             ?? (config?.storageType === 'browser'
-                ? (() => {
-                    if (!config.allowInsecureStorage) {
-                        throw new Error('Browser storage requires allowInsecureStorage to persist sensitive state.');
-                    }
-                    return new BrowserStore();
-                })()
-                : new NodeStore());
+                ? new BrowserStore(storeOptions)
+                : new NodeStore(undefined, storeOptions));
         super({ ...config, storage });
         this.config = config || {};
         this.isInitialized = false;
@@ -193,6 +200,16 @@ export class Pocket extends NWPCPeer {
      * Async initialization for Pocket instance. Loads idKey if needed and initializes the NWPC client.
      */
     public async init(): Promise<void> {
+        // The pocket's identity key, HD mnemonic and single-use keys all live in
+        // this storage. Refuse it before anything is written if it would hold
+        // them in plaintext — whether it was built here or passed in config.
+        if (this.storage.encryptsAtRest !== true && !this.config?.allowInsecureStorage) {
+            throw new Error(
+                'Pocket storage does not encrypt at rest, and the pocket keeps its keys and mnemonic there. ' +
+                'Use NodeStore/BrowserStore with a passphrase (or storagePassphrase), or EncryptedStorage, ' +
+                'or set allowInsecureStorage: true to accept plaintext.'
+            );
+        }
         // Handle key initialization based on what was provided
         if (this.config?.signer) {
             // Signer provided - get public key from signer
@@ -208,7 +225,7 @@ export class Pocket extends NWPCPeer {
             const secretKey = bytesToHex(generateSecretKey());
             const publicKey = getPublicKey(hexToBytes(secretKey));
             this.keys = { secretKey, publicKey };
-            this.saveIdKey();
+            await this.saveIdKey();
         }
 
         // Resolve publicKey now (same logic as NWPCBase.init) so we can build

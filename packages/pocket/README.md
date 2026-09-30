@@ -42,4 +42,4 @@ console.log("Receive address:", receivePubkey);
 ## Storage Notes
 
 - Node: use `NodeStore`.
-- Browser: use `storageType: "browser"` with `allowInsecureStorage: true`, or provide your own encrypted storage implementation.
+- Storage must encrypt at rest: pass `storagePassphrase` (the default NodeStore/BrowserStore then encrypt), or `storage` whose `encryptsAtRest` is true (e.g. `new BrowserStore({ passphrase })`, `EncryptedStorage`). `allowInsecureStorage: true` accepts plaintext.

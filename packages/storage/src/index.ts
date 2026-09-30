@@ -1,4 +1,6 @@
 export * from './StorageInterface.js';
+export * from './SecretBox.js';
+export { EncryptedStorage } from './EncryptedStorage.js';
 export * from './SpentSetStore.js';
 export * from './ProcessedRequestStore.js';
 export * from './SupplyStore.js';
@@ -19,5 +21,7 @@ export type {
 } from './SqliteSpentSetStore.js';
 export { Storage } from './Storage.js';
 export { BrowserStore } from './BrowserStorage.js';
+export type { BrowserStoreOptions } from './BrowserStorage.js';
 export { NodeStore } from './DiskStorage.js';
+export type { NodeStoreOptions } from './DiskStorage.js';
 /* export * from './src/PearStorage.js'; */
