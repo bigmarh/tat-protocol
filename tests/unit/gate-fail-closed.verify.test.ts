@@ -116,6 +116,17 @@ describe("GateServerSpec fails closed", () => {
   });
 });
 
+describe("GateServerSpec sessions without a resource", () => {
+  it("refuses a session saved before sessions were bound, and a call that names no resource", async () => {
+    const g = await gate({});
+    g.state.sessions.set("legacy", { token: "legacy", validUntil: Date.now() + 60_000, holderPubkey: HOLDER });
+    expect(g.verifySession("legacy", "premium")).toBe(false);
+    expect((g.verifySession as any)("legacy")).toBe(false);
+    g.state.sessions.set("bound", { token: "bound", validUntil: Date.now() + 60_000, holderPubkey: HOLDER, resource: "premium" });
+    expect((g.verifySession as any)("bound")).toBe(false);
+  });
+});
+
 describe("GateBase fails closed when the forge cannot be asked", () => {
   class ForgeUnreachableGate extends (GateBase as any) {
     async validateTokenWithForge(): Promise<boolean> {

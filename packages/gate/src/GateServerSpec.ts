@@ -585,7 +585,10 @@ export class GateServerSpec {
     const session = this.state.sessions.get(sessionToken);
     if (!session) return false;
     // A session is for the resource it was granted for, not every resource.
-    if (session.resource !== resource) return false;
+    // One saved before sessions were bound has no resource and is refused, as
+    // is a call that names none (JS callers of the old one-argument form).
+    if (!session.resource || !resource || session.resource !== resource)
+      return false;
 
     if (Date.now() > session.validUntil) {
       this.state.sessions.delete(sessionToken);
