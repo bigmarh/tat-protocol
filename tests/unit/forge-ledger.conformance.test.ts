@@ -52,3 +52,28 @@ describe("SqliteForgeLedger durability", () => {
     }
   });
 });
+
+describe("SqliteForgeLedger schema upgrade", () => {
+  it("adds outs_hash to a tx_record table created before it existed", async () => {
+    const db = new DatabaseSync(":memory:") as unknown as SqliteDatabaseHandle;
+    db.exec(`
+      CREATE TABLE tx_record (
+        keyset_id TEXT NOT NULL, tx_id TEXT NOT NULL, kind TEXT NOT NULL,
+        request_id TEXT NOT NULL, submitter TEXT NOT NULL, input_hashes TEXT NOT NULL,
+        created_at INTEGER NOT NULL, PRIMARY KEY (keyset_id, tx_id)
+      ) WITHOUT ROWID
+    `);
+    const ledger = new SqliteForgeLedger(db, { skipPragmas: true });
+    await ledger.commitTransfer("default", {
+      txId: "ef".repeat(32),
+      kind: "transfer",
+      requestId: "r",
+      submitter: "a".repeat(64),
+      inputHashes: ["12".repeat(32)],
+      outsHash: "34".repeat(32),
+      outputs: [{ to: "b".repeat(64), jwt: "j" }],
+      createdAt: 1,
+    });
+    expect((await ledger.getTx("default", "ef".repeat(32)))?.outsHash).toBe("34".repeat(32));
+  });
+});

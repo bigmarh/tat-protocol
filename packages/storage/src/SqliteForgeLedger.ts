@@ -61,6 +61,14 @@ export class SqliteForgeLedger implements ForgeLedger {
         PRIMARY KEY (keyset_id, tx_id)
       ) WITHOUT ROWID
     `);
+    // Tables created before outs_hash existed: CREATE IF NOT EXISTS leaves
+    // them as they were, and every insert below names the column.
+    const columns = (db.prepare(`PRAGMA table_info(tx_record)`).all?.() ?? []) as Array<{
+      name: string;
+    }>;
+    if (!columns.some(c => c.name === 'outs_hash')) {
+      db.exec(`ALTER TABLE tx_record ADD COLUMN outs_hash TEXT`);
+    }
     db.exec(`CREATE INDEX IF NOT EXISTS tx_record_created ON tx_record (keyset_id, created_at)`);
     // One row per output. The outbox is the undelivered rows: there is no
     // separate queue to fall out of step with the record.
