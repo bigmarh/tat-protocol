@@ -1,6 +1,7 @@
 export * from './StorageInterface.js';
 export * from './SecretBox.js';
 export { EncryptedStorage } from './EncryptedStorage.js';
+export type { EncryptedStorageOptions } from './EncryptedStorage.js';
 export * from './SpentSetStore.js';
 export * from './ProcessedRequestStore.js';
 export * from './SupplyStore.js';

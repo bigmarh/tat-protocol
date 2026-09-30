@@ -215,6 +215,43 @@ describe("EncryptedStorage seals any backend", () => {
   });
 });
 
+describe("EncryptedStorage replicas agree on one salt", () => {
+  it("converges when two replicas start together on an empty backend", async () => {
+    // Get-then-set is not atomic: both replicas can read "no salt" and each
+    // write its own, after which each cannot read what the other wrote.
+    const backend = new MemStore();
+    const realGet = backend.getItem.bind(backend);
+    // Hold the first two salt reads until both are in flight, so both see an
+    // empty backend — the interleaving the race needs.
+    const held: Array<() => void> = [];
+    backend.getItem = async (k: string) => {
+      if (k === "__tat_kdf_salt__" && held.length < 2) {
+        const value = await new Promise<string | null>((resolve) => {
+          held.push(() => void realGet(k).then(resolve));
+          if (held.length === 2) held.forEach((go) => go());
+        });
+        return value;
+      }
+      return realGet(k);
+    };
+    const a = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
+    const b = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
+    await Promise.all([a.setItem("from-a", "1"), b.setItem("from-b", "2")]);
+    expect(await a.getItem("from-b")).toBe("2");
+    expect(await b.getItem("from-a")).toBe("1");
+  });
+
+  it("uses a salt supplied in config, so replicas need not race for one", async () => {
+    const backend = new MemStore();
+    const salt = "ab".repeat(16);
+    const a = new EncryptedStorage(backend, { passphrase: "p", salt, ...FAST });
+    await a.setItem("k", "v");
+    expect(backend.m.has("__tat_kdf_salt__")).toBe(false);
+    const b = new EncryptedStorage(backend, { passphrase: "p", salt, ...FAST });
+    expect(await b.getItem("k")).toBe("v");
+  });
+});
+
 describe("the forge and pocket refuse to write secrets to unencrypted storage", () => {
   const OWNER = "ab".repeat(32);
 

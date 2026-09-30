@@ -4,6 +4,7 @@ export type { BrowserStoreOptions } from './src/BrowserStorage.js';
 export * from './src/StorageInterface.js';
 export * from './src/SecretBox.js';
 export { EncryptedStorage } from './src/EncryptedStorage.js';
+export type { EncryptedStorageOptions } from './src/EncryptedStorage.js';
 export * from './src/SpentSetStore.js';
 export * from './src/ProcessedRequestStore.js';
 export * from './src/SupplyStore.js';

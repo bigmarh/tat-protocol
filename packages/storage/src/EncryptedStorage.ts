@@ -3,6 +3,18 @@ import { SecretBox, SecretBoxOptions, UnencryptedDataError, randomSalt } from '.
 
 const SALT_KEY = '__tat_kdf_salt__';
 
+export interface EncryptedStorageOptions extends SecretBoxOptions {
+  /**
+   * KDF salt (hex, or bytes). Give every replica of one deployment the same
+   * value to take the salt out of the backend altogether — StorageInterface
+   * has no compare-and-set, so replicas creating one there can race.
+   */
+  salt?: string | Uint8Array;
+}
+
+const toHex = (b: Uint8Array) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
+const fromHex = (h: string) => new Uint8Array(h.match(/../g)!.map(x => parseInt(x, 16)));
+
 /**
  * Encrypts every value before it reaches any {@link StorageInterface} backend
  * (Redis, S3, a database, an in-memory map), so secrets written through it are
@@ -21,7 +33,7 @@ export class EncryptedStorage implements StorageInterface {
 
   constructor(
     private readonly backend: StorageInterface,
-    private readonly options: SecretBoxOptions
+    private readonly options: EncryptedStorageOptions
   ) {
     if (!options.passphrase && !options.key) {
       throw new Error('EncryptedStorage: an encryption key (passphrase or key) is required');
@@ -30,13 +42,20 @@ export class EncryptedStorage implements StorageInterface {
 
   private secretBox(): Promise<SecretBox> {
     this.box ??= (async () => {
+      if (this.options.salt !== undefined) {
+        const salt =
+          typeof this.options.salt === 'string' ? fromHex(this.options.salt) : this.options.salt;
+        return SecretBox.create(this.options, salt);
+      }
       let saltHex = await this.backend.getItem(SALT_KEY);
       if (!saltHex) {
-        saltHex = Array.from(randomSalt(), b => b.toString(16).padStart(2, '0')).join('');
-        await this.backend.setItem(SALT_KEY, saltHex);
+        await this.backend.setItem(SALT_KEY, toHex(randomSalt()));
+        // Re-read rather than trusting our own write: if another replica wrote
+        // one concurrently, the stored value is the one everyone will use.
+        saltHex = await this.backend.getItem(SALT_KEY);
+        if (!saltHex) throw new Error('EncryptedStorage: could not persist the KDF salt');
       }
-      const salt = new Uint8Array(saltHex.match(/../g)!.map(h => parseInt(h, 16)));
-      return SecretBox.create(this.options, salt);
+      return SecretBox.create(this.options, fromHex(saltHex));
     })();
     return this.box;
   }
