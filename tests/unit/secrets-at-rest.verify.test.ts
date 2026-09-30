@@ -195,7 +195,7 @@ describe("BrowserStore encrypts by default and fails closed", () => {
 describe("EncryptedStorage seals any backend", () => {
   it("stores ciphertext in the backend and refuses plaintext", async () => {
     const backend = new MemStore();
-    const s = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
+    const s = new EncryptedStorage(backend, { passphrase: "p", createSalt: true, ...FAST });
     await s.setItem("k", SECRET);
     expect(backend.m.get("k")).toMatch(/^enc:v2:/);
     expect(await s.getItem("k")).toBe(SECRET);
@@ -207,7 +207,7 @@ describe("EncryptedStorage seals any backend", () => {
 
   it("will not open a ciphertext moved to a different key", async () => {
     const backend = new MemStore();
-    const s = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
+    const s = new EncryptedStorage(backend, { passphrase: "p", createSalt: true, ...FAST });
     await s.setItem("a", "1");
     await s.setItem("b", "2");
     backend.m.set("b", backend.m.get("a")!);
@@ -216,29 +216,29 @@ describe("EncryptedStorage seals any backend", () => {
 });
 
 describe("EncryptedStorage replicas agree on one salt", () => {
-  it("converges when two replicas start together on an empty backend", async () => {
-    // Get-then-set is not atomic: both replicas can read "no salt" and each
-    // write its own, after which each cannot read what the other wrote.
+  it("will not keep a salt in the backend unless told there is a single writer", () => {
+    // The backend has no compare-and-set, so two replicas creating a salt
+    // there can each write their own — and one replica's data is then lost.
+    expect(() => new EncryptedStorage(new MemStore(), { passphrase: "p", ...FAST })).toThrow(/salt/i);
+    expect(() => new EncryptedStorage(new MemStore(), { passphrase: "p", createSalt: true, ...FAST })).not.toThrow();
+  });
+
+  it("refuses to seal once another writer has replaced the stored salt", async () => {
+    // Asymmetric latency: A creates, writes and re-reads its salt before B's
+    // slower write lands. A must not go on sealing under a salt nobody else
+    // will derive after a restart.
     const backend = new MemStore();
-    const realGet = backend.getItem.bind(backend);
-    // Hold the first two salt reads until both are in flight, so both see an
-    // empty backend — the interleaving the race needs.
-    const held: Array<() => void> = [];
-    backend.getItem = async (k: string) => {
-      if (k === "__tat_kdf_salt__" && held.length < 2) {
-        const value = await new Promise<string | null>((resolve) => {
-          held.push(() => void realGet(k).then(resolve));
-          if (held.length === 2) held.forEach((go) => go());
-        });
-        return value;
-      }
-      return realGet(k);
-    };
-    const a = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
-    const b = new EncryptedStorage(backend, { passphrase: "p", ...FAST });
-    await Promise.all([a.setItem("from-a", "1"), b.setItem("from-b", "2")]);
-    expect(await a.getItem("from-b")).toBe("2");
-    expect(await b.getItem("from-a")).toBe("1");
+    const a = new EncryptedStorage(backend, { passphrase: "p", createSalt: true, ...FAST });
+    await a.setItem("first", "1");
+    backend.m.set("__tat_kdf_salt__", "cd".repeat(16)); // B's late write
+    await expect(a.setItem("second", "2")).rejects.toThrow(/salt/i);
+    expect(backend.m.has("second")).toBe(false);
+  });
+
+  it("rejects a malformed salt", () => {
+    for (const salt of ["", "abc", "zz".repeat(16), "ab".repeat(4)]) {
+      expect(() => new EncryptedStorage(new MemStore(), { passphrase: "p", salt, ...FAST })).toThrow(/salt/i);
+    }
   });
 
   it("uses a salt supplied in config, so replicas need not race for one", async () => {
@@ -264,7 +264,7 @@ describe("the forge and pocket refuse to write secrets to unencrypted storage", 
     const backend = new MemStore();
     const forge = new FungibleForge({
       owner: OWNER,
-      storage: new EncryptedStorage(backend, { passphrase: "p", ...FAST }),
+      storage: new EncryptedStorage(backend, { passphrase: "p", createSalt: true, ...FAST }),
       relays: [],
     } as any) as any;
     await forge.initialize();

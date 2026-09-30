@@ -5,15 +5,38 @@ const SALT_KEY = '__tat_kdf_salt__';
 
 export interface EncryptedStorageOptions extends SecretBoxOptions {
   /**
-   * KDF salt (hex, or bytes). Give every replica of one deployment the same
-   * value to take the salt out of the backend altogether — StorageInterface
-   * has no compare-and-set, so replicas creating one there can race.
+   * KDF salt: at least 16 bytes, as hex or bytes. Give every replica of one
+   * deployment the same value (from config); no salt is kept in the backend.
+   * Required unless `createSalt` is set.
    */
   salt?: string | Uint8Array;
+  /**
+   * Create a random salt and keep it in the backend. ONLY for a single writer:
+   * StorageInterface has no compare-and-set, so two replicas creating one can
+   * each write their own, and data sealed under the losing salt never opens
+   * again. As a backstop, a store refuses to seal once the stored salt is no
+   * longer the one it derived its key from.
+   */
+  createSalt?: boolean;
 }
 
+const MIN_SALT_BYTES = 16;
 const toHex = (b: Uint8Array) => Array.from(b, x => x.toString(16).padStart(2, '0')).join('');
-const fromHex = (h: string) => new Uint8Array(h.match(/../g)!.map(x => parseInt(x, 16)));
+
+function parseSalt(salt: string | Uint8Array, source: string): Uint8Array {
+  const bytes =
+    typeof salt === 'string'
+      ? /^(?:[0-9a-fA-F]{2})+$/.test(salt)
+        ? new Uint8Array(salt.match(/../g)!.map(x => parseInt(x, 16)))
+        : undefined
+      : salt;
+  if (!bytes || bytes.length < MIN_SALT_BYTES) {
+    throw new Error(
+      `EncryptedStorage: ${source} salt must be at least ${MIN_SALT_BYTES} bytes of hex`
+    );
+  }
+  return bytes;
+}
 
 /**
  * Encrypts every value before it reaches any {@link StorageInterface} backend
@@ -24,12 +47,12 @@ const fromHex = (h: string) => new Uint8Array(h.match(/../g)!.map(x => parseInt(
  * to return, since a store that accepts plaintext accepts whatever an attacker
  * with write access to the backend chose to put there.
  *
- * The KDF salt lives in the backend under a reserved key; losing it makes every
- * value unreadable, so back it up with the data.
+ * With `createSalt`, the KDF salt lives in the backend under a reserved key;
+ * losing it makes every value unreadable, so back it up with the data.
  */
 export class EncryptedStorage implements StorageInterface {
   readonly encryptsAtRest = true;
-  private box?: Promise<SecretBox>;
+  private box?: Promise<{ box: SecretBox; storedSalt?: string }>;
 
   constructor(
     private readonly backend: StorageInterface,
@@ -38,24 +61,35 @@ export class EncryptedStorage implements StorageInterface {
     if (!options.passphrase && !options.key) {
       throw new Error('EncryptedStorage: an encryption key (passphrase or key) is required');
     }
+    if (options.salt !== undefined) {
+      parseSalt(options.salt, 'the configured');
+    } else if (!options.key && !options.createSalt) {
+      throw new Error(
+        'EncryptedStorage: pass the deployment `salt` (shared by every replica), ' +
+          'or `createSalt: true` if this is the only writer'
+      );
+    }
   }
 
-  private secretBox(): Promise<SecretBox> {
+  private secretBox(): Promise<{ box: SecretBox; storedSalt?: string }> {
     this.box ??= (async () => {
       if (this.options.salt !== undefined) {
-        const salt =
-          typeof this.options.salt === 'string' ? fromHex(this.options.salt) : this.options.salt;
-        return SecretBox.create(this.options, salt);
+        return {
+          box: await SecretBox.create(this.options, parseSalt(this.options.salt, 'the configured')),
+        };
+      }
+      if (this.options.key) {
+        return { box: await SecretBox.create(this.options, new Uint8Array(0)) };
       }
       let saltHex = await this.backend.getItem(SALT_KEY);
       if (!saltHex) {
-        await this.backend.setItem(SALT_KEY, toHex(randomSalt()));
-        // Re-read rather than trusting our own write: if another replica wrote
-        // one concurrently, the stored value is the one everyone will use.
-        saltHex = await this.backend.getItem(SALT_KEY);
-        if (!saltHex) throw new Error('EncryptedStorage: could not persist the KDF salt');
+        saltHex = toHex(randomSalt());
+        await this.backend.setItem(SALT_KEY, saltHex);
       }
-      return SecretBox.create(this.options, fromHex(saltHex));
+      return {
+        box: await SecretBox.create(this.options, parseSalt(saltHex, 'the stored')),
+        storedSalt: saltHex,
+      };
     })();
     return this.box;
   }
@@ -64,11 +98,20 @@ export class EncryptedStorage implements StorageInterface {
     const raw = await this.backend.getItem(key);
     if (raw === null) return null;
     if (!SecretBox.isSealed(raw)) throw new UnencryptedDataError(key);
-    return (await this.secretBox()).open(raw, key);
+    return (await this.secretBox()).box.open(raw, key);
   }
 
   async setItem(key: string, value: string): Promise<void> {
-    await this.backend.setItem(key, await (await this.secretBox()).seal(value, key));
+    const { box, storedSalt } = await this.secretBox();
+    if (storedSalt !== undefined && (await this.backend.getItem(SALT_KEY)) !== storedSalt) {
+      // Another writer replaced the salt: anything sealed under ours would
+      // never open once the key is derived again. Refuse rather than write it.
+      throw new Error(
+        'EncryptedStorage: the stored salt changed under this store — another writer is using ' +
+          'createSalt. Configure one shared `salt` for every replica.'
+      );
+    }
+    await this.backend.setItem(key, await box.seal(value, key));
   }
 
   async removeItem(key: string): Promise<void> {
