@@ -140,6 +140,17 @@ describe("servers resume from the last event they saw", () => {
     expect(s.state.lastSeenAt).toBe(NOW() - 30);
   });
 
+  it("stops waiting for a backfill whose EOSE never comes (a relay is down)", async () => {
+    // NDK only emits EOSE once enough relays have sent theirs; with one of two
+    // relays down it never does, and the resume point would never move again.
+    const s = server(NOW() - 3 * HOUR);
+    s.config.backfillTimeoutMs = 20;
+    await s.subscribe(s.publicKey, async () => undefined);
+    s.ndk.subs[0].sub.emit("event", { id: "z".padEnd(64, "0"), created_at: NOW() - 30 });
+    await new Promise((r) => setTimeout(r, 60));
+    expect(s.state.lastSeenAt).toBe(NOW() - 30);
+  });
+
   it("re-opens every subscription on reconnect, resuming rather than starting over", async () => {
     const s = server(NOW() - 2 * HOUR);
     await s.subscribe(s.publicKey, async () => undefined);

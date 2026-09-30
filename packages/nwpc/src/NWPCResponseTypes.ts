@@ -72,6 +72,11 @@ export interface NWPCConfig {
    * it rejects. Default 10 000 ms.
    */
   publishTimeoutMs?: number;
+  /**
+   * How long a subscription waits for EOSE before its backfill counts as done
+   * for the resume point. Default 30 000 ms.
+   */
+  backfillTimeoutMs?: number;
   [key: string]: unknown;
 }
 

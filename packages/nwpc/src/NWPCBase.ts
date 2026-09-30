@@ -62,6 +62,12 @@ const FIRST_START_WINDOW_SEC = 10 * 60;
  * or wraps backdated behind the resume point are never asked for.
  */
 const RESUME_MARGIN_SEC = 10 * 60;
+/**
+ * How long a subscription counts as "still backfilling" if EOSE never comes.
+ * NDK emits EOSE only once enough relays have sent theirs, so with a relay
+ * down it may never fire — and the resume point would never move again.
+ */
+const DEFAULT_BACKFILL_TIMEOUT_MS = 30_000;
 /** Never ask relays for more than this much history on resume. */
 const MAX_RESUME_LOOKBACK_SEC = 7 * 24 * 60 * 60;
 
@@ -549,6 +555,17 @@ export abstract class NWPCBase implements INWPCBase {
     };
 
     this.backfilling.add(subscription);
+    const backfillTimeoutMs =
+      this.config?.backfillTimeoutMs ?? DEFAULT_BACKFILL_TIMEOUT_MS;
+    const backfillTimer = setTimeout(() => {
+      if (!this.backfilling.delete(subscription)) return;
+      Debug.log(
+        "No EOSE within the backfill timeout; treating backfill as done",
+        "NWPCBase",
+      );
+      this.advanceResumePoint();
+    }, backfillTimeoutMs);
+    (backfillTimer as { unref?: () => void }).unref?.();
     subscription.on("event", eventHandler);
     subscription.on("eose", eoseHandler);
     this.activeSubscriptions?.set(pubkey, subscription);
