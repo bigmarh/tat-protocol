@@ -80,6 +80,8 @@ export interface DerivedPayload extends Payload {
 export interface TokenBuildParams {
   token_type: TokenType;
   payload: Payload;
+  /** Header version, which selects the token-hash rule. Default TOKEN_HASH_VERSION. */
+  ver?: string;
 }
 
 /**
@@ -140,7 +142,7 @@ export default class Token {
       alg: "Schnorr",
       typ: opts.token_type,
       token_hash: "",
-      ver: TOKEN_HASH_VERSION,
+      ver: opts.ver ?? TOKEN_HASH_VERSION,
     };
     this.payload = opts.payload;
     await this.create_token_hash();

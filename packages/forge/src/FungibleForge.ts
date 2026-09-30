@@ -71,6 +71,7 @@ export class FungibleForge extends ForgeBase {
 
     const token = new Token();
     await token.build({
+      ver: this.tokenVersion,
       token_type: TokenType.FUNGIBLE,
       payload: Token.createPayload({
         iss: this.keys.publicKey!,
@@ -296,6 +297,7 @@ export class FungibleForge extends ForgeBase {
     for (const entry of outs) {
       const newToken = new Token();
       await newToken.build({
+        ver: this.tokenVersion,
         token_type: TokenType.FUNGIBLE,
         payload: Token.createPayload({
           iss: this.keys.publicKey!,

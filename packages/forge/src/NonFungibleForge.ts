@@ -70,6 +70,7 @@ export class NonFungibleForge extends ForgeBase {
     }
     const token = new Token();
     await token.build({
+      ver: this.tokenVersion,
       token_type: TokenType.TAT,
       payload: Token.createPayload({
         iss: this.keys.publicKey!,
@@ -240,6 +241,7 @@ export class NonFungibleForge extends ForgeBase {
       // Forge new token for recipient
       const newToken = new Token();
       await newToken.build({
+        ver: this.tokenVersion,
         token_type: TokenType.TAT,
         payload: Token.createPayload({
           iss: this.keys.publicKey!,

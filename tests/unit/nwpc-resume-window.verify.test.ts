@@ -19,6 +19,12 @@ import { Pocket } from "../../packages/pocket/src/Pocket";
 import { EventEmitter } from "node:events";
 
 const NOW = () => Math.floor(Date.now() / 1000);
+
+// Freeze the clock: expectations recompute NOW(), and a second boundary
+// crossed mid-test would otherwise shift them by one.
+const FROZEN = Date.now();
+beforeEach(() => jest.spyOn(Date, "now").mockReturnValue(FROZEN));
+afterEach(() => jest.restoreAllMocks());
 const HOUR = 3600;
 const MARGIN = 10 * 60;
 
@@ -71,9 +77,10 @@ function server(lastSeenAt?: number) {
 
 describe("servers resume from the last event they saw", () => {
   it("asks relays for everything since the persisted point, less a margin", async () => {
-    const s = server(NOW() - 3 * HOUR);
+    const last = NOW() - 3 * HOUR;
+    const s = server(last);
     await s.subscribe(s.publicKey, async () => undefined);
-    expect(s.ndk.subs[0].filter.since).toBe(NOW() - 3 * HOUR - MARGIN);
+    expect(s.ndk.subs[0].filter.since).toBe(last - MARGIN);
   });
 
   it("uses a short window on first start, when there is nothing to catch up on", async () => {

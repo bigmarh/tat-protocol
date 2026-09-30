@@ -216,6 +216,14 @@ export interface ForgeConfig {
    */
   allowPlaintextSecrets?: boolean;
 
+  /**
+   * Header version — and so token-hash rule — of the tokens this forge mints.
+   * Default "2.0.0" (lossless hash). A pocket on an SDK before v2 rejects v2
+   * tokens as corrupt, so set "1.0.0" until every holder has updated; tokens
+   * of either version are accepted as inputs regardless.
+   */
+  tokenHashVersion?: "1.0.0" | "2.0.0";
+
   /** How often the outbox is drained. Default 5000 ms. */
   outboxIntervalMs?: number;
 
