@@ -308,6 +308,10 @@ export class BoothAgent {
         const receipt = Array.from(this.state.receipts.values()).find(
           (r) => r.invoiceId === invoiceId,
         );
+        // The receipt is the payer's; anyone else only learns it is paid.
+        if (!this.isPayer(invoice, context.sender)) {
+          return res.error(4001, "Invoice already paid");
+        }
         if (receipt) {
           return res.send(
             {
@@ -333,6 +337,7 @@ export class BoothAgent {
       // Update invoice
       invoice.status = "paid";
       invoice.paidAt = Date.now();
+      invoice.paidBy = context.sender;
       if (result.settlement) invoice.settlement = result.settlement;
       this.state.invoices.set(invoiceId, invoice);
 
@@ -378,7 +383,9 @@ export class BoothAgent {
       let receipt: Receipt | undefined;
       let tat: string | undefined;
 
-      if (invoice.status === "paid") {
+      // Anyone who knows the invoice id may learn its status; only the payer
+      // gets what was bought and the receipt.
+      if (invoice.status === "paid" && this.isPayer(invoice, context.sender)) {
         receipt = Array.from(this.state.receipts.values()).find(
           (r) => r.invoiceId === invoiceId,
         );
@@ -531,6 +538,19 @@ export class BoothAgent {
           error instanceof Error ? error.message : "Payment processing failed",
       };
     }
+  }
+
+  /**
+   * Whether `requester` paid this invoice. Invoices paid before `paidBy` was
+   * recorded fall back to the buyer named on their receipt.
+   */
+  private isPayer(invoice: Invoice, requester: string): boolean {
+    const payer =
+      invoice.paidBy ??
+      Array.from(this.state.receipts.values()).find(
+        (r) => r.invoiceId === invoice.invoiceId,
+      )?.buyer;
+    return !!payer && payer === requester;
   }
 
   /** Settlement tx ids claimed by an invoice, including ones not yet saved. */

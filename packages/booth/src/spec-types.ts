@@ -131,6 +131,12 @@ export interface Invoice {
   createdAt: number;
   paidAt?: number;
   buyerPubkey: string;
+  /**
+   * The key that paid: the sender of the `booth.pay` request, or the invoice's
+   * buyer for an externally confirmed payment. Only it is shown the purchased
+   * token and receipt.
+   */
+  paidBy?: string;
   quantity?: number;
   paymentReferences?: Record<
     string,
