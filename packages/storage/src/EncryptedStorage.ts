@@ -15,7 +15,9 @@ export interface EncryptedStorageOptions extends SecretBoxOptions {
    * StorageInterface has no compare-and-set, so two replicas creating one can
    * each write their own, and data sealed under the losing salt never opens
    * again. As a backstop, a store refuses to seal once the stored salt is no
-   * longer the one it derived its key from.
+   * longer the one it derived its key from — best effort only: a salt another
+   * replica writes while a value is being sealed is not seen, and nothing
+   * short of compare-and-set can close that. Use `salt` for multiple writers.
    */
   createSalt?: boolean;
 }
