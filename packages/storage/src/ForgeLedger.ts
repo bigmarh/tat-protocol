@@ -80,7 +80,7 @@ export interface TxOutput {
 
 export interface TxRecord {
   txId: string;
-  kind: 'transfer' | 'mint';
+  kind: 'transfer' | 'mint' | 'burn';
   /** The NWPC request id that created it; retries reuse it so the pocket can correlate. */
   requestId: string;
   /**

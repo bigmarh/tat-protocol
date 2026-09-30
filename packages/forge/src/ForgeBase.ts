@@ -14,6 +14,7 @@ import {
   signMessage,
   verifySignature,
   spendAuthDigest,
+  burnAuthDigest,
   postToFeed,
   DebugLogger,
   KIND_TOKEN_SPENT,
@@ -762,6 +763,15 @@ export abstract class ForgeBase extends NWPCServer {
     }
   }
 
+  /**
+   * Burn a token this forge issued, authorized by its lock key.
+   *
+   * Params: `{ token, witness }`, where `witness` is the lock key's signature
+   * over `burnAuthDigest(tokenHash)`. The burn digest has its own domain tag,
+   * so a transfer witness seen on the wire cannot be replayed as a burn.
+   * Unlocked tokens cannot be burned: no key could authorize it, so anyone who
+   * had seen the JWT could destroy it.
+   */
   public async handleBurn(
     req: NWPCRequest,
     context: NWPCContext,
@@ -770,7 +780,7 @@ export abstract class ForgeBase extends NWPCServer {
     // Share the spent-set lock with transfers: a burn and a transfer of the
     // same token must not both mark it spent from an unspent starting state.
     return await this.runExclusive(async () => {
-      let parsed: { token?: string };
+      let parsed: { token?: string; witness?: string };
       try {
         parsed = JSON.parse(req.params);
       } catch (error) {
@@ -779,7 +789,7 @@ export abstract class ForgeBase extends NWPCServer {
           NWPC_SPEC_ERRORS.PARSE_ERROR.message,
         );
       }
-      const { token } = parsed;
+      const { token, witness } = parsed;
       if (!token) {
         return await res.error(
           NWPC_SPEC_ERRORS.TOKEN_REQUIRED.code,
@@ -787,31 +797,37 @@ export abstract class ForgeBase extends NWPCServer {
         );
       }
       try {
-        const restoredToken = await new Token().restore(token);
-
-        // Verify token integrity before accepting burn
-        if (!(await restoredToken.verifyTokenHash())) {
+        // Integrity, issuer, spent, expiry, timelock, HTLC and the witness —
+        // the same checks a transfer input passes, with the witness verified
+        // over the burn digest and no legacy fallback.
+        const [validTx, error, code, params] = await this.validateTXInputs(
+          { ins: [token] },
+          [witness ?? ""],
+          undefined,
+          {
+            witnessDigest: burnAuthDigest,
+            allowLegacyWitness: false,
+            requireLock: true,
+          },
+        );
+        if (error || !validTx) {
           return await res.error(
-            NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
-            "Token hash does not match payload",
+            code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+            "Invalid burn: " + (error || "Validation failed"),
+            params,
           );
         }
-        if (!(await restoredToken.verifyTokenSignature())) {
-          return await res.error(
-            NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
-            "Invalid token signature",
-          );
-        }
-
-        const tokenHash = restoredToken.header.token_hash;
-        if (await this.isTokenSpent(tokenHash)) {
-          return await res.error(
-            NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
-            NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
-          );
-        }
-        await this.publishSpentToken(tokenHash);
-        return await res.send({ success: true }, context.sender);
+        const restored = await new Token().restore(token);
+        return await this.commitAndDeliverTransfer(
+          {
+            inputHashes: [await restored.create_token_hash()],
+            outputs: [],
+            submitter: context.sender,
+            requestId: req.id,
+            kind: "burn",
+          },
+          res,
+        );
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error occurred";
@@ -968,13 +984,14 @@ export abstract class ForgeBase extends NWPCServer {
       outputs: TxOutput[];
       submitter: string;
       requestId?: string;
+      kind?: "transfer" | "burn";
     },
     res: NWPCResponseObject,
   ) {
     const txId = txIdForInputs(params.inputHashes);
     const record: TxRecord = {
       txId,
-      kind: "transfer",
+      kind: params.kind ?? "transfer",
       requestId: params.requestId ?? txId,
       submitter: params.submitter,
       inputHashes: params.inputHashes,
@@ -1301,6 +1318,14 @@ export abstract class ForgeBase extends NWPCServer {
     tx: TransactionData,
     witnessData?: string[],
     providedHTLCSecret?: string,
+    opts: {
+      /** Digest the P2PK witness must sign. Default: spendAuthDigest over tx.outs. */
+      witnessDigest?: (tokenHash: string) => Uint8Array;
+      /** `false` refuses the legacy bare-token-hash witness regardless of config. */
+      allowLegacyWitness?: boolean;
+      /** Refuse inputs with no P2PK lock (nothing could authorize them). */
+      requireLock?: boolean;
+    } = {},
   ): Promise<
     [TransactionData | null, string | null, number | null, string | undefined]
   > {
@@ -1377,6 +1402,14 @@ export abstract class ForgeBase extends NWPCServer {
           "",
         ];
       }
+      if (opts.requireLock && !token.payload.P2PKlock) {
+        return [
+          null,
+          "Token has no P2PK lock, so no key can authorize this",
+          NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+          "",
+        ];
+      }
       if (token.payload.P2PKlock) {
         const witness = witnessData?.[inputs.indexOf(input)];
         if (!witness) {
@@ -1391,11 +1424,20 @@ export abstract class ForgeBase extends NWPCServer {
         // outputs, not the bare (public, static) token hash. Otherwise a witness
         // seen on the wire could be replayed to redirect the same input to a
         // different recipient. See spendAuthDigest / audit finding C6.
-        const witnessBytes = hexToBytes(witness);
-        const witnessMessage = spendAuthDigest(
-          token.header.token_hash,
-          tx.outs ?? [],
-        );
+        let witnessBytes: Uint8Array;
+        try {
+          witnessBytes = hexToBytes(witness);
+        } catch {
+          return [
+            null,
+            "Witness is not hex",
+            NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+            "",
+          ];
+        }
+        const witnessMessage = opts.witnessDigest
+          ? opts.witnessDigest(token.header.token_hash)
+          : spendAuthDigest(token.header.token_hash, tx.outs ?? []);
         let isValid = verifySignature(
           witnessMessage,
           witnessBytes,
@@ -1405,7 +1447,11 @@ export abstract class ForgeBase extends NWPCServer {
         // signed over the bare token hash so wallets on an older SDK keep
         // working. Flip `allowLegacyWitness: false` once all wallets are updated
         // to fully close the replay vector.
-        if (!isValid && this.config.allowLegacyWitness !== false) {
+        if (
+          !isValid &&
+          opts.allowLegacyWitness !== false &&
+          this.config.allowLegacyWitness !== false
+        ) {
           const legacyValid = verifySignature(
             hexToBytes(token.header.token_hash),
             witnessBytes,

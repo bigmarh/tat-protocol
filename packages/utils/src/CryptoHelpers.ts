@@ -61,6 +61,19 @@ export function spendAuthDigest(
 }
 
 /**
+ * Digest a P2PK holder signs to authorize BURNING a token.
+ *
+ * Separate domain tag from {@link spendAuthDigest}, so no transfer witness —
+ * including one for a transfer with no outputs — verifies as a burn, and no
+ * burn witness verifies as a transfer.
+ */
+export function burnAuthDigest(inputTokenHash: string): Uint8Array {
+  return sha256(
+    new TextEncoder().encode("TAT-P2PK-BURN-v1\n" + inputTokenHash),
+  );
+}
+
+/**
  * Identifier of a transfer, derived from its inputs alone.
  *
  * Inputs can each be spent exactly once, so the set of input hashes identifies
