@@ -5,6 +5,7 @@ import {
   NWPCResponseObject,
   NWPCResponse,
   NWPCConfig,
+  NWPCPeer,
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
@@ -33,6 +34,11 @@ const Debug = DebugLogger.getInstance();
 export interface GateServerSpecConfig extends NWPCConfig {
   storage: StorageInterface;
   serviceName: string;
+  /**
+   * Whether a proof is checked with the token's issuer for spent status:
+   * "local" (never), "issuer" (always; no answer refuses), or "hybrid" (asked,
+   * but an unreachable issuer falls back to the local checks). Default "local".
+   */
   defaultVerificationMode?: VerificationMode;
   challengeExpiry?: number; // Seconds (default: 300 = 5 minutes)
   sessionExpiry?: number; // Seconds (default: 3600 = 1 hour)
@@ -91,6 +97,8 @@ export class GateServerSpec {
   protected isInitialized: boolean = false;
   protected stateKey: string = "";
   private nwpcServer: NWPCServer;
+  private forgeClient?: NWPCPeer;
+  private forgeClientReady?: Promise<void>;
   private challengeExpiry: number;
   private sessionExpiry: number;
 
@@ -432,6 +440,16 @@ export class GateServerSpec {
         return requirementsCheck;
       }
 
+      // A token's signature and lock survive its being spent, so only the
+      // issuer can say whether it is still good.
+      const spentCheck = await this.checkNotSpent(
+        token,
+        challenge.verificationMode,
+      );
+      if (!spentCheck.valid) {
+        return spentCheck;
+      }
+
       // All checks passed
       return {
         valid: true,
@@ -472,6 +490,57 @@ export class GateServerSpec {
       reason:
         "Minimal-disclosure proofs are not supported; submit a full proof",
     };
+  }
+
+  /**
+   * Ask the token's issuer whether it is spent, per the verification mode:
+   * - "local": not asked — a spent token whose lock key is still held passes.
+   * - "issuer": must confirm it unspent; no answer is a refusal.
+   * - "hybrid": a spent answer is a refusal, but if the issuer cannot be
+   *   reached the local checks stand. The one mode that tolerates an outage.
+   */
+  private async checkNotSpent(
+    token: Token,
+    mode: TurnstileChallenge["verificationMode"],
+  ): Promise<{ valid: boolean; reason?: string }> {
+    if (mode !== "issuer" && mode !== "hybrid") return { valid: true };
+    const hash = token.header.token_hash;
+    let spent: boolean | undefined;
+    try {
+      const client = await this.getForgeClient();
+      const response = await client.request(
+        "verify",
+        { token_hashes: [hash] },
+        token.payload.iss,
+      );
+      if (response.error) throw new Error(response.error.message);
+      const answer = (response.result as { spent?: Record<string, boolean> })
+        ?.spent?.[hash];
+      if (typeof answer !== "boolean")
+        throw new Error("the issuer did not say");
+      spent = answer;
+    } catch (error) {
+      if (mode === "hybrid") return { valid: true };
+      return {
+        valid: false,
+        reason: `Could not confirm the token with its issuer: ${error instanceof Error ? error.message : String(error)}`,
+      };
+    }
+    return spent
+      ? { valid: false, reason: "Token has been spent" }
+      : { valid: true };
+  }
+
+  private async getForgeClient(): Promise<NWPCPeer> {
+    if (!this.forgeClient) {
+      this.forgeClient = new NWPCPeer({
+        ...this.config,
+        storage: this.storage,
+      });
+      this.forgeClientReady = this.forgeClient.init();
+    }
+    await this.forgeClientReady;
+    return this.forgeClient;
   }
 
   /**

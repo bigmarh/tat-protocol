@@ -182,3 +182,60 @@ describe("GateBase always checks signature and expiry", () => {
     expect((await lenient().validateToken(forged)).valid).toBe(false);
   });
 });
+
+describe("GateServerSpec asks the forge in issuer and hybrid modes", () => {
+  async function gateIn(mode: string, forge: { spent?: boolean; fail?: boolean }) {
+    const g = new GateServerSpec({
+      storage: new MemoryStore() as any,
+      keys: { secretKey: "11".repeat(32), publicKey: "22".repeat(32) },
+      relays: [],
+      serviceName: "test",
+      defaultVerificationMode: mode,
+      resources: { premium: { issuer: ISSUER, notExpired: false } },
+    } as any) as any;
+    g._saveState = async () => undefined;
+    g.state = { challenges: new Map(), sessions: new Map(), usedNonces: new Set() };
+    const asked: any[] = [];
+    g.getForgeClient = async () => ({
+      request: async (method: string, params: any, to: string) => {
+        asked.push({ method, params, to });
+        if (forge.fail) throw new Error("Request timed out");
+        const h = params.token_hashes[0];
+        return { result: { spent: { [h]: !!forge.spent } } };
+      },
+    });
+    return { g, asked };
+  }
+
+  async function attempt(g: any) {
+    const c = await challengeFor(g);
+    return prove(g, { mode: "full", tat: await issued({ tokenID: 1 }), nonce: c.nonce, signature: signNonce(c.nonce) });
+  }
+
+  it("issuer: refuses a token the forge says is spent", async () => {
+    const { g, asked } = await gateIn("issuer", { spent: true });
+    expect((await attempt(g)).granted).toBe(false);
+    expect(asked[0]).toMatchObject({ method: "verify", to: ISSUER });
+  });
+
+  it("issuer: grants a token the forge confirms unspent", async () => {
+    const { g } = await gateIn("issuer", { spent: false });
+    expect((await attempt(g)).granted).toBe(true);
+  });
+
+  it("issuer: refuses when the forge cannot be asked", async () => {
+    const { g } = await gateIn("issuer", { fail: true });
+    expect((await attempt(g)).granted).toBe(false);
+  });
+
+  it("hybrid: refuses a spent token, but falls back to the local check if the forge is down", async () => {
+    expect((await attempt((await gateIn("hybrid", { spent: true })).g)).granted).toBe(false);
+    expect((await attempt((await gateIn("hybrid", { fail: true })).g)).granted).toBe(true);
+  });
+
+  it("local: never asks the forge", async () => {
+    const { g, asked } = await gateIn("local", { spent: true });
+    expect((await attempt(g)).granted).toBe(true);
+    expect(asked).toHaveLength(0);
+  });
+});
