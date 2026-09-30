@@ -8,7 +8,7 @@ import {
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap, UnwrapWithSigner, verifyEvent, spendAuthDigest, txIdForInputs, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
+import { DebugLogger, Unwrap, UnwrapWithSigner, verifyEvent, spendAuthDigest, burnAuthDigest, txIdForInputs, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
@@ -1355,41 +1355,14 @@ export class Pocket extends NWPCPeer {
      */
     private async buildWitnessData(inputs: Token[], outs: unknown[]): Promise<string[]> {
         const witnessData: string[] = [];
-        const mainPubkey = this.publicKey || this.keys.publicKey;
         const missingLockKeys = new Set<string>();
         for (const token of inputs) {
             if (token.payload.P2PKlock) {
                 // Bind the witness to this transfer's outputs so it cannot be
                 // replayed to redirect the input elsewhere (audit finding C6).
-                const dataToSign = spendAuthDigest(token.header.token_hash, outs);
-                const lockKey = token.payload.P2PKlock;
-
-                if (lockKey === mainPubkey) {
-                    // Main key — use signer if available (avoids empty secretKey issue)
-                    if (this.signer) {
-                        const sig = await this.signer.sign(dataToSign);
-                        witnessData.push(sig);
-                    } else if (this.keys.secretKey) {
-                        const sig = await token.sign(dataToSign, this.keys);
-                        witnessData.push(bytesToHex(sig));
-                    } else {
-                        missingLockKeys.add(lockKey);
-                        witnessData.push("");
-                    }
-                } else {
-                    // Single-use key: recover deterministically from mnemonic if cache is missing.
-                    const singleUseKey = await this.findOrRecoverSingleUseKeyByPubkey(lockKey);
-                    if (singleUseKey?.secretKey) {
-                        const sig = await token.sign(dataToSign, {
-                            publicKey: singleUseKey.publicKey,
-                            secretKey: singleUseKey.secretKey,
-                        });
-                        witnessData.push(bytesToHex(sig));
-                    } else {
-                        missingLockKeys.add(lockKey);
-                        witnessData.push("");
-                    }
-                }
+                const sig = await this.signWithLockKey(token, spendAuthDigest(token.header.token_hash, outs));
+                if (!sig) missingLockKeys.add(token.payload.P2PKlock);
+                witnessData.push(sig ?? "");
             } else {
                 witnessData.push("");
             }
@@ -1398,6 +1371,69 @@ export class Pocket extends NWPCPeer {
             throw new Error(`Missing witness key for lock pubkeys: ${Array.from(missingLockKeys).join(",")}`);
         }
         return witnessData;
+    }
+
+    /**
+     * Sign `digest` with the key a token is P2PK-locked to — the main key
+     * (through the signer when there is one) or a single-use key, recovered
+     * from the mnemonic if its cache entry is gone. `undefined` if this pocket
+     * does not hold that key.
+     */
+    private async signWithLockKey(token: Token, digest: Uint8Array): Promise<string | undefined> {
+        const lockKey = token.payload.P2PKlock;
+        if (!lockKey) return undefined;
+        const mainPubkey = this.publicKey || this.keys.publicKey;
+        if (lockKey === mainPubkey) {
+            // Main key — use signer if available (avoids empty secretKey issue)
+            if (this.signer) return await this.signer.sign(digest);
+            if (this.keys.secretKey) return bytesToHex(await token.sign(digest, this.keys));
+            return undefined;
+        }
+        const singleUseKey = await this.findOrRecoverSingleUseKeyByPubkey(lockKey);
+        if (!singleUseKey?.secretKey) return undefined;
+        return bytesToHex(await token.sign(digest, {
+            publicKey: singleUseKey.publicKey,
+            secretKey: singleUseKey.secretKey,
+        }));
+    }
+
+    /**
+     * Burn a token at its issuer. The forge requires a witness from the
+     * token's lock key over `burnAuthDigest(tokenHash)`, so only a pocket that
+     * holds that key can burn it. The token is dropped locally once the forge
+     * has committed the burn — asking `status` if the reply is lost — and kept
+     * otherwise.
+     */
+    public async burn(tokenJWT: string, timeoutMs: number = 60000) {
+        const token = await new Token().restore(tokenJWT);
+        if (!token.payload.P2PKlock) {
+            throw new Error('Only a P2PK-locked token can be burned');
+        }
+        const tokenHash = await token.create_token_hash();
+        const witness = await this.signWithLockKey(token, burnAuthDigest(tokenHash));
+        if (!witness) {
+            throw new Error(`Missing witness key for lock pubkey: ${token.payload.P2PKlock}`);
+        }
+        const issuer = token.payload.iss;
+        const txId = txIdForInputs([tokenHash]);
+        let response;
+        try {
+            response = await this.request('burn', { token: tokenJWT, witness }, issuer, undefined, timeoutMs);
+        } catch (err) {
+            let status: TxStatus | undefined;
+            try {
+                status = await this.fetchTxStatus(issuer, txId);
+            } catch {
+                throw err;
+            }
+            if (status?.status !== 'committed') throw err;
+            response = { id: '', timestamp: Date.now(), result: status };
+        }
+        if (response?.error) {
+            throw new Error(`burn failed: ${response.error.message ?? response.error.code}`);
+        }
+        await this.deleteToken(tokenJWT);
+        return response;
     }
 
     /**
