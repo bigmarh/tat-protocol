@@ -1030,7 +1030,7 @@ export class Pocket extends NWPCPeer {
             // Always resolve a pending request() — even when a token was embedded.
             // Previously this was in an `else` branch, so token responses never resolved
             // the caller, causing 15s timeouts whenever the server sent token + metadata.
-            if (this.responseHandlers.has(message.id)) {
+            if (this.responseHandlers.has(message.id) && this.isReplyFromRecipient(message.id, unwrapped)) {
                 if (this.hooks.beforeResponse) {
                     const shouldContinue = await this.hooks.beforeResponse(message, context);
                     if (!shouldContinue) return;

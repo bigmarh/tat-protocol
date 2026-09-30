@@ -52,6 +52,8 @@ export class NWPCPeer extends NWPCBase {
       resolve: (response: NWPCResponse) => void;
       reject: (error: Error) => void;
       timeoutId: ReturnType<typeof setTimeout>;
+      /** The key the request was sent to; only its sealed reply resolves it. */
+      from?: string;
     }
   >;
 
@@ -90,8 +92,9 @@ export class NWPCPeer extends NWPCBase {
         recipient: this.publicKey || (this.keys.publicKey as string),
       };
 
-      // Check if it's a response to our request
+      // Check if it's a response to our request — from the key we asked.
       if (this.responseHandlers.has(message.id)) {
+        if (!this.isReplyFromRecipient(message.id, unwrapped)) return;
         if (this.hooks.beforeResponse) {
           const shouldContinue = await this.hooks.beforeResponse(
             message,
@@ -146,6 +149,33 @@ export class NWPCPeer extends NWPCBase {
     } catch (error) {
       Debug.error("Error in handleEvent:" + error, "NWPCPeer");
     }
+  }
+
+  /**
+   * Whether a reply to pending request `id` was sealed — with a verified seal —
+   * by the key the request was sent to. Matching on the id alone let anyone
+   * who learned or guessed it answer the request, e.g. tell a pocket that its
+   * transfer succeeded. A reply that fails this is ignored, and the request
+   * keeps waiting for the real one.
+   */
+  protected isReplyFromRecipient(
+    id: string,
+    unwrapped: { sender?: string; verifiedSender?: boolean },
+  ): boolean {
+    const pending = this.responseHandlers.get(id);
+    if (!pending) return false;
+    if (
+      unwrapped.verifiedSender &&
+      pending.from &&
+      unwrapped.sender === pending.from
+    ) {
+      return true;
+    }
+    Debug.warn(
+      `Ignoring reply to ${id} from ${unwrapped.sender ?? "unknown"}; it was sent to ${pending.from ?? "unknown"}`,
+      "NWPCPeer",
+    );
+    return false;
   }
 
   /**
@@ -245,6 +275,7 @@ export class NWPCPeer extends NWPCBase {
         resolve,
         reject,
         timeoutId,
+        from: recipientPubkey,
       });
     });
 
