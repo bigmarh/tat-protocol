@@ -8,7 +8,7 @@ import {
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest, txIdForInputs, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
+import { DebugLogger, Unwrap, UnwrapWithSigner, verifyEvent, spendAuthDigest, txIdForInputs, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
@@ -1042,10 +1042,10 @@ export class Pocket extends NWPCPeer {
                 await this.storeToken(message.result.changeToken);
             }
 
-            // Delete spent token from state
+            // Delete spent token from state — only on the issuer's own word.
             if (message.result?.spent) {
                 Debug.log("received spent token" + message.result, 'Pocket');
-                await this.forgetSpentToken(message.result.issuer, message.result.spent);
+                await this.applySpentNotice(unwrapped.sender, message.result.issuer, message.result.spent, true);
             }
 
             // Always resolve a pending request() — even when a token was embedded.
@@ -1080,7 +1080,7 @@ export class Pocket extends NWPCPeer {
                             spentMeta = result;
                         }
                         if (spentMeta?.spent && spentMeta.issuer) {
-                            await this.forgetSpentToken(spentMeta.issuer, spentMeta.spent);
+                            await this.applySpentNotice(unwrapped.sender, spentMeta.issuer, spentMeta.spent, true);
                         }
                     }
                     if (this.hooks.afterResponse) {
@@ -1846,6 +1846,40 @@ export class Pocket extends NWPCPeer {
      * every token that issuer has ever burned for anyone: remembering those
      * would grow this wallet's state by the bank's volume rather than its own.
      */
+    /**
+     * Act on a "token spent" notice only if the issuer itself signed it.
+     *
+     * `signer` is the key the notice is authenticated by — the seal's sender
+     * for a gift-wrapped DM, the verified author for a feed event. A notice is
+     * about the tokens of the issuer who signed it and no one else: anyone can
+     * wrap `{spent, issuer: X}` to a pocket, so a claimed issuer that is not
+     * the signer is refused, and tokens are looked up under the signer, i.e.
+     * under the `iss` they were stored by.
+     *
+     * @param remember also tombstone a hash this pocket does not hold (DM
+     *   replies about this pocket's own spends); the public feed only deletes
+     *   what is held, since it carries every holder's spends.
+     */
+    private async applySpentNotice(
+        signer: string | undefined,
+        claimedIssuer: string | undefined,
+        tokenHash: string | undefined,
+        remember: boolean,
+    ): Promise<void> {
+        if (!signer || !tokenHash) return;
+        if (claimedIssuer && claimedIssuer !== signer) {
+            Debug.warn(`Ignoring spent notice for issuer ${claimedIssuer} signed by ${signer}`, 'Pocket');
+            return;
+        }
+        if (remember) {
+            await this.forgetSpentToken(signer, tokenHash);
+            return;
+        }
+        const tokenJWT = this.state.tokens.get(signer)?.get(tokenHash);
+        if (tokenJWT) await this.deleteToken(tokenJWT);
+        Debug.log(`Token spent event processed for issuer ${signer}, tokenHash ${tokenHash}`, 'Pocket');
+    }
+
     private async forgetSpentToken(issuer: string | undefined, tokenHash: string): Promise<void> {
         if (!issuer || !tokenHash) return;
         const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
@@ -1904,6 +1938,20 @@ export class Pocket extends NWPCPeer {
     // Handle spent events from issuer
     private async handleIssuerSpentEvent(event: NDKEvent, issuerHint?: string) {
         try {
+            // Verify the signature here rather than trusting the relay (or
+            // NDK, which may sample verification): the author is the only
+            // thing that makes this notice the issuer's word.
+            const raw = typeof event.rawEvent === 'function' ? event.rawEvent() : event;
+            if (!verifyEvent(raw as Parameters<typeof verifyEvent>[0])) {
+                Debug.warn(`Ignoring spent notice with an invalid signature: ${event.id}`, 'Pocket');
+                return;
+            }
+            // The feed is subscribed per issuer; a relay that ignores the
+            // `authors` filter must not get another key's notices through.
+            if (issuerHint && event.pubkey !== issuerHint) {
+                Debug.warn(`Ignoring spent notice from ${event.pubkey} on ${issuerHint}'s feed`, 'Pocket');
+                return;
+            }
             const content = (event.content || "").trim();
             let spentMeta: { spent?: string; issuer?: string } | undefined;
 
@@ -1939,15 +1987,9 @@ export class Pocket extends NWPCPeer {
                 }
             }
 
-            const tokenHash = spentMeta?.spent;
-            const issuer = spentMeta?.issuer || issuerHint || event.pubkey;
-            if (tokenHash && issuer) {
-                const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
-                if (tokenJWT) {
-                    await this.deleteToken(tokenJWT);
-                }
-                Debug.log(`Token spent event processed for issuer ${issuer}, tokenHash ${tokenHash}`, 'Pocket');
-            }
+            // The author is the issuer. An `issuer` field in the content is a
+            // claim, and it may only agree with the author.
+            await this.applySpentNotice(event.pubkey, spentMeta?.issuer, spentMeta?.spent, false);
         } catch (error) {
             Debug.error("handleIssuerSpentEvent error" + error, 'Pocket');
         }
