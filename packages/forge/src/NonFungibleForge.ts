@@ -145,7 +145,12 @@ export class NonFungibleForge extends ForgeBase {
           NWPC_SPEC_ERRORS.PARSE_ERROR.message,
         );
       }
-      const replay = await this.replayCommittedTransfer(tx?.ins, sender, res);
+      const replay = await this.replayCommittedTransfer(
+        tx?.ins,
+        tx?.outs,
+        sender,
+        res,
+      );
       if (replay) return replay.response as any;
       // Validate transaction
       const [validTx, error, code, params] = await this.validateTXInputs(
@@ -255,7 +260,7 @@ export class NonFungibleForge extends ForgeBase {
       [...consumedInputs].map((t) => t.create_token_hash()),
     );
     return await this.commitAndDeliverTransfer(
-      { inputHashes, outputs, submitter: sender ?? "", requestId },
+      { inputHashes, outs, outputs, submitter: sender ?? "", requestId },
       res,
     );
   }

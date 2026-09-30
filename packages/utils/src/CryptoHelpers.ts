@@ -81,13 +81,35 @@ export function spendAuthDigest(
       `spendAuthDigest: output field(s) not covered by the witness: ${unknown.join(", ")}`,
     );
   }
-  const normalized = (outs ?? []).map((o) => {
+  const message =
+    "TAT-P2PK-SPEND-v2\n" +
+    inputTokenHash +
+    "\n" +
+    JSON.stringify(canonicalOuts(outs));
+  return sha256(new TextEncoder().encode(message));
+}
+
+function canonicalOuts(outs: unknown[]): Record<string, unknown>[] {
+  return (outs ?? []).map((o) => {
     const out = parseOut(o);
     return Object.fromEntries(SPEND_OUT_FIELDS.map((k) => [k, out[k] ?? null]));
   });
-  const message =
-    "TAT-P2PK-SPEND-v2\n" + inputTokenHash + "\n" + JSON.stringify(normalized);
-  return sha256(new TextEncoder().encode(message));
+}
+
+/**
+ * Fingerprint of a transfer's outputs, in the same canonical form the v2 spend
+ * digest binds. The forge stores it with each committed transfer so that only
+ * a resubmission of the SAME transfer is answered from the record; the same
+ * inputs sent anywhere else are a double-spend, not a replay.
+ */
+export function transferOutsHash(outs: unknown[]): string {
+  return bytesToHex(
+    sha256(
+      new TextEncoder().encode(
+        "TAT-TX-OUTS-v1\n" + JSON.stringify(canonicalOuts(outs)),
+      ),
+    ),
+  );
 }
 
 /**

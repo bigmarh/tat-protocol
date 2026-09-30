@@ -56,6 +56,7 @@ export class SqliteForgeLedger implements ForgeLedger {
         request_id   TEXT    NOT NULL,
         submitter    TEXT    NOT NULL,
         input_hashes TEXT    NOT NULL,
+        outs_hash    TEXT,
         created_at   INTEGER NOT NULL,
         PRIMARY KEY (keyset_id, tx_id)
       ) WITHOUT ROWID
@@ -89,8 +90,8 @@ export class SqliteForgeLedger implements ForgeLedger {
         `UPDATE supply SET issued = issued + ? WHERE keyset_id = ? RETURNING issued`
       ),
       insertTx: db.prepare(
-        `INSERT INTO tx_record (keyset_id, tx_id, kind, request_id, submitter, input_hashes, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT INTO tx_record (keyset_id, tx_id, kind, request_id, submitter, input_hashes, outs_hash, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       ),
       insertOut: db.prepare(
         `INSERT INTO tx_output (keyset_id, tx_id, idx, recipient, jwt, next_attempt_at, created_at)
@@ -144,6 +145,7 @@ export class SqliteForgeLedger implements ForgeLedger {
           request_id: string;
           submitter: string;
           input_hashes: string;
+          outs_hash: string | null;
           created_at: number;
         }
       | undefined;
@@ -159,6 +161,7 @@ export class SqliteForgeLedger implements ForgeLedger {
       requestId: row.request_id,
       submitter: row.submitter,
       inputHashes: JSON.parse(row.input_hashes),
+      ...(row.outs_hash ? { outsHash: row.outs_hash } : {}),
       createdAt: Number(row.created_at),
       outputs: outs.map(o => ({ to: o.recipient, jwt: o.jwt, delivered: o.delivered_at !== null })),
     };
@@ -172,6 +175,7 @@ export class SqliteForgeLedger implements ForgeLedger {
       record.requestId,
       record.submitter,
       JSON.stringify(record.inputHashes),
+      record.outsHash ?? null,
       record.createdAt
     );
     record.outputs.forEach((o, idx) => {

@@ -144,7 +144,12 @@ export class FungibleForge extends ForgeBase {
       const sender = context.sender;
       // The same inputs again: a retry of a transfer that already committed.
       // Answer it from the ledger — validation would call it a double-spend.
-      const replay = await this.replayCommittedTransfer(tx?.ins, sender, res);
+      const replay = await this.replayCommittedTransfer(
+        tx?.ins,
+        tx?.outs,
+        sender,
+        res,
+      );
       if (replay) return replay.response as any;
       // Validate transaction
       const [validTx, error, code, params] = await this.validateTXInputs(
@@ -220,7 +225,7 @@ export class FungibleForge extends ForgeBase {
       inputs.map((token) => token.create_token_hash()),
     );
     return await this.commitAndDeliverTransfer(
-      { inputHashes, outputs, submitter: sender, requestId },
+      { inputHashes, outs, outputs, submitter: sender, requestId },
       res,
     );
   }

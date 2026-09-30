@@ -91,6 +91,11 @@ export interface TxRecord {
    */
   submitter: string;
   inputHashes: string[];
+  /**
+   * `transferOutsHash` of the request's outputs, for transfers and burns. A
+   * resubmission is only answered from this record if it matches.
+   */
+  outsHash?: string;
   outputs: TxOutput[];
   /** Epoch milliseconds. */
   createdAt: number;

@@ -23,6 +23,7 @@ import {
   LEGACY_KIND_TOKEN_SPENT,
   TAG_TOKEN_HASH,
   txIdForInputs,
+  transferOutsHash,
 } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
@@ -829,6 +830,7 @@ export abstract class ForgeBase extends NWPCServer {
         return await this.commitAndDeliverTransfer(
           {
             inputHashes: [await restored.create_token_hash()],
+            outs: [],
             outputs: [],
             submitter: context.sender,
             requestId: req.id,
@@ -1007,6 +1009,8 @@ export abstract class ForgeBase extends NWPCServer {
   protected async commitAndDeliverTransfer(
     params: {
       inputHashes: string[];
+      /** The request's outputs, as signed; fingerprinted to tell a retry from a double-spend. */
+      outs: unknown[];
       outputs: TxOutput[];
       submitter: string;
       requestId?: string;
@@ -1021,6 +1025,7 @@ export abstract class ForgeBase extends NWPCServer {
       requestId: params.requestId ?? txId,
       submitter: params.submitter,
       inputHashes: params.inputHashes,
+      outsHash: transferOutsHash(params.outs),
       outputs: params.outputs,
       createdAt: Date.now(),
     };
@@ -1035,6 +1040,19 @@ export abstract class ForgeBase extends NWPCServer {
       return await res.error(
         NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
         "Transfer could not be committed; nothing was spent. Retry.",
+      );
+    }
+    // The same inputs, committed to different outputs: a double-spend, not a
+    // retry. Answering it from the record would tell the second spender their
+    // payment went through.
+    if ("existing" in result && result.existing.outsHash !== record.outsHash) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+        JSON.stringify({
+          spent: params.inputHashes[0],
+          issuer: this.keys.publicKey!,
+        }),
       );
     }
     if ("spent" in result) {
@@ -1069,6 +1087,7 @@ export abstract class ForgeBase extends NWPCServer {
    */
   protected async replayCommittedTransfer(
     ins: unknown[] | undefined,
+    outs: unknown[] | undefined,
     requester: string,
     res: NWPCResponseObject,
   ): Promise<{ replayed: true; response: unknown } | undefined> {
@@ -1080,7 +1099,11 @@ export abstract class ForgeBase extends NWPCServer {
         ),
       );
       const existing = await this.getTx(txIdForInputs(hashes));
-      if (!existing) return undefined;
+      // Only the same transfer — same inputs AND same outputs — is a retry.
+      // Anything else falls through to validation, which reports the spend.
+      if (!existing || existing.outsHash !== transferOutsHash(outs ?? [])) {
+        return undefined;
+      }
       return {
         replayed: true,
         response: await this.deliverAndReply(existing, res, requester),

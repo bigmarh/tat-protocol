@@ -316,6 +316,31 @@ for (const backend of BACKENDS) {
       );
     });
 
+    it("refuses the same inputs sent to different outputs, rather than replaying the first transfer", async () => {
+      // A replay keyed on inputs alone told a second, conflicting spend of the
+      // same token — another device, a second booth invoice — that it had
+      // committed. Only a resubmission of the SAME transfer is answered from
+      // the record; anything else is a double-spend.
+      const input = await mintInput(100);
+      await forge.transferToken(transferReq([input.jwt]), { sender: ALICE }, makeRes());
+      const other = makeRes();
+      await forge.transferToken(
+        {
+          id: "req-9",
+          method: "transfer",
+          params: JSON.stringify({
+            ins: [input.jwt],
+            outs: [{ to: MALLORY, amount: 100 }],
+          }),
+        },
+        { sender: ALICE },
+        other,
+      );
+      expect(replyTo(other, ALICE)).toBeUndefined();
+      expect(other.calls.find((c: any) => c.type === "error")?.args[0]).toBe(2002);
+      expect(tokenSendsTo(other, MALLORY)).toHaveLength(0);
+    });
+
     it("mints once when a mint's delivery fails and the client retries", async () => {
       const mintReq = {
         id: "mint-1",

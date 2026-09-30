@@ -470,6 +470,13 @@ export class BoothAgent {
         });
         if ("error" in collected)
           return { success: false, error: collected.error };
+        // The forge answers a resubmission of the same transfer as committed,
+        // so the same tokens offered for a second invoice come back "paid".
+        // A settlement credits exactly one invoice. Checked and claimed with no
+        // await in between, so two concurrent pays cannot both take it.
+        if (!this.claimSettlement(collected.txId, invoice.invoiceId)) {
+          return { success: false, error: "Token already spent" };
+        }
         const gross = collected.amount;
 
         const receipt: Receipt = {
@@ -524,6 +531,20 @@ export class BoothAgent {
           error instanceof Error ? error.message : "Payment processing failed",
       };
     }
+  }
+
+  /** Settlement tx ids claimed by an invoice, including ones not yet saved. */
+  private settlementClaims = new Map<string, string>();
+
+  private claimSettlement(txId: string, invoiceId: string): boolean {
+    for (const inv of this.state.invoices.values()) {
+      if (inv.settlement?.txId === txId && inv.invoiceId !== invoiceId)
+        return false;
+    }
+    const holder = this.settlementClaims.get(txId);
+    if (holder && holder !== invoiceId) return false;
+    this.settlementClaims.set(txId, invoiceId);
+    return true;
   }
 
   /** Sign a digest with the booth's key (signer when configured). */

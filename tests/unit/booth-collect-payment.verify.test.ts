@@ -67,11 +67,17 @@ function fakeForge(opts: { dropTransferReply?: boolean; failCommit?: boolean } =
       if (method !== "transfer") throw new Error(`unexpected ${method}`);
       const hashes = await Promise.all(params.ins.map(async (j: string) => (await new Token().restore(j)).header.token_hash));
       if (opts.failCommit) throw new Error("Request timed out");
+      const txId = txIdForInputs(hashes);
+      // Like the real forge: resubmitting the exact same transfer (same inputs,
+      // same outputs) is answered from the record as committed.
+      const prior = committed.get(txId);
+      if (prior && JSON.stringify(prior.params.outs) === JSON.stringify(params.outs)) {
+        return { result: { tx_id: txId, status: "committed", outputs: prior.outputs, pending: 0 } };
+      }
       if (hashes.some((h: string) => spent.has(h))) {
         return { error: { code: 2002, message: "Token Spent" } };
       }
       hashes.forEach((h: string) => spent.add(h));
-      const txId = txIdForInputs(hashes);
       const outputs = params.outs.map((o: any) => ({ to: o.to, token: `jwt-for-${o.to}-${o.amount}` }));
       committed.set(txId, { outputs, params });
       if (opts.dropTransferReply) throw new Error("Request timed out");
