@@ -51,6 +51,7 @@
   },
   "devDependencies": {
     "@jest/globals": "^29.7.0",
+    "@noble/curves": "^1.4.0",
     "@types/jest": "^29.5.14",
     "@types/node": "^22.15.21",
     "@types/ws": "^8.5.8",

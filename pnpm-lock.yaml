@@ -60,6 +60,9 @@ importers:
       '@jest/globals':
         specifier: ^29.7.0
         version: 29.7.0
+      '@noble/curves':
+        specifier: ^1.4.0
+        version: 1.9.1
       '@types/jest':
         specifier: ^29.5.14
         version: 29.5.14
