@@ -59,6 +59,7 @@ export const NWPC_SPEC_ERRORS = {
   INSUFFICIENT_SCOPE: { code: 2007, message: "Insufficient Scope" },
   TOKEN_WRONG_AUDIENCE: { code: 2008, message: "Token Wrong Audience" },
   TOKEN_WRONG_ISSUER: { code: 2009, message: "Token Wrong Issuer" },
+  UPGRADE_REQUIRED: { code: 2010, message: "Upgrade Required" },
 
   // Server errors (3000 series)
   INTERNAL_ERROR: { code: 3000, message: "Internal Error" },

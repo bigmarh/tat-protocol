@@ -2,7 +2,7 @@ import { NWPCBase } from "./NWPCBase.js";
 import { NWPCServer } from "./NWPCServer.js";
 import { NDKEvent } from "@nostr-dev-kit/ndk";
 import { KeyPair } from "@tat-protocol/hdkeys";
-import { StorageInterface } from "@tat-protocol/storage";
+import { StorageInterface, ProcessedRequestStore } from "@tat-protocol/storage";
 import { DebugLogger } from "@tat-protocol/utils";
 import type { Signer } from "@tat-protocol/types";
 import { NWPC_SPEC_ERRORS } from "./errors.js";
@@ -31,6 +31,52 @@ export interface NWPCConfig {
   type?: "client" | "server";
   /** Introspection configuration (opt-in, disabled by default) */
   introspection?: NWPCIntrospectionConfig;
+  /**
+   * Exact request idempotency, replacing the LRU + Bloom filter pair.
+   *
+   * Supply one and incoming events are claimed atomically BEFORE the handler
+   * runs, instead of being marked afterwards against a probabilistic filter.
+   *
+   * This fixes three things at once. The Bloom filter's false-positive rate
+   * grows without bound as it fills — measured at 53% after 50k events and 95%
+   * after 100k against the shipped parameters — and a false positive silently
+   * discards a request that was never handled, with no response and no error.
+   * The filter also lives in process memory, so N replicas dedup against their
+   * own copy and none against each other. And marking *after* the handler
+   * leaves two holes: two concurrent deliveries both pass the check before
+   * either marks, and a crash mid-handler loses the mark so the event replays
+   * on restart.
+   *
+   * That last one matters most on the issuance path. Transfer and burn are
+   * protected by the spent set — replay one and its input is already spent —
+   * but a mint has no spent input, so a replayed forge request mints again.
+   *
+   * Omitting it keeps the existing LRU + Bloom behaviour exactly, so upgrading
+   * changes nothing until a deployment opts in.
+   *
+   * ```ts
+   * import { DatabaseSync } from "node:sqlite";
+   * import { SqliteProcessedRequestStore } from "@tat-protocol/storage";
+   *
+   * new MyForge({
+   *   ...config,
+   *   processedRequestStore: new SqliteProcessedRequestStore(
+   *     new DatabaseSync("forge.db"),
+   *   ),
+   * });
+   * ```
+   */
+  processedRequestStore?: ProcessedRequestStore;
+  /**
+   * How long `NWPCServer.sendResponse` waits for a relay to acknowledge before
+   * it rejects. Default 10 000 ms.
+   */
+  publishTimeoutMs?: number;
+  /**
+   * How long a subscription waits for EOSE before its backfill counts as done
+   * for the resume point. Default 30 000 ms.
+   */
+  backfillTimeoutMs?: number;
   [key: string]: unknown;
 }
 
@@ -257,16 +303,23 @@ export class NWPCResponseObject {
       } else {
         await this.sender.sendResponse(this.response, targetRecipient);
       }
-      // If the recipient is not the sender, send a success response to the sender
+      // If the recipient is not the sender, send a success response to the
+      // sender. Best-effort: the addressed delivery above already succeeded,
+      // and failing it now because the courtesy ack was lost would make a
+      // caller treat a delivered output as undelivered.
       if (targetRecipient !== this.context.sender) {
-        await this.sender.sendResponse(
-          {
-            id: this.response.id,
-            timestamp: Date.now(),
-            result: { success: "ok" },
-          },
-          this.context.sender,
-        );
+        try {
+          await this.sender.sendResponse(
+            {
+              id: this.response.id,
+              timestamp: Date.now(),
+              result: { success: "ok" },
+            },
+            this.context.sender,
+          );
+        } catch (err) {
+          Debug.error("ack to sender failed: " + err, "NWPCResponseObject");
+        }
       }
     }
 

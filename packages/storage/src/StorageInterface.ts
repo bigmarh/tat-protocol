@@ -78,4 +78,12 @@ export interface StorageInterface {
    * ```
    */
   clear(): Promise<void>;
+
+  /**
+   * True when values are encrypted before they reach the storage medium.
+   * Components that persist secrets — a forge's generated key, a pocket's
+   * mnemonic and keys — refuse storage without it unless explicitly told to
+   * accept plaintext.
+   */
+  readonly encryptsAtRest?: boolean;
 }

@@ -183,24 +183,43 @@ export class NWPCServer extends NWPCBase {
         ` - ${recipientPubkey.slice(0, 3)}...${recipientPubkey.slice(-3)}`,
       "NWPCServer",
     );
-    // Wait for the first relay ACK with a 3-second fallback.
-    // Pure fire-and-forget (the previous approach) caused transfer timeouts
-    // because the auto-ack never reached the client when relays were momentarily
-    // slow.  We still don't throw on relay errors — the handler should not crash
-    // because a single relay was unavailable.
-    await Promise.race([
-      new Promise<void>((resolve) => {
-        wrappedEvent.once("relay:published", resolve);
-        wrappedEvent
-          .publish()
-          .then(() => resolve())
-          .catch((err) => {
-            Debug.error("sendResponse publish error: " + err, "NWPCServer");
-            resolve(); // Don't block on relay error
-          });
-      }),
-      new Promise<void>((resolve) => setTimeout(resolve, 3000)),
-    ]);
+    // Resolve on the first relay ACK; reject if the publish fails or no relay
+    // acknowledges in time. This used to resolve in both cases, so a caller
+    // delivering the output of an already-committed transfer was told "sent"
+    // about a token that never left the process — and kept no copy of it.
+    // Callers that can tolerate a lost message catch; callers holding value
+    // (the forge's outbox) retry.
+    const timeoutMs =
+      (this.config as { publishTimeoutMs?: number } | undefined)
+        ?.publishTimeoutMs ?? 10_000;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        new Promise<void>((resolve, reject) => {
+          wrappedEvent.once("relay:published", () => resolve());
+          wrappedEvent
+            .publish()
+            .then(() => resolve())
+            .catch((err: unknown) => reject(err));
+        }),
+        new Promise<void>((_resolve, reject) => {
+          timer = setTimeout(
+            () =>
+              reject(
+                new Error(
+                  `sendResponse timed out: no relay acknowledged within ${timeoutMs}ms`,
+                ),
+              ),
+            timeoutMs,
+          );
+        }),
+      ]);
+    } catch (err) {
+      Debug.error("sendResponse publish error: " + err, "NWPCServer");
+      throw err;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**

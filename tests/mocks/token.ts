@@ -26,6 +26,7 @@ export enum TokenType {
 export interface TokenBuildParams {
   token_type: TokenType;
   payload: Payload;
+  ver?: string;
 }
 
 export interface KeyPair {
@@ -52,7 +53,8 @@ export class Token {
       alg: "Schnorr",
       typ: opts.token_type,
       token_hash: "",
-      ver: "1.0.0",
+      // Mirrors the real Token: v2 by default, overridable per build.
+      ver: opts.ver ?? "2.0.0",
     };
     this.payload = opts.payload;
     await this.create_token_hash();

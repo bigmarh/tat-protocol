@@ -35,7 +35,7 @@ Use when you need strict dependency boundaries or only specific roles:
 
 - Use signer-based APIs where possible.
 - Never log raw secret keys or full token payload/signature data.
-- Configure `TAT_STORAGE_ENCRYPTION_KEY` for encrypted `NodeStore` payloads.
+- Give every `NodeStore` a passphrase (`TAT_STORAGE_ENCRYPTION_KEY` or `{ passphrase }`): storage encrypts by default and refuses to start without a key. Run `migratePlaintext()` once when upgrading a store that held plaintext.
 - Rotate service keys and keep storage directories isolated per service.
 
 ## 4. Minimal End-to-End Topology

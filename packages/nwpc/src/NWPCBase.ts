@@ -1,5 +1,5 @@
 import NDK, { NDKEvent, NDKSubscription } from "@nostr-dev-kit/ndk";
-import { StorageInterface } from "@tat-protocol/storage";
+import { StorageInterface, ProcessedRequestStore } from "@tat-protocol/storage";
 import { KeyPair } from "@tat-protocol/hdkeys";
 import { defaultConfig } from "@tat-protocol/config";
 import { NWPCRouter } from "./NWPCRouter.js";
@@ -52,6 +52,25 @@ const Debug = DebugLogger.getInstance();
 /** Floor between pool reconnect attempts, so a dead relay cannot stall publishes. */
 const RECONNECT_COOLDOWN_MS = 10_000;
 
+/** Window asked for on a first start, when nothing has been seen yet. */
+const FIRST_START_WINDOW_SEC = 10 * 60;
+/**
+ * How far behind the newest event seen a resumed subscription starts, to cover
+ * events published while the last batch was in flight and relay clock skew.
+ * Gift-wrap `created_at` is currently the real send time; once wraps randomize
+ * it (NIP-59 allows up to two days in the past) this must grow to >= 2 days,
+ * or wraps backdated behind the resume point are never asked for.
+ */
+const RESUME_MARGIN_SEC = 10 * 60;
+/**
+ * How long a subscription counts as "still backfilling" if EOSE never comes.
+ * NDK emits EOSE only once enough relays have sent theirs, so with a relay
+ * down it may never fire — and the resume point would never move again.
+ */
+const DEFAULT_BACKFILL_TIMEOUT_MS = 30_000;
+/** Never ask relays for more than this much history on resume. */
+const MAX_RESUME_LOOKBACK_SEC = 7 * 24 * 60 * 60;
+
 export abstract class NWPCBase implements INWPCBase {
   public ndk: NDK;
   public router: NWPCRouter;
@@ -70,6 +89,22 @@ export abstract class NWPCBase implements INWPCBase {
   protected stateKey!: string;
   protected connected: boolean = false;
   protected activeSubscriptions: Map<string, NDKSubscription> = new Map();
+  /** Subscriptions whose stored-event backfill has not reached EOSE yet. */
+  private backfilling = new Set<NDKSubscription>();
+  /** Idle timer per backfilling subscription; see armBackfillTimer. */
+  private backfillTimers = new Map<
+    NDKSubscription,
+    ReturnType<typeof setTimeout>
+  >();
+  /** `created_at` of each event whose handler is still running. */
+  private inFlight: number[] = [];
+  /** Newest `created_at` whose handler has finished. */
+  private newestHandled = 0;
+  /** Handler per subscribed pubkey, so a reconnect can re-open every one. */
+  protected subscriptionHandlers: Map<
+    string,
+    (event: NDKEvent) => Promise<void>
+  > = new Map();
   private deduplication: boolean = true; // Enable deduplication for event processing
   private _keepaliveTimer: ReturnType<typeof setInterval> | null = null;
   private _keepaliveTick = 0;
@@ -242,10 +277,84 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Re-subscribe so incoming messages are received on fresh connections. A
     // reconnected relay has no record of the REQ that was open on the socket
-    // that died, so without this the wallet is silently deaf on it.
-    if (this.publicKey) {
-      await this.subscribe(this.publicKey, this.handleEvent.bind(this));
+    // that died, so without this the peer is silently deaf on it — on EVERY
+    // pubkey it listens on, not just the main one.
+    await this.resubscribeAll();
+  }
+
+  /**
+   * Re-open every subscription, resuming from the last event seen. Subclasses
+   * with other feeds extend this to re-open them too.
+   */
+  protected async resubscribeAll(): Promise<void> {
+    const pubkeys = new Set(this.activeSubscriptions?.keys() ?? []);
+    if (this.publicKey) pubkeys.add(this.publicKey);
+    for (const pubkey of pubkeys) {
+      const handler =
+        this.subscriptionHandlers?.get(pubkey) ?? this.handleEvent.bind(this);
+      await this.subscribe(pubkey, handler);
     }
+  }
+
+  /**
+   * Where a (re)opened subscription starts: the newest event seen, less a
+   * margin, and no further back than a week. On a first start, a short window.
+   */
+  protected resumeSince(): number {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const last = this.state?.lastSeenAt;
+    if (typeof last !== "number" || !Number.isFinite(last)) {
+      return nowSec - FIRST_START_WINDOW_SEC;
+    }
+    return Math.max(
+      nowSec - MAX_RESUME_LOOKBACK_SEC,
+      Math.min(nowSec, last) - RESUME_MARGIN_SEC,
+    );
+  }
+
+  /**
+   * (Re)start a backfilling subscription's idle timer. EOSE may never come —
+   * NDK emits it only once enough relays have sent theirs — so a backfill
+   * that has gone quiet for backfillTimeoutMs counts as done. It is an idle
+   * timeout, not a deadline: a long but live backfill is never cut short.
+   */
+  private armBackfillTimer(subscription: NDKSubscription): void {
+    if (!this.backfilling.has(subscription)) return;
+    const previous = this.backfillTimers.get(subscription);
+    if (previous) clearTimeout(previous);
+    const timer = setTimeout(() => {
+      if (!this.endBackfill(subscription)) return;
+      Debug.log("Backfill idle with no EOSE; treating it as done", "NWPCBase");
+      this.advanceResumePoint();
+    }, this.config?.backfillTimeoutMs ?? DEFAULT_BACKFILL_TIMEOUT_MS);
+    (timer as { unref?: () => void }).unref?.();
+    this.backfillTimers.set(subscription, timer);
+  }
+
+  /** @returns whether the subscription was still backfilling. */
+  private endBackfill(subscription: NDKSubscription): boolean {
+    const timer = this.backfillTimers.get(subscription);
+    if (timer) clearTimeout(timer);
+    this.backfillTimers.delete(subscription);
+    return this.backfilling.delete(subscription);
+  }
+
+  /**
+   * Advance the persisted resume point to what has actually been handled.
+   *
+   * Two things hold it back. A subscription still in backfill: relays send
+   * stored events newest first, so the newest one being handled says nothing
+   * about the older ones not yet sent. And an event still being handled: a
+   * crash mid-handler must resume from before it. Otherwise it moves to the
+   * newest handled event — never backwards, never past now.
+   */
+  protected advanceResumePoint(): void {
+    if (!this.state || this.backfilling.size > 0 || !this.newestHandled) return;
+    let point = this.newestHandled;
+    if (this.inFlight.length > 0)
+      point = Math.min(point, Math.min(...this.inFlight) - 1);
+    const capped = Math.min(point, Math.floor(Date.now() / 1000));
+    if (capped > (this.state.lastSeenAt ?? 0)) this.state.lastSeenAt = capped;
   }
 
   /**
@@ -297,9 +406,9 @@ export abstract class NWPCBase implements INWPCBase {
         await this.ensureConnected();
 
         // Periodic full re-subscribe to catch silently-dead sockets
-        if (this._keepaliveTick % refreshEvery === 0 && this.publicKey) {
-          Debug.log("Keepalive: refreshing subscription", "NWPCBase");
-          await this.subscribe(this.publicKey, this.handleEvent.bind(this));
+        if (this._keepaliveTick % refreshEvery === 0) {
+          Debug.log("Keepalive: refreshing subscriptions", "NWPCBase");
+          await this.resubscribeAll();
         }
       } catch (err) {
         Debug.error("Keepalive error: " + err, "NWPCBase");
@@ -350,6 +459,34 @@ export abstract class NWPCBase implements INWPCBase {
     }
   }
 
+  /** Exact request idempotency, when configured. See NWPCConfig. */
+  protected get processedRequests(): ProcessedRequestStore | undefined {
+    return this.config.processedRequestStore;
+  }
+
+  /**
+   * Claim an event before handling it.
+   *
+   * @returns `true` if the caller should handle this event, `false` if it has
+   * already been claimed and must not be handled again.
+   *
+   * With a store this is one atomic, durable, EXACT test-and-insert: no false
+   * positives, so a request that was never handled is never dropped; no false
+   * negatives, so a replay is never admitted; and it holds across processes
+   * rather than within one.
+   *
+   * Without a store this preserves the original behaviour — check the LRU and
+   * Bloom filter, and leave the marking to the caller afterwards.
+   */
+  protected async claimEvent(eventId: string): Promise<boolean> {
+    if (!this.deduplication) return true;
+    const store = this.processedRequests;
+    if (store) {
+      return await store.tryClaim(eventId);
+    }
+    return !this.isEventProcessed(eventId);
+  }
+
   /**
    * Subscribes to encrypted messages for a specific public key.
    *
@@ -383,7 +520,7 @@ export abstract class NWPCBase implements INWPCBase {
     const filter = {
       kinds: [1059],
       "#p": [pubkey],
-      since: since ?? Math.floor(Date.now() / 1000) - 10 * 60,
+      since: since ?? this.resumeSince(),
     };
 
     const subscription = this.ndk.subscribe(filter, {
@@ -392,7 +529,30 @@ export abstract class NWPCBase implements INWPCBase {
 
     // Set up event handlers before creating subscription
     const eventHandler = async (event: NDKEvent) => {
-      if (this.deduplication && this.isEventProcessed(event.id)) {
+      // Still receiving: the backfill is alive, so restart its idle timer.
+      this.armBackfillTimer(subscription);
+      const at = typeof event.created_at === "number" ? event.created_at : 0;
+      if (at) this.inFlight.push(at);
+      try {
+        await handleOne(event);
+      } finally {
+        if (at) {
+          this.inFlight.splice(this.inFlight.indexOf(at), 1);
+          this.newestHandled = Math.max(this.newestHandled, at);
+        }
+        this.advanceResumePoint();
+      }
+      // Use the save queue to serialize state saves
+      await this.queueSaveState(this.stateKey, this.state);
+    };
+
+    const handleOne = async (event: NDKEvent) => {
+      // Claim BEFORE handling. Marking afterwards left two holes: two
+      // concurrent deliveries of one event both passed the check before either
+      // marked, and a crash mid-handler lost the mark so the event replayed on
+      // restart — which on the issuance path is a second mint, since a forge
+      // request has no spent input to stop it.
+      if (!(await this.claimEvent(event.id))) {
         Debug.log(
           `\nSkipping already processed event: ${event.id}`,
           "NWPCBase",
@@ -403,13 +563,23 @@ export abstract class NWPCBase implements INWPCBase {
         `\n=========================== Received event on subscription : ${event.id} ============\n\n`,
         "NWPCBase",
       );
-      await handler(event);
-      this.markEventProcessed(event.id);
-      // Use the save queue to serialize state saves
-      await this.queueSaveState(this.stateKey, this.state);
+      try {
+        await handler(event);
+      } finally {
+        // The claim is deliberately NOT released when the handler throws. A
+        // relay redelivering the same event must not get a second attempt at a
+        // mint; a client that genuinely needs to retry publishes a new event,
+        // which carries a new id and claims cleanly. Without a store this is
+        // the legacy mark-after path, kept as it was.
+        if (!this.processedRequests) {
+          this.markEventProcessed(event.id);
+        }
+      }
     };
 
     const eoseHandler = async () => {
+      this.endBackfill(subscription);
+      this.advanceResumePoint();
       Debug.log(
         "\n=========================== EOSE received ===========================\n",
         "NWPCBase",
@@ -418,15 +588,22 @@ export abstract class NWPCBase implements INWPCBase {
       await this.queueSaveState(this.stateKey, this.state);
     };
 
+    this.backfilling.add(subscription);
+    this.armBackfillTimer(subscription);
     subscription.on("event", eventHandler);
     subscription.on("eose", eoseHandler);
     this.activeSubscriptions?.set(pubkey, subscription);
+    this.subscriptionHandlers?.set(pubkey, handler);
     return subscription;
   }
 
   public async unsubscribe(pubkey: string): Promise<boolean> {
     const sub = this.getSubscription(pubkey);
     sub?.stop();
+    // A closed subscription will never send EOSE; do not let it hold the
+    // resume point forever.
+    if (sub) this.endBackfill(sub);
+    this.subscriptionHandlers?.delete(pubkey);
     return this.activeSubscriptions?.delete(pubkey) ?? false;
   }
 

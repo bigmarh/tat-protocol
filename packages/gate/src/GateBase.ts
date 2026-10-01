@@ -207,10 +207,17 @@ export abstract class GateBase {
             return result;
           }
         } catch (error) {
-          Debug.warn(
-            `Forge validation failed, falling back to offline mode: ${error}`,
-            "Gate",
-          );
+          // Could not ask the forge whether the token is still good. Outside
+          // offline mode that is a refusal, not a pass: a spent token must not
+          // get in because the forge happened to be unreachable.
+          const result: ValidationResult = {
+            valid: false,
+            token,
+            reason: `Could not verify the token with its forge: ${error instanceof Error ? error.message : String(error)}`,
+            timestamp,
+          };
+          await this.recordAttempt(token, result, context);
+          return result;
         }
       }
 
@@ -263,8 +270,9 @@ export abstract class GateBase {
       };
     }
 
-    // Verify signature (if required)
-    if (!this.accessPolicy || this.accessPolicy.policy.requireValidSignature) {
+    // Verify signature — always. A token its issuer did not sign is not a
+    // token of that issuer; no policy makes it one.
+    {
       const isValidSignature = await token.verifyTokenSignature();
       if (!isValidSignature) {
         return {
@@ -276,8 +284,8 @@ export abstract class GateBase {
       }
     }
 
-    // Check expiration
-    if (!this.accessPolicy || this.accessPolicy.policy.requireNotExpired) {
+    // Check expiration — always, as GateServerSpec does.
+    {
       if (token.isExpired()) {
         return {
           valid: false,

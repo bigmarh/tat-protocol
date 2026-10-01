@@ -1,4 +1,5 @@
 import { NWPCState } from "@tat-protocol/nwpc";
+import type { BlobTx } from "./BlobLedger.js";
 
 /**
  * Represents the current state of a Forge
@@ -66,4 +67,11 @@ export interface ForgeState extends NWPCState {
    * Number of tokens forged so far (for supply enforcement)
    */
   circulatingSupply?: number;
+
+  /**
+   * Committed transfers and mints, with each output's delivery state, when no
+   * ForgeLedger is configured. Written in the same blob as `spentTokens` and
+   * `circulatingSupply`, so a commit's parts are persisted together.
+   */
+  txRecords?: Record<string, BlobTx>;
 }

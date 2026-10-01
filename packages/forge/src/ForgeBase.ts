@@ -14,15 +14,47 @@ import {
   signMessage,
   verifySignature,
   spendAuthDigest,
+  spendAuthDigestV1,
+  unboundOutFields,
+  burnAuthDigest,
   postToFeed,
   DebugLogger,
+  KIND_TOKEN_SPENT,
+  LEGACY_KIND_TOKEN_SPENT,
+  TAG_TOKEN_HASH,
+  txIdForInputs,
+  transferOutsHash,
 } from "@tat-protocol/utils";
 import { bytesToHex, hexToBytes } from "@noble/hashes/utils";
 import { generateSecretKey, getPublicKey } from "nostr-tools";
-import { StorageInterface } from "@tat-protocol/storage";
+import {
+  StorageInterface,
+  SpentSetStore,
+  SupplyStore,
+  DEFAULT_KEYSET_ID,
+  type StoredTx,
+  type TxOutput,
+  type TxRecord,
+  type CommitTransferResult,
+  type CommitMintResult,
+} from "@tat-protocol/storage";
+import { BlobLedger, type TxLedger } from "./BlobLedger.js";
 import { NDKEvent, type NostrEvent as NostrEventRaw } from "@nostr-dev-kit/ndk";
 
 const Debug = DebugLogger.getInstance();
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+/** Outputs stop being pushed after this; `status` still serves them. */
+const OUTBOX_TTL_MS = 7 * DAY_MS;
+const MIN_TX_RETENTION_DAYS = 30;
+const OUTBOX_MAX_BACKOFF_MS = 5 * 60 * 1000;
+const PRUNE_EVERY_MS = 60 * 60 * 1000;
+/**
+ * Default end of the v1 spend-digest window (2026-11-01T00:00:00Z, unix
+ * seconds). Announced with the release; override with
+ * `ForgeConfig.acceptV1SpendDigestUntil` (0 closes it now).
+ */
+const DEFAULT_V1_SPEND_DIGEST_UNTIL = Date.UTC(2026, 10, 1) / 1000;
 
 /**
  * Transaction data structure
@@ -71,6 +103,11 @@ export abstract class ForgeBase extends NWPCServer {
   // without this two concurrent transfers of the same input could both pass the
   // check before either marks it spent — a double-spend.
   private spendLock: Promise<unknown> = Promise.resolve();
+
+  private blobLedger?: BlobLedger;
+  private outboxTimer?: ReturnType<typeof setInterval>;
+  private outboxDraining = false;
+  private lastPruneAt = 0;
 
   /**
    * Creates a new ForgeBase instance.
@@ -174,6 +211,8 @@ export abstract class ForgeBase extends NWPCServer {
     this.use("transfer", this.transferToken.bind(this));
     this.use("burn", this.burnToken.bind(this));
     this.use("verify", this.handleVerify.bind(this));
+    // Read-only recovery: re-fetch the outputs of a committed transfer or mint.
+    this.use("status", this.handleStatus.bind(this));
   }
 
   public onlyAuthorized(
@@ -228,6 +267,7 @@ export abstract class ForgeBase extends NWPCServer {
    */
   public async initialize(): Promise<void> {
     try {
+      this.assertLedgerConfig();
       // Resolve keys, set the state key, and load persisted state (spent-set
       // and replay bloom) BEFORE super.init() connects and subscribes.
       // Relays replay up to the subscription's `since` window on connect; if we
@@ -240,14 +280,15 @@ export abstract class ForgeBase extends NWPCServer {
           this.keys = { secretKey: "", publicKey: signerPubkey };
           this.stateKey = `forge-state-${signerPubkey}`;
         } else {
-          // Fall back to key-based initialization for backwards compatibility
-          const forgeKeyId = `forge-keys-${this.keys?.publicKey ?? ""}`;
+          // Keys from config are used as given and never copied into storage:
+          // writing them would only add a second place to steal them from.
+          // Only a key the forge generates itself is persisted, and only into
+          // storage that encrypts at rest.
           let keys = this.keys;
-          // Try to load keys from storage if not present
-          const storedKeys = await this.storage.getItem(forgeKeyId);
-          if (keys && keys.publicKey && !storedKeys) {
-            await this.storage.setItem(forgeKeyId, JSON.stringify(keys));
-          } else if (!keys?.publicKey || !keys?.secretKey) {
+          if (!keys?.publicKey || !keys?.secretKey) {
+            this.assertSecretStorage();
+            const forgeKeyId = `forge-keys-${keys?.publicKey ?? ""}`;
+            const storedKeys = await this.storage.getItem(forgeKeyId);
             if (storedKeys) {
               const parsedKeys = JSON.parse(storedKeys);
               keys = {
@@ -274,6 +315,8 @@ export abstract class ForgeBase extends NWPCServer {
 
       // Connect + subscribe only now that spent-set and replay state are loaded.
       await super.init();
+      // Anything committed but undelivered before a restart goes out now.
+      this.startOutbox();
     } catch (error) {
       Debug.error("Failed to initialize Forge:" + error, "Forge");
       throw error;
@@ -300,7 +343,7 @@ export abstract class ForgeBase extends NWPCServer {
     timeWindow?: number,
     currentTime?: number,
   ): Promise<boolean> {
-    if (this.state.spentTokens.has(tokenHash)) {
+    if (await this.isTokenSpent(tokenHash)) {
       throw new Error("Token is already spent");
     }
     const dataToSign = new TextEncoder().encode(tokenHash);
@@ -403,6 +446,200 @@ export abstract class ForgeBase extends NWPCServer {
    * requests. Callbacks are chained regardless of prior success/failure, and a
    * failing callback never poisons the lock for the next caller.
    */
+  /**
+   * Move any spent hashes sitting in blob state into the configured store.
+   *
+   * A forge that has been running accumulated its spent set in the state blob.
+   * Pointing it at a store without carrying those across would present every
+   * previously spent token as unspent — every one of them replayable, which is
+   * a mint of free money rather than a migration inconvenience. So this runs on
+   * every load, is idempotent (`tryMarkSpent` on a hash already present is a
+   * no-op returning false), and clears the blob copy only once the store has
+   * accepted the hashes.
+   *
+   * No-op when no store is configured, which is what keeps existing forges on
+   * exactly their current behaviour.
+   */
+  protected async importBlobSpentSet(): Promise<void> {
+    const store = this.spentSet;
+    if (!store) return;
+    const pending = Array.from(this.state.spentTokens ?? []);
+    if (pending.length === 0) return;
+
+    let imported = 0;
+    for (const tokenHash of pending) {
+      // Skip anything malformed rather than aborting the whole import: one bad
+      // entry must not strand every other spent hash outside the store.
+      try {
+        if (await store.tryMarkSpent(this.spentKeysetId, tokenHash)) imported++;
+      } catch (err) {
+        Debug.error(
+          `importBlobSpentSet: skipping unusable spent hash ${tokenHash}: ${err}`,
+          "ForgeBase",
+        );
+      }
+    }
+
+    // Only now drop the blob copy — if the process dies mid-import the blob is
+    // still authoritative and the next start redoes it.
+    this.state.spentTokens = new Set();
+    await this._saveState();
+    Debug.log(
+      `importBlobSpentSet: moved ${imported} spent hash(es) out of blob state into the spent-set store`,
+      "ForgeBase",
+    );
+  }
+
+  /**
+   * Adopt the cap and any already-issued supply into the configured store.
+   *
+   * Without this an upgrading forge would start from zero issued and hand
+   * itself a full cap's worth of fresh headroom — an over-issue by exactly the
+   * amount already in circulation. Runs on load, and only seeds when the store
+   * has nothing recorded, so restarts do not double-count.
+   */
+  protected async adoptSupplyIntoStore(): Promise<void> {
+    const store = this.supply;
+    if (!store) return;
+
+    const cap = this.state.totalSupply > 0 ? this.state.totalSupply : null;
+    const alreadyIssued = await store.getIssued(this.spentKeysetId);
+    const circulating = this.state.circulatingSupply ?? 0;
+
+    if (alreadyIssued === 0 && circulating > 0) {
+      await store.tryIssue(this.spentKeysetId, circulating);
+      Debug.log(
+        `adoptSupplyIntoStore: carried ${circulating} already-issued supply into the store`,
+        "ForgeBase",
+      );
+    }
+    // Set the cap after seeding: setting it first would reject a seed that is
+    // legitimately at or near the cap.
+    if ((await store.getMaxSupply(this.spentKeysetId)) === null) {
+      await store.setMaxSupply(this.spentKeysetId, cap);
+    }
+  }
+
+  /** Supply enforcement, when configured. See ForgeConfig.supplyStore. */
+  protected get supply(): SupplyStore | undefined {
+    return this.config.ledger?.supply ?? this.config.supplyStore;
+  }
+
+  /**
+   * Reserve `amount` against the cap before minting.
+   *
+   * @returns `true` if the reservation fit, `false` if it would exceed the cap.
+   *
+   * Reserve BEFORE minting: if the mint then fails the forge has under-issued,
+   * which is the safe direction. Reserving afterwards would let a token exist
+   * that the cap never counted.
+   */
+  protected async reserveSupply(amount: number): Promise<boolean> {
+    const store = this.supply;
+    if (store) {
+      const issued = await store.tryIssue(this.spentKeysetId, amount);
+      if (issued === null) return false;
+      // Mirror into state for observability only — the store is authoritative.
+      this.state.circulatingSupply = issued;
+      return true;
+    }
+    // Legacy in-process path, preserved exactly.
+    if (
+      this.state.totalSupply > 0 &&
+      (this.state.circulatingSupply ?? 0) + amount > this.state.totalSupply
+    ) {
+      return false;
+    }
+    this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + amount;
+    return true;
+  }
+
+  /** Remaining headroom, for error messages. */
+  protected async remainingSupply(): Promise<number> {
+    const store = this.supply;
+    if (store) {
+      const cap = await store.getMaxSupply(this.spentKeysetId);
+      if (cap === null) return Infinity;
+      return cap - (await store.getIssued(this.spentKeysetId));
+    }
+    return this.state.totalSupply - (this.state.circulatingSupply ?? 0);
+  }
+
+  /** Allocate the next sequential asset id. */
+  protected async allocateAssetId(): Promise<number> {
+    const store = this.supply;
+    if (store) {
+      return await store.nextAssetId(this.spentKeysetId);
+    }
+    const id = this.state.lastAssetId;
+    this.state.lastAssetId += 1;
+    return id;
+  }
+
+  /** The spent set, when one is configured. See ForgeConfig.spentSetStore. */
+  protected get spentSet(): SpentSetStore | undefined {
+    return this.config.ledger?.spentSet ?? this.config.spentSetStore;
+  }
+
+  protected get spentKeysetId(): string {
+    return this.config.spentKeysetId ?? DEFAULT_KEYSET_ID;
+  }
+
+  /**
+   * Has this token hash already been spent?
+   *
+   * Every read of the spent set goes through here so there is exactly one place
+   * that knows whether the store or the legacy blob is authoritative.
+   */
+  protected async isTokenSpent(tokenHash: string): Promise<boolean> {
+    if (this.spentSet) {
+      return await this.spentSet.isSpent(this.spentKeysetId, tokenHash);
+    }
+    return this.state.spentTokens.has(tokenHash);
+  }
+
+  /**
+   * Batch form of {@link isTokenSpent}, for the verify RPC.
+   */
+  protected async getTokenSpentStates(
+    tokenHashes: string[],
+  ): Promise<Record<string, boolean>> {
+    if (this.spentSet) {
+      return await this.spentSet.getStates(this.spentKeysetId, tokenHashes);
+    }
+    const out: Record<string, boolean> = {};
+    for (const hash of tokenHashes) {
+      out[hash] = this.state.spentTokens.has(hash);
+    }
+    return out;
+  }
+
+  /**
+   * Record a token hash as spent.
+   *
+   * @returns `true` if this call marked it, `false` if it was already spent.
+   *
+   * With a store this is a single atomic test-and-insert that is durable before
+   * it resolves, and it does NOT touch blob state — which is what removes the
+   * O(N^2) write amplification, since the blob write was the quadratic term
+   * rather than the Set insert.
+   *
+   * Without a store this keeps the original behaviour exactly: add to the
+   * in-memory Set and re-serialise the whole state blob.
+   */
+  protected async markTokenSpent(tokenHash: string): Promise<boolean> {
+    if (this.spentSet) {
+      return await this.spentSet.tryMarkSpent(this.spentKeysetId, tokenHash);
+    }
+    if (this.state.spentTokens.has(tokenHash)) return false;
+    this.state.spentTokens.add(tokenHash);
+    // Await the write: the spent-set must be durable before the transfer
+    // response releases newly signed tokens, otherwise a crash after the
+    // response leaves the spent input replayable on restart.
+    await this._saveState();
+    return true;
+  }
+
   protected async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
     const result = this.spendLock.then(fn, fn);
     // Advance the lock even if fn rejects, swallowing the settled value so the
@@ -428,6 +665,8 @@ export abstract class ForgeBase extends NWPCServer {
         authorizedForgers: new Set(forgeState.authorizedForgers || []),
         tokenUsage: new Map(forgeState.tokenUsage || []),
       };
+      await this.importBlobSpentSet();
+      await this.adoptSupplyIntoStore();
     } else {
       this.state = {
         ...this.state,
@@ -446,51 +685,103 @@ export abstract class ForgeBase extends NWPCServer {
   }
 
   public async publishSpentToken(tokenHash: string) {
-    // Mark spent in state first so subsequent validation sees it immediately
-    this.state.spentTokens.add(tokenHash);
-    await this._saveState();
+    // Mark spent first so subsequent validation sees it immediately, and so the
+    // record is durable before the caller's response releases newly signed
+    // tokens. With a store this is one atomic O(1) write and touches no blob.
+    const newlyMarked = await this.markTokenSpent(tokenHash);
+    if (!newlyMarked) {
+      // Callers check isTokenSpent under runExclusive before getting here, so a
+      // false means the store's uniqueness constraint caught an interleaving
+      // the in-process lock did not — which is exactly what it is for, and
+      // worth surfacing rather than swallowing. The notice is still published:
+      // it is idempotent, and a holder reconciling is better off seeing it.
+      Debug.warn(
+        `publishSpentToken: ${tokenHash} was already spent — the store rejected a duplicate mark`,
+        "ForgeBase",
+      );
+    }
+    this.announceSpent(tokenHash);
+  }
 
+  /**
+   * Publish the public "spent" notice for a hash already recorded as spent.
+   * Fire-and-forget: the spend is authoritative in the spent set, this only
+   * lets other devices reconcile early.
+   */
+  protected announceSpent(tokenHash: string): void {
     // Fire-and-forget relay publication — don't block the transfer response.
-    // Pockets subscribe to these kind-1 "spent:<hash>" notes to reconcile
-    // spent tokens across devices, so every forge flavor must publish them.
+    // Pockets subscribe to these "spent:<hash>" notices to reconcile spent
+    // tokens across devices, so every forge flavor must publish them.
     const forgePubkey = this.getPublicKey();
     if (!forgePubkey) {
       Debug.error("publishSpentToken skipped: no forge pubkey", "ForgeBase");
       return;
     }
+
+    // The hash rides in the multi-letter `token` tag, never in `t`. `t` is the
+    // NIP-01 hashtag tag: relays index it globally, so publishing token hashes
+    // there wrote every spend into the public hashtag index of every relay the
+    // note reached — a transaction-graph leak, and tag abuse that relays
+    // rate-limit or ban for. Nothing consumes the old `t` tag (pockets filter
+    // on kind + author and read the hash from content), so it is simply gone.
     const tags: string[][] = [
-      ["t", tokenHash],
       ["p", forgePubkey],
+      [TAG_TOKEN_HASH, tokenHash],
     ];
-    if (this.signer) {
-      // Signer-based forge: keys.secretKey is intentionally empty, so sign
-      // the note through the signer instead of skipping publication.
-      this.signer
-        .signEvent({
-          kind: 1,
-          content: `spent:${tokenHash}`,
-          tags,
-          created_at: Math.floor(Date.now() / 1000),
-        })
-        .then(async (signed) => {
-          const ev = new NDKEvent(this.ndk, signed as NostrEventRaw);
-          await ev.publish();
-        })
-        .catch((err) =>
+    const content = `spent:${tokenHash}`;
+
+    const kinds: number[] = [KIND_TOKEN_SPENT];
+    // Transition: also emit the legacy kind-1 note so pockets on an older SDK,
+    // which subscribe only to kind 1, keep reconciling. Set
+    // `publishLegacySpentNotes: false` once holders have updated.
+    if (this.config.publishLegacySpentNotes !== false) {
+      kinds.push(LEGACY_KIND_TOKEN_SPENT);
+    }
+
+    const publishOne = (kind: number) => {
+      if (this.signer) {
+        // Signer-based forge: keys.secretKey is intentionally empty, so sign
+        // the note through the signer instead of skipping publication.
+        this.signer
+          .signEvent({
+            kind,
+            content,
+            tags,
+            created_at: Math.floor(Date.now() / 1000),
+          })
+          .then(async (signed) => {
+            const ev = new NDKEvent(this.ndk, signed as NostrEventRaw);
+            await ev.publish();
+          })
+          .catch((err) =>
+            Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
+          );
+      } else if (this.keys.publicKey && this.keys.secretKey) {
+        postToFeed(this.ndk, content, this.keys, tags, kind).catch((err) =>
           Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
         );
-    } else if (this.keys.publicKey && this.keys.secretKey) {
-      postToFeed(this.ndk, `spent:${tokenHash}`, this.keys, tags).catch((err) =>
-        Debug.error("publishSpentToken relay error: " + err, "ForgeBase"),
-      );
-    } else {
-      Debug.error(
-        "publishSpentToken skipped: no signer or secret key available",
-        "ForgeBase",
-      );
+      } else {
+        Debug.error(
+          "publishSpentToken skipped: no signer or secret key available",
+          "ForgeBase",
+        );
+      }
+    };
+
+    for (const kind of kinds) {
+      publishOne(kind);
     }
   }
 
+  /**
+   * Burn a token this forge issued, authorized by its lock key.
+   *
+   * Params: `{ token, witness }`, where `witness` is the lock key's signature
+   * over `burnAuthDigest(tokenHash)`. The burn digest has its own domain tag,
+   * so a transfer witness seen on the wire cannot be replayed as a burn.
+   * Unlocked tokens cannot be burned: no key could authorize it, so anyone who
+   * had seen the JWT could destroy it.
+   */
   public async handleBurn(
     req: NWPCRequest,
     context: NWPCContext,
@@ -499,7 +790,7 @@ export abstract class ForgeBase extends NWPCServer {
     // Share the spent-set lock with transfers: a burn and a transfer of the
     // same token must not both mark it spent from an unspent starting state.
     return await this.runExclusive(async () => {
-      let parsed: { token?: string };
+      let parsed: { token?: string; witness?: string };
       try {
         parsed = JSON.parse(req.params);
       } catch (error) {
@@ -508,7 +799,7 @@ export abstract class ForgeBase extends NWPCServer {
           NWPC_SPEC_ERRORS.PARSE_ERROR.message,
         );
       }
-      const { token } = parsed;
+      const { token, witness } = parsed;
       if (!token) {
         return await res.error(
           NWPC_SPEC_ERRORS.TOKEN_REQUIRED.code,
@@ -516,31 +807,48 @@ export abstract class ForgeBase extends NWPCServer {
         );
       }
       try {
-        const restoredToken = await new Token().restore(token);
-
-        // Verify token integrity before accepting burn
-        if (!(await restoredToken.verifyTokenHash())) {
+        // The same burn again — a retry after a lost reply — is answered from
+        // the ledger; validation would call it spent and strand the pocket
+        // holding a token that is already gone. A burn is a tx with no
+        // outputs, so a transfer of the same token never matches.
+        const replay = await this.replayCommittedTransfer(
+          [token],
+          [],
+          context.sender,
+          res,
+        );
+        if (replay) return replay.response as NWPCResponse;
+        // Integrity, issuer, spent, expiry, timelock, HTLC and the witness —
+        // the same checks a transfer input passes, with the witness verified
+        // over the burn digest.
+        const [validTx, error, code, params] = await this.validateTXInputs(
+          { ins: [token] },
+          [witness ?? ""],
+          undefined,
+          {
+            witnessDigest: burnAuthDigest,
+            requireLock: true,
+          },
+        );
+        if (error || !validTx) {
           return await res.error(
-            NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
-            "Token hash does not match payload",
+            code ?? NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+            "Invalid burn: " + (error || "Validation failed"),
+            params,
           );
         }
-        if (!(await restoredToken.verifyTokenSignature())) {
-          return await res.error(
-            NWPC_SPEC_ERRORS.TOKEN_INVALID.code,
-            "Invalid token signature",
-          );
-        }
-
-        const tokenHash = restoredToken.header.token_hash;
-        if (this.state.spentTokens.has(tokenHash)) {
-          return await res.error(
-            NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
-            NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
-          );
-        }
-        await this.publishSpentToken(tokenHash);
-        return await res.send({ success: true }, context.sender);
+        const restored = await new Token().restore(token);
+        return await this.commitAndDeliverTransfer(
+          {
+            inputHashes: [await restored.create_token_hash()],
+            outs: [],
+            outputs: [],
+            submitter: context.sender,
+            requestId: req.id,
+            kind: "burn",
+          },
+          res,
+        );
       } catch (error: unknown) {
         const message =
           error instanceof Error ? error.message : "Unknown error occurred";
@@ -570,8 +878,6 @@ export abstract class ForgeBase extends NWPCServer {
         "token_hashes is required",
       );
     }
-    const spent: Record<string, boolean> = {};
-    const valid: Record<string, boolean> = {};
     for (const hash of tokenHashes) {
       if (typeof hash !== "string") {
         return await res.error(
@@ -579,11 +885,485 @@ export abstract class ForgeBase extends NWPCServer {
           "token_hashes must be strings",
         );
       }
-      const isSpent = this.state.spentTokens.has(hash);
-      spent[hash] = isSpent;
-      valid[hash] = !isSpent;
+    }
+    // One batch read rather than a lookup per hash: a store may answer the
+    // whole set in a single round trip, and this endpoint is asked about many
+    // hashes at a time.
+    const spent = await this.getTokenSpentStates(tokenHashes);
+    const valid: Record<string, boolean> = {};
+    for (const hash of tokenHashes) {
+      valid[hash] = !spent[hash];
     }
     return await res.send({ valid, spent }, context.sender);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Committed transfers and mints: one commit, then delivery
+  // ---------------------------------------------------------------------------
+
+  /** Header version for tokens this forge mints. See ForgeConfig.tokenHashVersion. */
+  protected get tokenVersion(): string {
+    return this.config.tokenHashVersion ?? "1.0.0";
+  }
+
+  /** The commit/outbox ledger: the configured one, or the state blob. */
+  protected get txLedger(): TxLedger {
+    if (this.config.ledger) return this.config.ledger;
+    this.blobLedger ??= new BlobLedger({
+      state: () => this.state,
+      save: () => this._saveState(),
+    });
+    return this.blobLedger;
+  }
+
+  /**
+   * Refuse configurations that cannot commit a transfer together with its
+   * outputs, and non-durable state in production.
+   */
+  protected assertLedgerConfig(): void {
+    const { ledger, spentSetStore, supplyStore } = this.config;
+    if (!ledger && (spentSetStore || supplyStore)) {
+      throw new Error(
+        "spentSetStore/supplyStore cannot commit a transfer's spent inputs together with its outputs. " +
+          "Configure a ForgeLedger instead (e.g. `ledger: new SqliteForgeLedger(db)`), which carries both.",
+      );
+    }
+    if (ledger && spentSetStore && spentSetStore !== ledger.spentSet) {
+      throw new Error(
+        "spentSetStore differs from ledger.spentSet; configure the ledger alone",
+      );
+    }
+    if (ledger && supplyStore && supplyStore !== ledger.supply) {
+      throw new Error(
+        "supplyStore differs from ledger.supply; configure the ledger alone",
+      );
+    }
+    if (process.env.NODE_ENV === "production" && !ledger?.durable) {
+      if (!this.config.allowBlobState) {
+        throw new Error(
+          "A forge in production requires a durable ledger (e.g. `ledger: new SqliteForgeLedger(db)`). " +
+            "Set `allowBlobState: true` to run on the state blob anyway.",
+        );
+      }
+      Debug.warn(
+        "Running in production on blob state (allowBlobState). Spent set, supply and tx records are " +
+          "rewritten whole on every commit; configure a durable ForgeLedger.",
+        "ForgeBase",
+      );
+    }
+  }
+
+  /**
+   * Refuse to persist the forge's secret key into storage that stores it in
+   * plaintext, unless `allowPlaintextSecrets` says so.
+   */
+  protected assertSecretStorage(): void {
+    if (
+      this.storage.encryptsAtRest === true ||
+      this.config.allowPlaintextSecrets
+    ) {
+      return;
+    }
+    throw new Error(
+      "The forge would store its generated secret key in storage that does not encrypt at rest. " +
+        "Use encrypting storage (NodeStore with a passphrase, or EncryptedStorage around your backend), " +
+        "or supply `keys`/`signer` in config. Set `allowPlaintextSecrets: true` to store it unencrypted.",
+    );
+  }
+
+  /** A committed transfer or mint, with each output's delivery state. */
+  public async getTx(txId: string): Promise<StoredTx | null> {
+    return await this.txLedger.getTx(this.spentKeysetId, txId);
+  }
+
+  /**
+   * Commit a transfer: every input marked spent, the record and its outbox
+   * rows written, as one unit. Nothing is sent before this resolves.
+   */
+  protected async commitTransfer(
+    record: TxRecord,
+  ): Promise<CommitTransferResult> {
+    return await this.txLedger.commitTransfer(this.spentKeysetId, record);
+  }
+
+  /** Commit a mint: supply reserved and the record written, as one unit. */
+  protected async commitMint(
+    record: TxRecord,
+    amount: number,
+  ): Promise<CommitMintResult> {
+    const result = await this.txLedger.commitMint(
+      this.spentKeysetId,
+      record,
+      amount,
+    );
+    // Mirror into state for observability; the ledger is authoritative. The
+    // blob ledger has already applied it to state itself.
+    if ("issued" in result && this.config.ledger)
+      this.state.circulatingSupply = result.issued;
+    return result;
+  }
+
+  /**
+   * The outputs `requester` may see: all of them for the key that submitted
+   * the tx, otherwise only those addressed to the requester. `tx_id` is
+   * derivable from input hashes, which spent notices publish, so knowing it
+   * proves nothing.
+   */
+  protected outputsVisibleTo(
+    tx: StoredTx,
+    requester: string,
+  ): { to: string; token: string }[] {
+    return tx.outputs
+      .filter((o) => requester === tx.submitter || o.to === requester)
+      .map((o) => ({ to: o.to, token: o.jwt }));
+  }
+
+  /**
+   * Transfer path shared by the fungible and non-fungible forges: commit, then
+   * announce the spends, then deliver.
+   */
+  protected async commitAndDeliverTransfer(
+    params: {
+      inputHashes: string[];
+      /** The request's outputs, as signed; fingerprinted to tell a retry from a double-spend. */
+      outs: unknown[];
+      outputs: TxOutput[];
+      submitter: string;
+      requestId?: string;
+      kind?: "transfer" | "burn";
+    },
+    res: NWPCResponseObject,
+  ) {
+    const txId = txIdForInputs(params.inputHashes);
+    const record: TxRecord = {
+      txId,
+      kind: params.kind ?? "transfer",
+      requestId: params.requestId ?? txId,
+      submitter: params.submitter,
+      inputHashes: params.inputHashes,
+      outsHash: transferOutsHash(params.outs),
+      outputs: params.outputs,
+      createdAt: Date.now(),
+    };
+    let result: CommitTransferResult;
+    try {
+      result = await this.commitTransfer(record);
+    } catch (err) {
+      Debug.error(
+        `Transfer ${txId} could not be committed: ${err}`,
+        "ForgeBase",
+      );
+      return await res.error(
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+        "Transfer could not be committed; nothing was spent. Retry.",
+      );
+    }
+    // The same inputs, committed to different outputs: a double-spend, not a
+    // retry. Answering it from the record would tell the second spender their
+    // payment went through.
+    if ("existing" in result && result.existing.outsHash !== record.outsHash) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+        JSON.stringify({
+          spent: params.inputHashes[0],
+          issuer: this.keys.publicKey!,
+        }),
+      );
+    }
+    if ("spent" in result) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+        NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+        JSON.stringify({
+          spent: result.spent[0],
+          issuer: this.keys.publicKey!,
+        }),
+      );
+    }
+    if ("existing" in result) {
+      return await this.deliverAndReply(result.existing, res, params.submitter);
+    }
+    for (const hash of params.inputHashes) this.announceSpent(hash);
+    return await this.deliverAndReply(
+      {
+        ...record,
+        outputs: record.outputs.map((o) => ({ ...o, delivered: false })),
+      },
+      res,
+      params.submitter,
+    );
+  }
+
+  /**
+   * If `ins` were already consumed by a committed transfer, answer with that
+   * transfer instead of re-validating (the inputs are spent now, so validation
+   * would report a double-spend at a payer whose transfer succeeded). Returns
+   * `undefined` when there is nothing to replay.
+   */
+  protected async replayCommittedTransfer(
+    ins: unknown[] | undefined,
+    outs: unknown[] | undefined,
+    requester: string,
+    res: NWPCResponseObject,
+  ): Promise<{ replayed: true; response: unknown } | undefined> {
+    if (!Array.isArray(ins) || ins.length === 0) return undefined;
+    try {
+      const hashes = await Promise.all(
+        ins.map(async (jwt) =>
+          (await new Token().restore(String(jwt))).create_token_hash(),
+        ),
+      );
+      const existing = await this.getTx(txIdForInputs(hashes));
+      // Only the same transfer — same inputs AND same outputs — is a retry.
+      // Anything else falls through to validation, which reports the spend.
+      if (!existing || existing.outsHash !== transferOutsHash(outs ?? [])) {
+        return undefined;
+      }
+      return {
+        replayed: true,
+        response: await this.deliverAndReply(existing, res, requester),
+      };
+    } catch {
+      // Malformed inputs: let normal validation produce the real error.
+      return undefined;
+    }
+  }
+
+  /**
+   * Try each undelivered output once, then tell the requester the tx is
+   * committed. Delivery failures never fail the request: the value has moved,
+   * the output stays in the outbox, and a caller told otherwise would retry.
+   */
+  protected async deliverAndReply(
+    tx: StoredTx,
+    res: NWPCResponseObject,
+    requester: string,
+  ) {
+    let pending = 0;
+    for (const [index, out] of tx.outputs.entries()) {
+      if (out.delivered) continue;
+      if (
+        await this.tryDeliver(
+          tx.txId,
+          index,
+          () => res.send({ token: out.jwt }, out.to),
+          0,
+          Date.now(),
+        )
+      ) {
+        continue;
+      }
+      pending++;
+    }
+    const reply = {
+      tx_id: tx.txId,
+      status: "committed",
+      outputs: this.outputsVisibleTo(tx, requester),
+      pending,
+    };
+    try {
+      return await res.send(reply, requester);
+    } catch (err) {
+      Debug.error(
+        `Reply for ${tx.txId} undelivered (status can recover it): ${err}`,
+        "ForgeBase",
+      );
+      return undefined;
+    }
+  }
+
+  /** One delivery attempt, recorded in the ledger either way. */
+  private async tryDeliver(
+    txId: string,
+    index: number,
+    send: () => Promise<unknown>,
+    priorAttempts: number,
+    now: number,
+  ): Promise<boolean> {
+    try {
+      await send();
+    } catch (err) {
+      const backoff = Math.min(
+        1000 * 2 ** priorAttempts,
+        OUTBOX_MAX_BACKOFF_MS,
+      );
+      Debug.error(
+        `Output ${txId}:${index} undelivered (${err}); retrying in ${backoff}ms`,
+        "ForgeBase",
+      );
+      await this.txLedger
+        .recordFailedAttempt(this.spentKeysetId, txId, index, now + backoff)
+        .catch((e) =>
+          Debug.error(`recordFailedAttempt failed: ${e}`, "ForgeBase"),
+        );
+      return false;
+    }
+    await this.txLedger
+      .markDelivered(this.spentKeysetId, txId, index, now)
+      .catch((e) => Debug.error(`markDelivered failed: ${e}`, "ForgeBase"));
+    return true;
+  }
+
+  /**
+   * Retry every due, undelivered output. Runs on a timer once initialized;
+   * callable directly (tests, or an operator draining by hand).
+   */
+  public async drainOutbox(now: number = Date.now()): Promise<number> {
+    if (this.outboxDraining) return 0;
+    this.outboxDraining = true;
+    let delivered = 0;
+    try {
+      const due = await this.txLedger.pendingDeliveries(this.spentKeysetId, {
+        now,
+        createdAfter: now - OUTBOX_TTL_MS,
+      });
+      for (const d of due) {
+        const ok = await this.tryDeliver(
+          d.txId,
+          d.index,
+          () =>
+            this.sendResponse(
+              {
+                id: d.requestId,
+                timestamp: Date.now(),
+                result: { token: d.jwt },
+              },
+              d.to,
+            ),
+          d.attempts,
+          now,
+        );
+        if (ok) delivered++;
+      }
+    } finally {
+      this.outboxDraining = false;
+    }
+    return delivered;
+  }
+
+  /** Drop tx records older than the retention window (never less than 30 days). */
+  public async pruneTxRecords(now: number = Date.now()): Promise<number> {
+    const days = Math.max(
+      MIN_TX_RETENTION_DAYS,
+      this.config.txRecordRetentionDays ?? MIN_TX_RETENTION_DAYS,
+    );
+    return await this.txLedger.pruneTx(this.spentKeysetId, now - days * DAY_MS);
+  }
+
+  protected startOutbox(): void {
+    if (this.outboxTimer) return;
+    const tick = async () => {
+      try {
+        await this.drainOutbox();
+        if (Date.now() - this.lastPruneAt > PRUNE_EVERY_MS) {
+          this.lastPruneAt = Date.now();
+          await this.pruneTxRecords();
+        }
+      } catch (err) {
+        Debug.error("Outbox tick failed: " + err, "ForgeBase");
+      }
+    };
+    this.outboxTimer = setInterval(tick, this.config.outboxIntervalMs ?? 5000);
+    this.outboxTimer.unref?.();
+    void tick();
+  }
+
+  protected stopOutbox(): void {
+    if (this.outboxTimer) clearInterval(this.outboxTimer);
+    this.outboxTimer = undefined;
+  }
+
+  public async disconnect(): Promise<void> {
+    this.stopOutbox();
+    await super.disconnect?.();
+  }
+
+  /**
+   * `status {tx_id}`: the committed transfer or mint and the outputs the
+   * requester may see, so a pocket that lost its replies can recover.
+   */
+  public async handleStatus(
+    req: NWPCRequest,
+    context: NWPCContext,
+    res: NWPCResponseObject,
+  ) {
+    let parsed: { tx_id?: unknown };
+    try {
+      parsed = JSON.parse(req.params);
+    } catch {
+      return await res.error(
+        NWPC_SPEC_ERRORS.PARSE_ERROR.code,
+        NWPC_SPEC_ERRORS.PARSE_ERROR.message,
+      );
+    }
+    const txId = parsed.tx_id;
+    if (typeof txId !== "string" || !/^[0-9a-f]{64}$/.test(txId)) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "tx_id must be a 64-character lowercase hex string",
+      );
+    }
+    const tx = await this.getTx(txId);
+    if (!tx) {
+      return await res.send(
+        { tx_id: txId, status: "unknown", outputs: [] },
+        context.sender,
+      );
+    }
+    return await res.send(
+      {
+        tx_id: txId,
+        status: "committed",
+        kind: tx.kind,
+        outputs: this.outputsVisibleTo(tx, context.sender),
+      },
+      context.sender,
+    );
+  }
+
+  /**
+   * Transition for pockets still signing the v1 spend digest, which binds only
+   * to/amount/tokenID.
+   *
+   * Accepted only while the announced window is open and only where v1 already
+   * covers everything that matters: no output carries a timeLock (v1 does not
+   * bind it), every output's issuer is this forge (checked for all outputs),
+   * and outputs spend the inputs exactly (enforced for every transfer, since
+   * change is always explicit). After the window the pocket gets an explicit
+   * UPGRADE_REQUIRED rather than a generic authorization failure.
+   *
+   * @returns `null` if the v1 witness is accepted, `undefined` if it is not a
+   * valid v1 witness either, or `[message, code]` to reject with.
+   */
+  protected checkV1SpendWitness(
+    tokenHash: string,
+    outs: Record<string, unknown>[],
+    witness: Uint8Array,
+    lock: string,
+  ): null | undefined | [string, number] {
+    if (!verifySignature(spendAuthDigestV1(tokenHash, outs), witness, lock)) {
+      return undefined;
+    }
+    const until =
+      this.config.acceptV1SpendDigestUntil ?? DEFAULT_V1_SPEND_DIGEST_UNTIL;
+    if (Math.floor(Date.now() / 1000) >= until) {
+      return [
+        "This Pocket signs with a retired witness format (v1); update your Pocket to spend",
+        NWPC_SPEC_ERRORS.UPGRADE_REQUIRED.code,
+      ];
+    }
+    if (outs.some((o) => o.timeLock !== undefined && o.timeLock !== null)) {
+      return [
+        "A v1 witness does not cover timeLock; update your Pocket to send time-locked outputs",
+        NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+      ];
+    }
+    Debug.log(
+      `Accepted a v1 spend witness; the v1 window closes at ${new Date(until * 1000).toISOString()}`,
+      "ForgeBase",
+    );
+    return null;
   }
 
   /**
@@ -647,6 +1427,12 @@ export abstract class ForgeBase extends NWPCServer {
     tx: TransactionData,
     witnessData?: string[],
     providedHTLCSecret?: string,
+    opts: {
+      /** Digest the P2PK witness must sign. Default: spendAuthDigest over tx.outs. */
+      witnessDigest?: (tokenHash: string) => Uint8Array;
+      /** Refuse inputs with no P2PK lock (nothing could authorize them). */
+      requireLock?: boolean;
+    } = {},
   ): Promise<
     [TransactionData | null, string | null, number | null, string | undefined]
   > {
@@ -659,6 +1445,54 @@ export abstract class ForgeBase extends NWPCServer {
         "",
       ];
     }
+    // Every output field must be one the spend digest binds, and an output can
+    // only be issued by this forge. Anything else could change what an output
+    // is without changing what the spender signed.
+    let outs: Record<string, unknown>[];
+    try {
+      outs = (tx.outs ?? []).map((o) =>
+        typeof o === "string" ? JSON.parse(o) : (o as unknown),
+      ) as Record<string, unknown>[];
+    } catch {
+      return [
+        null,
+        "Transaction outputs are not valid JSON",
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
+    }
+    for (const out of outs) {
+      if (!out || typeof out !== "object" || Array.isArray(out)) {
+        return [
+          null,
+          "Each output must be an object",
+          NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+          "",
+        ];
+      }
+    }
+    const unbound = unboundOutFields(outs);
+    if (unbound.length > 0) {
+      return [
+        null,
+        `Output field(s) not covered by the witness: ${unbound.join(", ")}`,
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
+    }
+    if (
+      outs.some(
+        (o) => o.issuer !== undefined && o.issuer !== this.keys.publicKey,
+      )
+    ) {
+      return [
+        null,
+        "Output issuer is not this forge",
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "",
+      ];
+    }
+
     // Reject transactions that list the same input token more than once.
     // Without this, `validateFungibleTransfer` sums each duplicate as
     // additional value and the spent-set (idempotent Set.add) never notices,
@@ -695,6 +1529,22 @@ export abstract class ForgeBase extends NWPCServer {
         ];
       }
 
+      // Retired v1 tokens. Their hash (the lossy v1 rule) is what the forge
+      // signed, and that weakness is only closed once they stop being taken.
+      const until = this.config.acceptV1TokensUntil;
+      if (
+        until !== undefined &&
+        (token.header.ver ?? "1.0.0").startsWith("1.") &&
+        Math.floor(Date.now() / 1000) >= until
+      ) {
+        return [
+          null,
+          "v1 tokens are no longer accepted by this forge; they had to be re-minted before the retirement date",
+          NWPC_SPEC_ERRORS.UPGRADE_REQUIRED.code,
+          "",
+        ];
+      }
+
       // Enforce single-issuer transfer inputs. A forge must only accept
       // tokens it originally issued.
       if (token.payload.iss !== this.keys.publicKey) {
@@ -707,7 +1557,7 @@ export abstract class ForgeBase extends NWPCServer {
       }
 
       const tokenHash = token.header.token_hash;
-      if (this.state.spentTokens.has(tokenHash)) {
+      if (await this.isTokenSpent(tokenHash)) {
         return [
           null,
           "Token is already spent",
@@ -720,6 +1570,14 @@ export abstract class ForgeBase extends NWPCServer {
           null,
           "Token has expired",
           NWPC_SPEC_ERRORS.TOKEN_EXPIRED.code,
+          "",
+        ];
+      }
+      if (opts.requireLock && !token.payload.P2PKlock) {
+        return [
+          null,
+          "Token has no P2PK lock, so no key can authorize this",
+          NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
           "",
         ];
       }
@@ -737,33 +1595,37 @@ export abstract class ForgeBase extends NWPCServer {
         // outputs, not the bare (public, static) token hash. Otherwise a witness
         // seen on the wire could be replayed to redirect the same input to a
         // different recipient. See spendAuthDigest / audit finding C6.
-        const witnessBytes = hexToBytes(witness);
-        const witnessMessage = spendAuthDigest(
-          token.header.token_hash,
-          tx.outs ?? [],
-        );
+        let witnessBytes: Uint8Array;
+        try {
+          witnessBytes = hexToBytes(witness);
+        } catch {
+          return [
+            null,
+            "Witness is not hex",
+            NWPC_SPEC_ERRORS.UNAUTHORIZED.code,
+            "",
+          ];
+        }
+        const witnessMessage = opts.witnessDigest
+          ? opts.witnessDigest(token.header.token_hash)
+          : spendAuthDigest(token.header.token_hash, outs);
+        // Only a bound digest verifies. A signature over the bare token hash
+        // (the pre-C6 scheme) is bound to no outputs, so anyone who saw it could
+        // attach it to outputs of their own; it is not accepted in any mode.
         let isValid = verifySignature(
           witnessMessage,
           witnessBytes,
           token.payload.P2PKlock,
         );
-        // Transition (C6): unless disabled, also accept the legacy witness
-        // signed over the bare token hash so wallets on an older SDK keep
-        // working. Flip `allowLegacyWitness: false` once all wallets are updated
-        // to fully close the replay vector.
-        if (!isValid && this.config.allowLegacyWitness !== false) {
-          const legacyValid = verifySignature(
-            hexToBytes(token.header.token_hash),
+        if (!isValid && !opts.witnessDigest) {
+          const v1Error = this.checkV1SpendWitness(
+            token.header.token_hash,
+            outs,
             witnessBytes,
             token.payload.P2PKlock,
           );
-          if (legacyValid) {
-            Debug.log(
-              "Accepted a LEGACY (unbound) P2PK witness — a wallet still needs updating for C6",
-              "ForgeBase",
-            );
-            isValid = true;
-          }
+          if (v1Error === null) isValid = true;
+          else if (v1Error) return [null, v1Error[0], v1Error[1], ""];
         }
         if (!isValid) {
           return [

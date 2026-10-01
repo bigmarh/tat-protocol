@@ -5,6 +5,7 @@ import {
   NWPCResponseObject,
   NWPCResponse,
   NWPCConfig,
+  NWPCPeer,
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
@@ -33,9 +34,20 @@ const Debug = DebugLogger.getInstance();
 export interface GateServerSpecConfig extends NWPCConfig {
   storage: StorageInterface;
   serviceName: string;
+  /**
+   * Whether a proof is checked with the token's issuer for spent status:
+   * "local" (never), "issuer" (always; no answer refuses), or "hybrid" (asked,
+   * but an unreachable issuer falls back to the local checks). Default "local".
+   */
   defaultVerificationMode?: VerificationMode;
   challengeExpiry?: number; // Seconds (default: 300 = 5 minutes)
   sessionExpiry?: number; // Seconds (default: 3600 = 1 hour)
+  /**
+   * What each resource requires, keyed by resource name. The gate's own
+   * policy: a requester only names the resource it wants, never the issuer or
+   * rules its token is checked against. A resource not listed is refused.
+   */
+  resources?: Record<string, TurnstileRequirements>;
 }
 
 /**
@@ -43,7 +55,10 @@ export interface GateServerSpecConfig extends NWPCConfig {
  */
 interface GateServerState {
   challenges: Map<string, ChallengeEntry>; // nonce -> challenge
-  sessions: Map<string, TurnstileSession & { holderPubkey: string }>; // sessionToken -> session
+  sessions: Map<
+    string,
+    TurnstileSession & { holderPubkey: string; resource?: string }
+  >; // sessionToken -> session
   usedNonces: Set<string>; // For replay protection
 }
 
@@ -82,6 +97,8 @@ export class GateServerSpec {
   protected isInitialized: boolean = false;
   protected stateKey: string = "";
   private nwpcServer: NWPCServer;
+  private forgeClient?: NWPCPeer;
+  private forgeClientReady?: Promise<void>;
   private challengeExpiry: number;
   private sessionExpiry: number;
 
@@ -155,10 +172,23 @@ export class GateServerSpec {
   ): Promise<NWPCResponse | void> {
     try {
       const params = JSON.parse(req.params);
-      const { resource, requirements } = params as {
-        resource: string;
-        requirements: TurnstileRequirements;
-      };
+      // Anything else the client sends — notably `requirements` — is ignored.
+      // Letting it choose them let anyone name their own key as the issuer.
+      const { resource } = params as { resource: string };
+      const requirements =
+        typeof resource === "string" &&
+        Object.prototype.hasOwnProperty.call(
+          this.config.resources ?? {},
+          resource,
+        )
+          ? this.config.resources![resource]
+          : undefined;
+      if (!requirements) {
+        return res.error(
+          NWPC_SPEC_ERRORS.NOT_FOUND.code,
+          `No access rules for resource: ${String(resource)}`,
+        );
+      }
 
       if (
         requirements?.tokenIdPattern &&
@@ -282,6 +312,7 @@ export class GateServerSpec {
         this.state.sessions.set(session.token, {
           ...session,
           holderPubkey: verificationResult.holderPubkey || context.sender,
+          resource: challengeEntry.challenge.resource,
         });
         await this._saveState();
 
@@ -409,6 +440,16 @@ export class GateServerSpec {
         return requirementsCheck;
       }
 
+      // A token's signature and lock survive its being spent, so only the
+      // issuer can say whether it is still good.
+      const spentCheck = await this.checkNotSpent(
+        token,
+        challenge.verificationMode,
+      );
+      if (!spentCheck.valid) {
+        return spentCheck;
+      }
+
       // All checks passed
       return {
         valid: true,
@@ -432,69 +473,74 @@ export class GateServerSpec {
    * Verify minimal disclosure proof
    */
   private async verifyMinimalProof(
-    proof: TurnstileProofMinimal,
-    challenge: TurnstileChallenge,
+    _proof: TurnstileProofMinimal,
+    _challenge: TurnstileChallenge,
   ): Promise<{
     valid: boolean;
     reason?: string;
     holderPubkey?: string;
     tatInfo?: any;
   }> {
+    // A minimal proof's claim — issuer, expiry, tier, pattern match — is
+    // asserted by the client and signed only with a key the client chose.
+    // Nothing here can verify it, so accepting it granted access to anyone.
+    // Refused until a real selective-disclosure verifier exists.
+    return {
+      valid: false,
+      reason:
+        "Minimal-disclosure proofs are not supported; submit a full proof",
+    };
+  }
+
+  /**
+   * Ask the token's issuer whether it is spent, per the verification mode:
+   * - "local": not asked — a spent token whose lock key is still held passes.
+   * - "issuer": must confirm it unspent; no answer is a refusal.
+   * - "hybrid": a spent answer is a refusal, but if the issuer cannot be
+   *   reached the local checks stand. The one mode that tolerates an outage.
+   */
+  private async checkNotSpent(
+    token: Token,
+    mode: TurnstileChallenge["verificationMode"],
+  ): Promise<{ valid: boolean; reason?: string }> {
+    if (mode !== "issuer" && mode !== "hybrid") return { valid: true };
+    const hash = token.header.token_hash;
+    let spent: boolean | undefined;
     try {
-      // Verify signature over nonce
-      const nonceBytes = hexToBytes(proof.nonce);
-      const sigBytes = hexToBytes(proof.signature);
-      const holderPubkey = proof.claim.holderPubkey;
-
-      const isValidSig = verifySignature(nonceBytes, sigBytes, holderPubkey);
-      if (!isValidSig) {
-        return { valid: false, reason: "Invalid signature on nonce" };
-      }
-
-      // Check issuer matches
-      if (proof.claim.issuer !== challenge.requirements.issuer) {
-        return { valid: false, reason: "Issuer mismatch" };
-      }
-
-      // Check disclosed fields match requirements
-      if (
-        challenge.requirements.notExpired &&
-        !proof.claim.disclosed.notExpired
-      ) {
-        return { valid: false, reason: "Token is expired" };
-      }
-
-      if (
-        challenge.requirements.tokenIdPattern &&
-        !proof.claim.disclosed.tokenIdPattern
-      ) {
-        return { valid: false, reason: "Token ID pattern mismatch" };
-      }
-
-      if (
-        challenge.requirements.minTier &&
-        (!proof.claim.disclosed.tier ||
-          proof.claim.disclosed.tier < challenge.requirements.minTier)
-      ) {
-        return { valid: false, reason: "Insufficient tier level" };
-      }
-
-      // All checks passed
-      return {
-        valid: true,
-        holderPubkey,
-        tatInfo: {
-          tokenId: proof.claim.tokenHash,
-          issuer: proof.claim.issuer,
-          tier: proof.claim.disclosed.tier,
-        },
-      };
+      const client = await this.getForgeClient();
+      const response = await client.request(
+        "verify",
+        { token_hashes: [hash] },
+        token.payload.iss,
+      );
+      if (response.error) throw new Error(response.error.message);
+      const answer = (response.result as { spent?: Record<string, boolean> })
+        ?.spent?.[hash];
+      if (typeof answer !== "boolean")
+        throw new Error("the issuer did not say");
+      spent = answer;
     } catch (error) {
+      if (mode === "hybrid") return { valid: true };
       return {
         valid: false,
-        reason: error instanceof Error ? error.message : "Verification failed",
+        reason: `Could not confirm the token with its issuer: ${error instanceof Error ? error.message : String(error)}`,
       };
     }
+    return spent
+      ? { valid: false, reason: "Token has been spent" }
+      : { valid: true };
+  }
+
+  private async getForgeClient(): Promise<NWPCPeer> {
+    if (!this.forgeClient) {
+      this.forgeClient = new NWPCPeer({
+        ...this.config,
+        storage: this.storage,
+      });
+      this.forgeClientReady = this.forgeClient.init();
+    }
+    await this.forgeClientReady;
+    return this.forgeClient;
   }
 
   /**
@@ -509,13 +555,22 @@ export class GateServerSpec {
       return { valid: false, reason: "Token issuer mismatch" };
     }
 
-    // Check expiration
-    if (requirements.notExpired && token.isExpired()) {
+    // An expired token never grants access, whatever the rules say.
+    if (token.isExpired()) {
       return { valid: false, reason: "Token is expired" };
     }
 
-    // Check token ID pattern
-    if (requirements.tokenIdPattern && token.payload.tokenID) {
+    // Check token ID pattern — a token with no tokenID cannot match one.
+    if (requirements.tokenIdPattern) {
+      if (
+        token.payload.tokenID === undefined ||
+        token.payload.tokenID === null
+      ) {
+        return {
+          valid: false,
+          reason: "Token has no tokenID to match the required pattern",
+        };
+      }
       if (!this.isSafeTokenIdPattern(requirements.tokenIdPattern)) {
         return { valid: false, reason: "Unsafe token ID pattern" };
       }
@@ -525,7 +580,7 @@ export class GateServerSpec {
       } catch {
         return { valid: false, reason: "Invalid token ID pattern" };
       }
-      if (!regex.test(token.payload.tokenID)) {
+      if (!regex.test(String(token.payload.tokenID))) {
         return { valid: false, reason: "Token ID pattern mismatch" };
       }
     }
@@ -595,9 +650,14 @@ export class GateServerSpec {
   /**
    * Verify session token
    */
-  public verifySession(sessionToken: string): boolean {
+  public verifySession(sessionToken: string, resource: string): boolean {
     const session = this.state.sessions.get(sessionToken);
     if (!session) return false;
+    // A session is for the resource it was granted for, not every resource.
+    // One saved before sessions were bound has no resource and is refused, as
+    // is a call that names none (JS callers of the old one-argument form).
+    if (!session.resource || !resource || session.resource !== resource)
+      return false;
 
     if (Date.now() > session.validUntil) {
       this.state.sessions.delete(sessionToken);

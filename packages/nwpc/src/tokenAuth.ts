@@ -52,10 +52,20 @@ export interface TokenAuthMiddlewareOptions {
   isTokenSpent?: (tokenHash: string) => Promise<boolean>;
 
   /**
-   * Function to mark a token as spent
-   * Called after successful payment handler execution
+   * Function to mark a token as spent. Called BEFORE the paid handler runs;
+   * if it throws, the request is refused. Used with `isTokenSpent` as a
+   * check-then-mark serialized within this middleware — atomic in one process
+   * only. Prefer `trySpendToken`.
    */
   markTokenSpent?: (tokenHash: string) => Promise<void>;
+
+  /**
+   * Atomically claim a payment token: `true` if this call spent it, `false`
+   * if it was already spent — e.g. `SpentSetStore.tryMarkSpent`. Called before
+   * the paid handler runs, and never undone: a handler that fails after the
+   * claim does not refund the token. Required for more than one process.
+   */
+  trySpendToken?: (tokenHash: string) => Promise<boolean>;
 
   /**
    * Server pubkey for audience validation
@@ -105,9 +115,32 @@ export function createTokenAuthMiddleware(
     validateToken,
     isTokenSpent,
     markTokenSpent,
+    trySpendToken,
     serverPubkey,
     getRouteMetadata,
   } = options;
+
+  // Serializes the legacy check-then-mark so two requests in this process
+  // cannot both pass the check before either marks.
+  let claimLock: Promise<unknown> = Promise.resolve();
+  const claim = async (hash: string): Promise<boolean> => {
+    if (trySpendToken) return await trySpendToken(hash);
+    const markSpent = markTokenSpent;
+    const checkSpent = isTokenSpent;
+    if (!markSpent || !checkSpent) {
+      // Marking without checking would accept the same token forever.
+      throw new Error(
+        "tokenAuth payment mode needs trySpendToken, or both isTokenSpent and markTokenSpent",
+      );
+    }
+    const run = claimLock.then(async () => {
+      if (await checkSpent(hash)) return false;
+      await markSpent(hash);
+      return true;
+    });
+    claimLock = run.catch(() => undefined);
+    return await run;
+  };
 
   return async (
     req: NWPCRequest,
@@ -225,15 +258,24 @@ export function createTokenAuthMiddleware(
         );
       }
 
-      // Check if already spent
-      if (isTokenSpent) {
-        const spent = await isTokenSpent(validatedToken.hash);
-        if (spent) {
-          return res.error(
-            NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
-            NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
-          );
-        }
+      // Spend the token BEFORE serving. Checking first and marking after the
+      // handler let concurrent requests share one payment, and a mark that
+      // failed afterwards left the token reusable. A claim that cannot be made
+      // refuses the request.
+      let claimed: boolean;
+      try {
+        claimed = await claim(validatedToken.hash);
+      } catch (err) {
+        return res.error(
+          NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+          `Payment token could not be spent: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      if (!claimed) {
+        return res.error(
+          NWPC_SPEC_ERRORS.TOKEN_SPENT.code,
+          NWPC_SPEC_ERRORS.TOKEN_SPENT.message,
+        );
       }
 
       // Set payment info on context for post-handler processing
@@ -244,20 +286,8 @@ export function createTokenAuthMiddleware(
     // Set validated token on context
     ctx.validatedToken = validatedToken.raw || validatedToken;
 
-    // Continue to next handler
+    // Continue to next handler. A payment token is already spent by now.
     await next();
-
-    // After handler succeeds, mark payment tokens as spent
-    // Note: This runs after next() returns, so handler has completed
-    if (tokenAuth.mode === "payment" && markTokenSpent) {
-      try {
-        await markTokenSpent(validatedToken.hash);
-      } catch (err) {
-        // Log but don't fail - handler already succeeded
-        // The token was effectively spent by the handler execution
-        console.error("Failed to mark token as spent:", err);
-      }
-    }
   };
 }
 

@@ -46,6 +46,7 @@ export async function postToFeed(
   message: string,
   fromKeys: KeyPair,
   tags: NDKTag[] = [],
+  kind = 1,
 ) {
   const signer = new NDKPrivateKeySigner(fromKeys.secretKey);
   const timestamp = Math.floor(Date.now() / 1000); // Use Unix timestamp in seconds
@@ -53,7 +54,7 @@ export async function postToFeed(
   const post = new NDKEvent(ndk);
   post.content = message;
   post.pubkey = String(fromKeys.publicKey);
-  post.kind = 1;
+  post.kind = kind;
   post.created_at = timestamp;
   post.tags = tags;
   post.sig = await post.sign(signer);

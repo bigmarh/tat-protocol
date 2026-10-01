@@ -7,8 +7,8 @@ import {
   NWPCConfig,
 } from "@tat-protocol/nwpc";
 import { NWPCPeer } from "@tat-protocol/nwpc";
-import { Token } from "@tat-protocol/token";
-import { DebugLogger } from "@tat-protocol/utils";
+import { DebugLogger, signMessage } from "@tat-protocol/utils";
+import { collectTokenPayment } from "./collectTokenPayment.js";
 import { randomBytes } from "crypto";
 // import { BoothBase, BoothConfig } from "./BoothBase.js";
 import {
@@ -301,6 +301,10 @@ export class BoothServerSpec {
         const receipt = Array.from(this.state.receipts.values()).find(
           (r) => r.invoiceId === invoiceId,
         );
+        // The receipt is the payer's; anyone else only learns it is paid.
+        if (!this.isPayer(invoice, context.sender)) {
+          return res.error(4001, "Invoice already paid");
+        }
         if (receipt) {
           return res.send(
             {
@@ -326,6 +330,8 @@ export class BoothServerSpec {
       // Update invoice
       invoice.status = "paid";
       invoice.paidAt = Date.now();
+      invoice.paidBy = context.sender;
+      if (result.settlement) invoice.settlement = result.settlement;
       this.state.invoices.set(invoiceId, invoice);
 
       // Store receipt and fulfillment state
@@ -377,7 +383,9 @@ export class BoothServerSpec {
       let receipt: Receipt | undefined;
       let tat: string | undefined;
 
-      if (invoice.status === "paid") {
+      // Anyone who knows the invoice id may learn its status; only the payer
+      // gets what was bought and the receipt.
+      if (invoice.status === "paid" && this.isPayer(invoice, context.sender)) {
         receipt = Array.from(this.state.receipts.values()).find(
           (r) => r.invoiceId === invoiceId,
         );
@@ -486,65 +494,29 @@ export class BoothServerSpec {
     success: boolean;
     tat?: string;
     receipt?: Receipt;
+    settlement?: Invoice["settlement"];
     error?: string;
   }> {
     try {
       if (payment.method === "tat") {
-        const tokens = payment.tokens;
-        if (!tokens?.length) {
-          return { success: false, error: "No tokens provided" };
-        }
-
-        let totalAmount = 0;
-        const tokenHashes: string[] = [];
-        for (const tokenJWT of tokens) {
-          const token = await new Token().restore(tokenJWT);
-
-          if (!(await token.validate())) {
-            return { success: false, error: "Invalid token" };
-          }
-
-          if (token.payload.iss !== invoice.catalogItem.issuer) {
-            return { success: false, error: "Token issuer mismatch" };
-          }
-
-          if (token.header.typ !== invoice.catalogItem.tokenType) {
-            return { success: false, error: "Token type mismatch" };
-          }
-
-          if (
-            token.payload.P2PKlock &&
-            token.payload.P2PKlock !== this.nwpcServer.getPublicKey()
-          ) {
-            return { success: false, error: "Token not locked to Booth" };
-          }
-
-          if (invoice.catalogItem.tokenType === "FUNGIBLE") {
-            const amount = token.payload.amount;
-            if (typeof amount !== "number" || amount <= 0) {
-              return { success: false, error: "Invalid token amount" };
-            }
-            totalAmount += amount;
-          } else if (!token.payload.tokenID) {
-            return { success: false, error: "Missing tokenID" };
-          }
-
-          tokenHashes.push(token.header.token_hash);
-        }
-
-        const spentTokens = await this.verifyTokensNotSpent(
-          Array.from(new Set(tokenHashes)),
-          invoice.catalogItem.issuer,
-        );
-        if (spentTokens.length > 0) {
+        // Take the payment: the tokens move to the booth's key at the forge,
+        // and nothing below runs unless that transfer committed.
+        const collected = await collectTokenPayment({
+          invoice,
+          tokens: payment.tokens ?? [],
+          boothPubkey: this.nwpcServer.getPublicKey() || "",
+          buyerPubkey,
+          sign: (digest) => this.signDigest(digest),
+          forge: await this.getForgeClient(),
+        });
+        if ("error" in collected)
+          return { success: false, error: collected.error };
+        // The forge answers a resubmission of the same transfer as committed,
+        // so the same tokens offered for a second invoice come back "paid".
+        // A settlement credits exactly one invoice. Checked and claimed with no
+        // await in between, so two concurrent pays cannot both take it.
+        if (!this.claimSettlement(collected.txId, invoice.invoiceId)) {
           return { success: false, error: "Token already spent" };
-        }
-
-        if (invoice.catalogItem.tokenType === "FUNGIBLE") {
-          const expectedAmount = invoice.catalogItem.price.amount;
-          if (totalAmount < expectedAmount) {
-            return { success: false, error: "Insufficient payment amount" };
-          }
         }
 
         const fulfillment = await this.fulfillInvoice(
@@ -552,9 +524,10 @@ export class BoothServerSpec {
           buyerPubkey,
           "tat",
           {
-            tokens,
-            tokenHashes,
-            amount: totalAmount,
+            tokens: payment.tokens,
+            tokenHashes: collected.tokenHashes,
+            amount: collected.amount,
+            txId: collected.txId,
           },
         );
 
@@ -562,6 +535,7 @@ export class BoothServerSpec {
           success: true,
           tat: fulfillment.tat,
           receipt: fulfillment.receipt,
+          settlement: { txId: collected.txId, collected: collected.collected },
         };
       }
 
@@ -631,6 +605,7 @@ export class BoothServerSpec {
 
     invoice.status = "paid";
     invoice.paidAt = invoice.paidAt ?? Date.now();
+    invoice.paidBy = invoice.paidBy ?? invoice.buyerPubkey;
     invoice.paymentReferences = {
       ...(invoice.paymentReferences ?? {}),
       [payment.method]: {
@@ -773,28 +748,44 @@ export class BoothServerSpec {
     };
   }
 
-  private async verifyTokensNotSpent(
-    tokenHashes: string[],
-    forgePubkey: string,
-  ): Promise<string[]> {
-    if (!forgePubkey) {
-      throw new Error("Missing forge public key for verification");
+  /**
+   * Whether `requester` paid this invoice. Invoices paid before `paidBy` was
+   * recorded fall back to the buyer named on their receipt.
+   */
+  private isPayer(invoice: Invoice, requester: string): boolean {
+    const payer =
+      invoice.paidBy ??
+      Array.from(this.state.receipts.values()).find(
+        (r) => r.invoiceId === invoice.invoiceId,
+      )?.buyer;
+    return !!payer && payer === requester;
+  }
+
+  /** Settlement tx ids claimed by an invoice, including ones not yet saved. */
+  private settlementClaims = new Map<string, string>();
+
+  private claimSettlement(txId: string, invoiceId: string): boolean {
+    for (const inv of this.state.invoices.values()) {
+      if (inv.settlement?.txId === txId && inv.invoiceId !== invoiceId)
+        return false;
     }
-    if (!tokenHashes.length) return [];
-    const client = await this.getForgeClient();
-    const response = await client.request(
-      "verify",
-      { token_hashes: tokenHashes },
-      forgePubkey,
-    );
-    if (response.error) {
-      throw new Error(response.error.message);
-    }
-    const result = response.result as {
-      spent?: Record<string, boolean>;
-    };
-    const spent = tokenHashes.filter((hash) => result?.spent?.[hash]);
-    return spent;
+    const holder = this.settlementClaims.get(txId);
+    if (holder && holder !== invoiceId) return false;
+    this.settlementClaims.set(txId, invoiceId);
+    return true;
+  }
+
+  /** Sign a digest with the booth's key (signer when configured). */
+  private async signDigest(digest: Uint8Array): Promise<string> {
+    const signer = this.config.signer as
+      | { sign(data: Uint8Array): Promise<string> }
+      | undefined;
+    if (signer) return await signer.sign(digest);
+    const keys = this.config.keys as
+      | { secretKey: string; publicKey: string }
+      | undefined;
+    if (!keys?.secretKey) throw new Error("Booth has no key to sign with");
+    return Buffer.from(signMessage(digest, keys)).toString("hex");
   }
 
   private async getForgeClient(): Promise<NWPCPeer> {

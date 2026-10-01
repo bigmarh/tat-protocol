@@ -80,6 +80,8 @@ export interface DerivedPayload extends Payload {
 export interface TokenBuildParams {
   token_type: TokenType;
   payload: Payload;
+  /** Header version, which selects the token-hash rule. Default TOKEN_HASH_VERSION. */
+  ver?: string;
 }
 
 /**
@@ -108,6 +110,16 @@ export interface TokenBuildParams {
  * });
  * ```
  */
+/**
+ * Header version new tokens are built with. It selects the token-hash rule:
+ * "1.x" (or none) is the legacy rule, which decoded the first SHA-256 digest
+ * as UTF-8 — lossy, since invalid bytes collapse to U+FFFD, so distinct digests
+ * shared a hash and no other language could reproduce it. "2.x" hashes the
+ * digest's hex under a domain tag. v1 tokens keep verifying under v1, so
+ * everything already issued (signatures, spent-set entries) stays valid.
+ */
+export const TOKEN_HASH_VERSION = "2.0.0";
+
 export default class Token {
   public hash!: string;
   public signature!: string;
@@ -130,7 +142,7 @@ export default class Token {
       alg: "Schnorr",
       typ: opts.token_type,
       token_hash: "",
-      ver: "1.0.0",
+      ver: opts.ver ?? TOKEN_HASH_VERSION,
     };
     this.payload = opts.payload;
     await this.create_token_hash();
@@ -294,12 +306,8 @@ export default class Token {
     readerPubkey?: string,
     timeWindow?: number,
   ): Promise<string> {
-    // Create base payload hash
-    const dataToHash = this.encode_payload();
-    const hash1 = await createHash(JSON.stringify(dataToHash));
-
     // Add time-based nonce if provided
-    let nonceData = new TextDecoder().decode(hash1);
+    let nonceData = await this.firstDigestString();
     if (timeWindow) {
       const timeSlot = Math.floor(Date.now() / (timeWindow * 1000));
       nonceData += `:${timeSlot}`;
@@ -371,7 +379,7 @@ export default class Token {
       alg: "Schnorr",
       typ,
       token_hash: tokenHash,
-      ver: "1.0.0",
+      ver: TOKEN_HASH_VERSION,
     };
   }
 
@@ -543,11 +551,22 @@ export default class Token {
    * Compute token hash from payload without mutating state.
    */
   private async computeTokenHashBase(): Promise<string> {
-    const dataToHash = this.encode_payload();
-    const hash1 = await createHash(JSON.stringify(dataToHash));
-    const nonceData = new TextDecoder().decode(hash1);
-    const hash2 = await createHash(nonceData);
+    const hash2 = await createHash(await this.firstDigestString());
     return bytesToHex(new Uint8Array(hash2));
+  }
+
+  /**
+   * The first digest of the payload, as the string the second hash is taken
+   * over — under the rule this token's header version selects.
+   */
+  private async firstDigestString(): Promise<string> {
+    const hash1 = await createHash(JSON.stringify(this.encode_payload()));
+    const ver = this.header?.ver ?? "1.0.0";
+    if (ver.startsWith("1.")) {
+      // Legacy v1 — lossy; kept only so tokens issued under it still verify.
+      return new TextDecoder().decode(hash1);
+    }
+    return "TAT-TOKEN-HASH-v2\n" + bytesToHex(new Uint8Array(hash1));
   }
 
   /**

@@ -8,7 +8,13 @@ import {
 } from "@tat-protocol/nwpc";
 import { ForgeConfig } from "./ForgeConfig.js";
 import { Recipient } from "./Types.js";
-import { DebugLogger } from "@tat-protocol/utils";
+import {
+  DebugLogger,
+  isValidTokenAmount,
+  invalidTokenAmountReason,
+  mintTxId,
+} from "@tat-protocol/utils";
+import type { TxOutput, TxRecord } from "@tat-protocol/storage";
 
 const Debug = DebugLogger.getInstance();
 
@@ -19,10 +25,10 @@ export class FungibleForge extends ForgeBase {
   }
   async forgeToken(
     req: NWPCRequest,
-    _context: NWPCContext,
+    context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    let reqObj: { to?: string; amount?: number | string };
+    let reqObj: { to?: string; amount?: number | string; nonce?: string };
     try {
       reqObj = JSON.parse(req.params);
     } catch (error) {
@@ -40,27 +46,32 @@ export class FungibleForge extends ForgeBase {
       );
     }
     const amountToForge = Number(amount);
-    // Reject NaN and ±Infinity: `Number("abc")` is NaN and `NaN <= 0` is false,
-    // so a bare `<= 0` check would let a valueless token through and, once spent
-    // as a transfer input, defeat the conservation check.
-    if (!Number.isFinite(amountToForge) || amountToForge <= 0) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
-        "Amount must be a positive, finite number",
-      );
+    // Amounts are positive safe integers. Doubles represent integers exactly up
+    // to 2^53, so this is what makes the conservation arithmetic exact — a
+    // fractional amount accumulates float drift and lets a transfer output
+    // marginally more than its inputs while still passing the check. NaN and
+    // ±Infinity are covered too: `Number("abc")` is NaN and every comparison
+    // against NaN is false, so a bare `<= 0` check would let a valueless token
+    // through and defeat conservation once it was spent as an input.
+    const badAmount = invalidTokenAmountReason(amountToForge);
+    if (badAmount) {
+      return await res.error(NWPC_SPEC_ERRORS.INVALID_PARAMS.code, badAmount);
     }
-    if (
-      this.state.totalSupply > 0 &&
-      (this.state.circulatingSupply ?? 0) + amountToForge >
-        this.state.totalSupply
-    ) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
-        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
-      );
-    }
+
+    // One mint per (requester, nonce). A retry after a lost reply — same
+    // request id, or the same explicit nonce — is answered from the ledger
+    // rather than minting again.
+    const requester = context.sender;
+    const txId = mintTxId(
+      requester,
+      String(reqObj.nonce ?? req.id ?? globalThis.crypto.randomUUID()),
+    );
+    const existing = await this.getTx(txId);
+    if (existing) return await this.deliverAndReply(existing, res, requester);
+
     const token = new Token();
     await token.build({
+      ver: this.tokenVersion,
       token_type: TokenType.FUNGIBLE,
       payload: Token.createPayload({
         iss: this.keys.publicKey!,
@@ -68,10 +79,50 @@ export class FungibleForge extends ForgeBase {
         P2PKlock: to,
       }),
     });
-    this.state.circulatingSupply =
-      (this.state.circulatingSupply ?? 0) + amountToForge;
     const tokenJWT = await this.signAndCreateJWT(token);
-    return await res.send({ token: tokenJWT }, to);
+    const record: TxRecord = {
+      txId,
+      kind: "mint",
+      requestId: req.id ?? txId,
+      submitter: requester,
+      inputHashes: [],
+      outputs: [{ to, jwt: tokenJWT }],
+      createdAt: Date.now(),
+    };
+
+    // Reserve against the cap and record the output in one commit, BEFORE the
+    // token is released. With a durable ledger the cap is a constraint the
+    // store evaluates, not a read-compare-write that N replicas would each pass.
+    let result;
+    try {
+      result = await this.commitMint(record, amountToForge);
+    } catch (err) {
+      Debug.error(
+        `Mint ${txId} could not be committed: ${err}`,
+        "FungibleForge",
+      );
+      return await res.error(
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+        "Mint could not be committed; nothing was issued. Retry.",
+      );
+    }
+    if (!result.ok && !("existing" in result)) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
+        `Forging this amount (${amountToForge}) would exceed total supply (${this.state.totalSupply}). Remaining: ${await this.remainingSupply()}`,
+      );
+    }
+    if ("existing" in result) {
+      return await this.deliverAndReply(result.existing, res, requester);
+    }
+    return await this.deliverAndReply(
+      {
+        ...record,
+        outputs: record.outputs.map((o) => ({ ...o, delivered: false })),
+      },
+      res,
+      requester,
+    );
   }
 
   async transferToken(
@@ -92,6 +143,15 @@ export class FungibleForge extends ForgeBase {
         );
       }
       const sender = context.sender;
+      // The same inputs again: a retry of a transfer that already committed.
+      // Answer it from the ledger — validation would call it a double-spend.
+      const replay = await this.replayCommittedTransfer(
+        tx?.ins,
+        tx?.outs,
+        sender,
+        res,
+      );
+      if (replay) return replay.response as any;
       // Validate transaction
       const [validTx, error, code, params] = await this.validateTXInputs(
         tx,
@@ -123,6 +183,7 @@ export class FungibleForge extends ForgeBase {
         recipients,
         res,
         sender,
+        req.id,
       );
     });
   }
@@ -133,6 +194,7 @@ export class FungibleForge extends ForgeBase {
     outs: Recipient[],
     res: NWPCResponseObject,
     sender: string,
+    requestId?: string,
   ) {
     if (!inputs || !outs) {
       return await res.error(
@@ -148,40 +210,25 @@ export class FungibleForge extends ForgeBase {
         validationError,
       );
     }
-    // 2. Prepare
+    // 2. Prepare every output in memory. Nothing is spent or sent yet.
     const { recipientTokens, changeTokenJWT } =
       await this.prepareFungibleTransfer(inputs, outs, sender);
-    // 3. Commit (mark all input tokens as spent)
-    await Promise.all(
-      inputs.map(async (token) => {
-        const tokenHash = await token.create_token_hash();
-        await this.publishSpentToken(tokenHash);
-      }),
+    const outputs: TxOutput[] = recipientTokens.map(({ to, jwt }) => ({
+      to,
+      jwt,
+    }));
+    if (changeTokenJWT) outputs.push({ to: sender, jwt: changeTokenJWT });
+    Debug.log("transfer outputs:" + outputs.length, "FungibleForge");
+
+    // 3. Commit spent inputs + outputs together, then deliver. A failed send
+    // leaves the output in the outbox, never lost.
+    const inputHashes = await Promise.all(
+      inputs.map((token) => token.create_token_hash()),
     );
-
-    Debug.log("recipientTokens:" + recipientTokens.length, "FungibleForge");
-    // Send output tokens to recipients
-    for (const { to, jwt } of recipientTokens) {
-      Debug.log("sending token to:" + to, "FungibleForge");
-      await res.send({ token: jwt }, to);
-    }
-    // Send change token to sender, if any
-    if (changeTokenJWT) {
-      Debug.log("sending change token to SENDER:" + sender, "FungibleForge");
-      return await res.send({ token: changeTokenJWT }, sender);
-    }
-
-    //send spent tokens to the sender
-    inputs.forEach(async (token) => {
-      await res.send(
-        {
-          spent: await token.create_token_hash(),
-          issuer: this.keys.publicKey!,
-        },
-        sender,
-      );
-    });
-    return;
+    return await this.commitAndDeliverTransfer(
+      { inputHashes, outs, outputs, submitter: sender, requestId },
+      res,
+    );
   }
 
   public async validateFungibleTransfer(
@@ -204,26 +251,20 @@ export class FungibleForge extends ForgeBase {
     }
     let inputTotal = 0;
     for (const token of inputs) {
-      // Non-finite amounts (NaN/±Infinity) must be rejected: a single NaN input
-      // makes inputTotal NaN, and `outputTotal > NaN` is always false, so the
-      // conservation check below would pass for arbitrary outputs.
-      if (
-        typeof token.payload.amount !== "number" ||
-        !Number.isFinite(token.payload.amount) ||
-        token.payload.amount <= 0
-      ) {
-        return "Each input token must have a valid positive amount";
+      // Must be a positive safe integer, so this sum stays exact. A fractional
+      // input makes inputTotal drift, which lets the outputs below claim more
+      // than was put in. Non-finite is covered by the same check: a single NaN
+      // input makes inputTotal NaN, and `outputTotal > NaN` is always false, so
+      // the conservation check would pass for arbitrary outputs.
+      if (!isValidTokenAmount(token.payload.amount)) {
+        return "Each input token must have a positive whole-number amount";
       }
       inputTotal += token.payload.amount;
     }
     let outputTotal = 0;
     for (const entry of outs) {
-      if (
-        typeof entry.amount !== "number" ||
-        !Number.isFinite(entry.amount) ||
-        entry.amount <= 0
-      ) {
-        return "Invalid or missing amount for recipient";
+      if (!isValidTokenAmount(entry.amount)) {
+        return "Each recipient needs a positive whole-number amount";
       }
       if (!entry.to) {
         return "Recipient 'to' is required";
@@ -233,23 +274,30 @@ export class FungibleForge extends ForgeBase {
     if (outputTotal > inputTotal) {
       return "Insufficient total input token amount for transfer";
     }
+    // Change is an explicit output. The forge used to mint any remainder as
+    // change locked to whoever submitted the request — value no witness bound,
+    // so a relayer holding someone else's witness could collect it.
+    if (outputTotal !== inputTotal) {
+      return "Outputs must spend the inputs exactly; include change as an explicit output";
+    }
     return null;
   }
 
   public async prepareFungibleTransfer(
     inputs: Token[],
     outs: Recipient[],
-    sender: string,
+    _sender: string,
   ): Promise<{
     recipientTokens: { to: string; jwt: string }[];
     changeTokenJWT?: string;
   }> {
-    // For simplicity, use the first input token's properties for timeLock/data_uri/change lock
+    // For simplicity, use the first input token's data_uri for every output
     const baseToken = inputs[0];
     const recipientTokens: { to: string; jwt: string }[] = [];
     for (const entry of outs) {
       const newToken = new Token();
       await newToken.build({
+        ver: this.tokenVersion,
         token_type: TokenType.FUNGIBLE,
         payload: Token.createPayload({
           iss: this.keys.publicKey!,
@@ -262,31 +310,9 @@ export class FungibleForge extends ForgeBase {
       const jwt = await this.signAndCreateJWT(newToken);
       recipientTokens.push({ to: entry.to, jwt });
     }
-    // Calculate change
-    const inputTotal = inputs.reduce(
-      (sum, t) => sum + (t.payload.amount || 0),
-      0,
-    );
-    const outputTotal = outs.reduce(
-      (sum, entry) => sum + (entry.amount ?? 0),
-      0,
-    );
-    let changeTokenJWT: string | undefined = undefined;
-    if (inputTotal > outputTotal) {
-      const changeToken = new Token();
-      await changeToken.build({
-        token_type: TokenType.FUNGIBLE,
-        payload: Token.createPayload({
-          iss: this.keys.publicKey!,
-          amount: inputTotal - outputTotal,
-          P2PKlock: sender,
-          timeLock: baseToken.payload.timeLock,
-          data_uri: baseToken.payload.data_uri,
-        }),
-      });
-      changeTokenJWT = await this.signAndCreateJWT(changeToken);
-    }
-    return { recipientTokens, changeTokenJWT };
+    // No implicit change: validateFungibleTransfer requires outputs to spend
+    // the inputs exactly. The field stays for subclasses that still return it.
+    return { recipientTokens, changeTokenJWT: undefined };
   }
 
   async burnToken(

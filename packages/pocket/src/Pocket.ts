@@ -8,7 +8,7 @@ import {
   NWPC_SPEC_ERRORS,
 } from "@tat-protocol/nwpc";
 import { Token } from "@tat-protocol/token";
-import { DebugLogger, Unwrap, UnwrapWithSigner, spendAuthDigest } from "@tat-protocol/utils";
+import { DebugLogger, Unwrap, UnwrapWithSigner, verifyEvent, spendAuthDigest, burnAuthDigest, txIdForInputs, KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT, TAG_TOKEN_HASH } from "@tat-protocol/utils";
 import { StorageInterface, BrowserStore, NodeStore } from "@tat-protocol/storage";
 import { generateSecretKey, getPublicKey } from 'nostr-tools';
 import { KeyPair } from '@tat-protocol/hdkeys';
@@ -58,7 +58,15 @@ export interface PocketConfig extends NWPCConfig {
     keys?: KeyPair;
     keyID?: string;
     requestHandlers?: Map<string, NWPCHandler>;
-    /** Allow storing sensitive state in browser storage without encryption */
+    /**
+     * Passphrase for the default storage (NodeStore, or BrowserStore with
+     * storageType 'browser'). NodeStore also reads TAT_STORAGE_ENCRYPTION_KEY.
+     */
+    storagePassphrase?: string;
+    /**
+     * Let the pocket keep its keys and mnemonic in storage that does not
+     * encrypt at rest. Refused by default, including for `config.storage`.
+     */
     allowInsecureStorage?: boolean;
 }
 
@@ -146,6 +154,14 @@ interface TransactionData {
   [key: string]: unknown;
 }
 
+/** A forge's answer to `status {tx_id}`. */
+export interface TxStatus {
+    tx_id: string;
+    status: 'committed' | 'unknown';
+    kind?: 'transfer' | 'mint';
+    outputs: Array<{ to: string; token: string }>;
+}
+
 export class Pocket extends NWPCPeer {
     declare protected state: PocketState;
     protected isInitialized!: boolean;
@@ -163,15 +179,14 @@ export class Pocket extends NWPCPeer {
         // Resolve storage before super() so NWPCBase always receives a concrete
         // StorageInterface. storageType:'browser' is a convenience shorthand that
         // must be materialised here — the constructor body runs too late.
+        const storeOptions = {
+            passphrase: config?.storagePassphrase,
+            allowPlaintext: config?.allowInsecureStorage === true && !config?.storagePassphrase,
+        };
         const storage = config?.storage
             ?? (config?.storageType === 'browser'
-                ? (() => {
-                    if (!config.allowInsecureStorage) {
-                        throw new Error('Browser storage requires allowInsecureStorage to persist sensitive state.');
-                    }
-                    return new BrowserStore();
-                })()
-                : new NodeStore());
+                ? new BrowserStore(storeOptions)
+                : new NodeStore(undefined, storeOptions));
         super({ ...config, storage });
         this.config = config || {};
         this.isInitialized = false;
@@ -185,6 +200,16 @@ export class Pocket extends NWPCPeer {
      * Async initialization for Pocket instance. Loads idKey if needed and initializes the NWPC client.
      */
     public async init(): Promise<void> {
+        // The pocket's identity key, HD mnemonic and single-use keys all live in
+        // this storage. Refuse it before anything is written if it would hold
+        // them in plaintext — whether it was built here or passed in config.
+        if (this.storage.encryptsAtRest !== true && !this.config?.allowInsecureStorage) {
+            throw new Error(
+                'Pocket storage does not encrypt at rest, and the pocket keeps its keys and mnemonic there. ' +
+                'Use NodeStore/BrowserStore with a passphrase (or storagePassphrase), or EncryptedStorage, ' +
+                'or set allowInsecureStorage: true to accept plaintext.'
+            );
+        }
         // Handle key initialization based on what was provided
         if (this.config?.signer) {
             // Signer provided - get public key from signer
@@ -200,7 +225,7 @@ export class Pocket extends NWPCPeer {
             const secretKey = bytesToHex(generateSecretKey());
             const publicKey = getPublicKey(hexToBytes(secretKey));
             this.keys = { secretKey, publicKey };
-            this.saveIdKey();
+            await this.saveIdKey();
         }
 
         // Resolve publicKey now (same logic as NWPCBase.init) so we can build
@@ -714,22 +739,6 @@ export class Pocket extends NWPCPeer {
         return Math.max(floor, Math.min(nowSec, last) - RESUME_SLACK_SEC);
     }
 
-    /**
-     * Move the resume point up to this event.
-     *
-     * Kept one hour behind the newest thing seen (`resumeSince` applies the
-     * slack) so a burst of events written while a batch was in flight is not
-     * skipped by the next open. Never moves backwards, and never past now.
-     */
-    protected noteEventSeen(event: NDKEvent): void {
-        const at = typeof event.created_at === 'number' ? event.created_at : 0;
-        if (!at) return;
-        const nowSec = Math.floor(Date.now() / 1000);
-        const capped = Math.min(at, nowSec);
-        if (capped > (this.state.lastSeenAt ?? 0)) {
-            this.state.lastSeenAt = capped;
-        }
-    }
 
     /**
      * Re-ask the relays for everything addressed to this wallet since `sinceMs`,
@@ -935,11 +944,6 @@ export class Pocket extends NWPCPeer {
     }
 
     protected async handleEvent(event: NDKEvent): Promise<void> {
-        // Advance the resume point even for events that turn out to be
-        // duplicates or undecryptable: they are still proof this wallet has
-        // seen everything up to that timestamp. Advancing only on success would
-        // make the window creep forward more slowly than the relay's history.
-        this.noteEventSeen(event);
         // Dedup check before the expensive decrypt/unwrap.
         if (this.isEventProcessed(event.id)) {
             Debug.log("duplicate event detected (early)" + event.id, 'Pocket');
@@ -1017,16 +1021,16 @@ export class Pocket extends NWPCPeer {
                 await this.storeToken(message.result.changeToken);
             }
 
-            // Delete spent token from state
+            // Delete spent token from state — only on the issuer's own word.
             if (message.result?.spent) {
                 Debug.log("received spent token" + message.result, 'Pocket');
-                await this.forgetSpentToken(message.result.issuer, message.result.spent);
+                await this.applySpentNotice(unwrapped.sender, message.result.issuer, message.result.spent, true);
             }
 
             // Always resolve a pending request() — even when a token was embedded.
             // Previously this was in an `else` branch, so token responses never resolved
             // the caller, causing 15s timeouts whenever the server sent token + metadata.
-            if (this.responseHandlers.has(message.id)) {
+            if (this.responseHandlers.has(message.id) && this.isReplyFromRecipient(message.id, unwrapped)) {
                 if (this.hooks.beforeResponse) {
                     const shouldContinue = await this.hooks.beforeResponse(message, context);
                     if (!shouldContinue) return;
@@ -1055,7 +1059,7 @@ export class Pocket extends NWPCPeer {
                             spentMeta = result;
                         }
                         if (spentMeta?.spent && spentMeta.issuer) {
-                            await this.forgetSpentToken(spentMeta.issuer, spentMeta.spent);
+                            await this.applySpentNotice(unwrapped.sender, spentMeta.issuer, spentMeta.spent, true);
                         }
                     }
                     if (this.hooks.afterResponse) {
@@ -1351,41 +1355,14 @@ export class Pocket extends NWPCPeer {
      */
     private async buildWitnessData(inputs: Token[], outs: unknown[]): Promise<string[]> {
         const witnessData: string[] = [];
-        const mainPubkey = this.publicKey || this.keys.publicKey;
         const missingLockKeys = new Set<string>();
         for (const token of inputs) {
             if (token.payload.P2PKlock) {
                 // Bind the witness to this transfer's outputs so it cannot be
                 // replayed to redirect the input elsewhere (audit finding C6).
-                const dataToSign = spendAuthDigest(token.header.token_hash, outs);
-                const lockKey = token.payload.P2PKlock;
-
-                if (lockKey === mainPubkey) {
-                    // Main key — use signer if available (avoids empty secretKey issue)
-                    if (this.signer) {
-                        const sig = await this.signer.sign(dataToSign);
-                        witnessData.push(sig);
-                    } else if (this.keys.secretKey) {
-                        const sig = await token.sign(dataToSign, this.keys);
-                        witnessData.push(bytesToHex(sig));
-                    } else {
-                        missingLockKeys.add(lockKey);
-                        witnessData.push("");
-                    }
-                } else {
-                    // Single-use key: recover deterministically from mnemonic if cache is missing.
-                    const singleUseKey = await this.findOrRecoverSingleUseKeyByPubkey(lockKey);
-                    if (singleUseKey?.secretKey) {
-                        const sig = await token.sign(dataToSign, {
-                            publicKey: singleUseKey.publicKey,
-                            secretKey: singleUseKey.secretKey,
-                        });
-                        witnessData.push(bytesToHex(sig));
-                    } else {
-                        missingLockKeys.add(lockKey);
-                        witnessData.push("");
-                    }
-                }
+                const sig = await this.signWithLockKey(token, spendAuthDigest(token.header.token_hash, outs));
+                if (!sig) missingLockKeys.add(token.payload.P2PKlock);
+                witnessData.push(sig ?? "");
             } else {
                 witnessData.push("");
             }
@@ -1394,6 +1371,69 @@ export class Pocket extends NWPCPeer {
             throw new Error(`Missing witness key for lock pubkeys: ${Array.from(missingLockKeys).join(",")}`);
         }
         return witnessData;
+    }
+
+    /**
+     * Sign `digest` with the key a token is P2PK-locked to — the main key
+     * (through the signer when there is one) or a single-use key, recovered
+     * from the mnemonic if its cache entry is gone. `undefined` if this pocket
+     * does not hold that key.
+     */
+    private async signWithLockKey(token: Token, digest: Uint8Array): Promise<string | undefined> {
+        const lockKey = token.payload.P2PKlock;
+        if (!lockKey) return undefined;
+        const mainPubkey = this.publicKey || this.keys.publicKey;
+        if (lockKey === mainPubkey) {
+            // Main key — use signer if available (avoids empty secretKey issue)
+            if (this.signer) return await this.signer.sign(digest);
+            if (this.keys.secretKey) return bytesToHex(await token.sign(digest, this.keys));
+            return undefined;
+        }
+        const singleUseKey = await this.findOrRecoverSingleUseKeyByPubkey(lockKey);
+        if (!singleUseKey?.secretKey) return undefined;
+        return bytesToHex(await token.sign(digest, {
+            publicKey: singleUseKey.publicKey,
+            secretKey: singleUseKey.secretKey,
+        }));
+    }
+
+    /**
+     * Burn a token at its issuer. The forge requires a witness from the
+     * token's lock key over `burnAuthDigest(tokenHash)`, so only a pocket that
+     * holds that key can burn it. The token is dropped locally once the forge
+     * has committed the burn — asking `status` if the reply is lost — and kept
+     * otherwise.
+     */
+    public async burn(tokenJWT: string, timeoutMs: number = 60000) {
+        const token = await new Token().restore(tokenJWT);
+        if (!token.payload.P2PKlock) {
+            throw new Error('Only a P2PK-locked token can be burned');
+        }
+        const tokenHash = await token.create_token_hash();
+        const witness = await this.signWithLockKey(token, burnAuthDigest(tokenHash));
+        if (!witness) {
+            throw new Error(`Missing witness key for lock pubkey: ${token.payload.P2PKlock}`);
+        }
+        const issuer = token.payload.iss;
+        const txId = txIdForInputs([tokenHash]);
+        let response;
+        try {
+            response = await this.request('burn', { token: tokenJWT, witness }, issuer, undefined, timeoutMs);
+        } catch (err) {
+            let status: TxStatus | undefined;
+            try {
+                status = await this.fetchTxStatus(issuer, txId);
+            } catch {
+                throw err;
+            }
+            if (status?.status !== 'committed') throw err;
+            response = { id: '', timestamp: Date.now(), result: status };
+        }
+        if (response?.error) {
+            throw new Error(`burn failed: ${response.error.message ?? response.error.code}`);
+        }
+        await this.deleteToken(tokenJWT);
+        return response;
     }
 
     /**
@@ -1610,7 +1650,33 @@ export class Pocket extends NWPCPeer {
         }
 
         Debug.log("sendTx finalTx" + tx, 'Pocket');
-        const response = await this.request(method, tx, issuer, undefined, timeoutMs);
+        // The forge names the transfer after its inputs, so its id is known
+        // before sending and survives losing every reply.
+        const txId = method === 'transfer' && inputs.length > 0
+            ? txIdForInputs(await Promise.all(inputs.map((t) => t.create_token_hash())))
+            : undefined;
+        let response;
+        try {
+            response = await this.request(method, tx, issuer, undefined, timeoutMs);
+        } catch (err) {
+            // No reply is not "not sent": the forge may have committed and the
+            // reply been lost. Ask. Only a committed answer spends the inputs;
+            // anything else leaves them held and the transfer safe to retry.
+            if (!txId) throw err;
+            let status: TxStatus | undefined;
+            try {
+                status = await this.fetchTxStatus(issuer, txId);
+            } catch {
+                throw err;
+            }
+            if (status?.status !== 'committed') throw err;
+            Debug.log(`sendTx: reply lost, but ${txId} committed — recovered via status`, 'Pocket');
+            response = { id: '', timestamp: Date.now(), result: status };
+        }
+        const outputs = (response?.result as Partial<TxStatus> | undefined)?.outputs;
+        if (!response?.error && Array.isArray(outputs)) {
+            await this.acceptTxOutputs(outputs);
+        }
         // On confirmed success the forge has marked every input spent, so
         // remove them locally right away instead of waiting for the issuer's
         // spent-token feed — this keeps the local balance correct immediately.
@@ -1626,6 +1692,41 @@ export class Pocket extends NWPCPeer {
             }
         }
         return response;
+    }
+
+    /**
+     * Ask an issuer whether a transfer committed, and for the outputs this
+     * pocket may see. The forge answers the submitting key with every output
+     * and anyone else with only the outputs addressed to them.
+     */
+    public async fetchTxStatus(issuer: string, txId: string, timeoutMs: number = 15000): Promise<TxStatus> {
+        const response = await this.request('status', { tx_id: txId }, issuer, undefined, timeoutMs);
+        if (response?.error) {
+            throw new Error(`status failed: ${response.error.message ?? response.error.code}`);
+        }
+        return response.result as TxStatus;
+    }
+
+    /**
+     * Store the outputs from a committed-transfer reply or a status answer that
+     * are locked to a key this pocket holds. The forge hands the submitter every
+     * output, including the ones paid to others; those are not ours to hold.
+     */
+    private async acceptTxOutputs(outputs: Array<{ to?: string; token?: string }>): Promise<void> {
+        for (const out of outputs) {
+            if (typeof out?.token !== 'string') continue;
+            try {
+                const token = await new Token().restore(out.token);
+                const lock = token.payload?.P2PKlock;
+                if (lock && this.holdsKey(lock)) await this.storeToken(out.token);
+            } catch (err) {
+                Debug.log(`acceptTxOutputs: skipping unreadable output: ${err}`, 'Pocket');
+            }
+        }
+    }
+
+    private holdsKey(pubkey: string): boolean {
+        return pubkey === (this.publicKey || this.keys?.publicKey) || !!this.state.singleUseKeys?.has(pubkey);
     }
 
     /**
@@ -1760,6 +1861,40 @@ export class Pocket extends NWPCPeer {
      * every token that issuer has ever burned for anyone: remembering those
      * would grow this wallet's state by the bank's volume rather than its own.
      */
+    /**
+     * Act on a "token spent" notice only if the issuer itself signed it.
+     *
+     * `signer` is the key the notice is authenticated by — the seal's sender
+     * for a gift-wrapped DM, the verified author for a feed event. A notice is
+     * about the tokens of the issuer who signed it and no one else: anyone can
+     * wrap `{spent, issuer: X}` to a pocket, so a claimed issuer that is not
+     * the signer is refused, and tokens are looked up under the signer, i.e.
+     * under the `iss` they were stored by.
+     *
+     * @param remember also tombstone a hash this pocket does not hold (DM
+     *   replies about this pocket's own spends); the public feed only deletes
+     *   what is held, since it carries every holder's spends.
+     */
+    private async applySpentNotice(
+        signer: string | undefined,
+        claimedIssuer: string | undefined,
+        tokenHash: string | undefined,
+        remember: boolean,
+    ): Promise<void> {
+        if (!signer || !tokenHash) return;
+        if (claimedIssuer && claimedIssuer !== signer) {
+            Debug.warn(`Ignoring spent notice for issuer ${claimedIssuer} signed by ${signer}`, 'Pocket');
+            return;
+        }
+        if (remember) {
+            await this.forgetSpentToken(signer, tokenHash);
+            return;
+        }
+        const tokenJWT = this.state.tokens.get(signer)?.get(tokenHash);
+        if (tokenJWT) await this.deleteToken(tokenJWT);
+        Debug.log(`Token spent event processed for issuer ${signer}, tokenHash ${tokenHash}`, 'Pocket');
+    }
+
     private async forgetSpentToken(issuer: string | undefined, tokenHash: string): Promise<void> {
         if (!issuer || !tokenHash) return;
         const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
@@ -1775,14 +1910,38 @@ export class Pocket extends NWPCPeer {
     private async subscribeToIssuerSpent(issuerPubkey: string) {
         if (this.subscribedIssuers.has(issuerPubkey)) return;
         this.subscribedIssuers.add(issuerPubkey);
-        // Issuers publish spent markers as kind 1 feed notes ("spent:<tokenHash>").
-        // Subscribe directly to issuer feed events so pockets can reconcile spent
-        // tokens even if they were spent on another device.
+        this.openSpentFeed(issuerPubkey);
+    }
+
+    /**
+     * Re-open every subscription after a reconnect — the DM subscriptions for
+     * the main and single-use keys (base class) and each issuer's spent feed —
+     * all resuming from the persisted point rather than from now.
+     */
+    protected async resubscribeAll(): Promise<void> {
+        await super.resubscribeAll();
+        for (const issuer of this.subscribedIssuers) this.openSpentFeed(issuer);
+    }
+
+    private openSpentFeed(issuerPubkey: string): void {
+        this.spentFeedSubscriptions.get(issuerPubkey)?.stop();
+        // Issuers publish spent markers as "spent:<tokenHash>" notices. Subscribe
+        // directly to them so pockets can reconcile spent tokens even if they were
+        // spent on another device.
+        //
+        // Both kinds are requested: KIND_TOKEN_SPENT is where notices live now,
+        // and the legacy kind-1 note is still emitted by forges that have not yet
+        // set `publishLegacySpentNotes: false`. A forge in either state is handled,
+        // and handleIssuerSpentEvent is idempotent per token hash, so the
+        // transitional period — where a forge publishes both — costs nothing.
         const filter = {
-            kinds: [1],
+            kinds: [KIND_TOKEN_SPENT, LEGACY_KIND_TOKEN_SPENT],
             authors: [issuerPubkey],
             "#p": [issuerPubkey],
-            since: Math.floor(Date.now() / 1000) - 10 * 60,
+            // From where this pocket stopped listening, like its DM feeds: a
+            // token spent on another device while this one was closed is still
+            // reconciled on reopen.
+            since: this.resumeSince(),
         };
         const subscription = this.ndk.subscribe(filter, { closeOnEose: false });
         subscription.on("event", async (event: NDKEvent) => {
@@ -1794,6 +1953,20 @@ export class Pocket extends NWPCPeer {
     // Handle spent events from issuer
     private async handleIssuerSpentEvent(event: NDKEvent, issuerHint?: string) {
         try {
+            // Verify the signature here rather than trusting the relay (or
+            // NDK, which may sample verification): the author is the only
+            // thing that makes this notice the issuer's word.
+            const raw = typeof event.rawEvent === 'function' ? event.rawEvent() : event;
+            if (!verifyEvent(raw as Parameters<typeof verifyEvent>[0])) {
+                Debug.warn(`Ignoring spent notice with an invalid signature: ${event.id}`, 'Pocket');
+                return;
+            }
+            // The feed is subscribed per issuer; a relay that ignores the
+            // `authors` filter must not get another key's notices through.
+            if (issuerHint && event.pubkey !== issuerHint) {
+                Debug.warn(`Ignoring spent notice from ${event.pubkey} on ${issuerHint}'s feed`, 'Pocket');
+                return;
+            }
             const content = (event.content || "").trim();
             let spentMeta: { spent?: string; issuer?: string } | undefined;
 
@@ -1812,7 +1985,11 @@ export class Pocket extends NWPCPeer {
                         spentMeta = parsed as { spent?: string; issuer?: string };
                     }
                 } catch {
-                    const tokenHashFromTag = event.tags.find((tag) => tag[0] === "t")?.[1];
+                    // Prefer the current tag; `t` is only still read so notices
+                    // already sitting on relays from before the move keep parsing.
+                    const tokenHashFromTag =
+                        event.tags.find((tag) => tag[0] === TAG_TOKEN_HASH)?.[1]
+                        ?? event.tags.find((tag) => tag[0] === "t")?.[1];
                     if (tokenHashFromTag) {
                         spentMeta = {
                             spent: tokenHashFromTag,
@@ -1825,15 +2002,9 @@ export class Pocket extends NWPCPeer {
                 }
             }
 
-            const tokenHash = spentMeta?.spent;
-            const issuer = spentMeta?.issuer || issuerHint || event.pubkey;
-            if (tokenHash && issuer) {
-                const tokenJWT = this.state.tokens.get(issuer)?.get(tokenHash);
-                if (tokenJWT) {
-                    await this.deleteToken(tokenJWT);
-                }
-                Debug.log(`Token spent event processed for issuer ${issuer}, tokenHash ${tokenHash}`, 'Pocket');
-            }
+            // The author is the issuer. An `issuer` field in the content is a
+            // claim, and it may only agree with the author.
+            await this.applySpentNotice(event.pubkey, spentMeta?.issuer, spentMeta?.spent, false);
         } catch (error) {
             Debug.error("handleIssuerSpentEvent error" + error, 'Pocket');
         }

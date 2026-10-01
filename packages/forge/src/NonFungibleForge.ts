@@ -9,6 +9,10 @@ import {
 import { ForgeConfig } from "./ForgeConfig.js";
 import { Recipient } from "./Types.js";
 import { v4 as uuidv4 } from "uuid";
+import { DebugLogger, mintTxId } from "@tat-protocol/utils";
+import type { TxOutput, TxRecord } from "@tat-protocol/storage";
+
+const Debug = DebugLogger.getInstance();
 
 export class NonFungibleForge extends ForgeBase {
   constructor(config: ForgeConfig) {
@@ -24,10 +28,10 @@ export class NonFungibleForge extends ForgeBase {
    */
   async forgeToken(
     req: NWPCRequest,
-    _context: NWPCContext,
+    context: NWPCContext,
     res: NWPCResponseObject,
   ) {
-    let reqObj: { to?: string };
+    let reqObj: { to?: string; nonce?: string };
     try {
       reqObj = JSON.parse(req.params);
     } catch (error) {
@@ -43,25 +47,30 @@ export class NonFungibleForge extends ForgeBase {
         "Missing required parameters",
       );
     }
-    if (
-      this.state.totalSupply > 0 &&
-      (this.state.circulatingSupply ?? 0) + 1 > this.state.totalSupply
-    ) {
-      return await res.error(
-        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
-        `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${this.state.totalSupply - (this.state.circulatingSupply ?? 0)}`,
-      );
-    }
+    // One mint per (requester, nonce) — see FungibleForge.forgeToken.
+    const requester = context.sender;
+    const txId = mintTxId(
+      requester,
+      String(reqObj.nonce ?? req.id ?? uuidv4()),
+    );
+    const existing = await this.getTx(txId);
+    if (existing) return await this.deliverAndReply(existing, res, requester);
+
     // Choose tokenID strategy
     let tokenID: string | number;
     if (this.config.assetIdStrategy === "unique") {
       tokenID = uuidv4();
     } else {
-      tokenID = this.state.lastAssetId;
-      this.state.lastAssetId += 1;
+      // Same defect as the supply counter, one degree less dangerous: N
+      // processes each holding their own lastAssetId mint duplicate ids rather
+      // than duplicate money. Allocated atomically when a store is configured.
+      // An id allocated for a mint that then fails the cap is skipped, not
+      // reused — the safe direction.
+      tokenID = await this.allocateAssetId();
     }
     const token = new Token();
     await token.build({
+      ver: this.tokenVersion,
       token_type: TokenType.TAT,
       payload: Token.createPayload({
         iss: this.keys.publicKey!,
@@ -69,10 +78,46 @@ export class NonFungibleForge extends ForgeBase {
         P2PKlock: to,
       }),
     });
-    this.state.circulatingSupply = (this.state.circulatingSupply ?? 0) + 1;
     const tokenJWT = await this.signAndCreateJWT(token);
-    await this._saveState();
-    return await res.send({ token: tokenJWT }, to);
+    const record: TxRecord = {
+      txId,
+      kind: "mint",
+      requestId: req.id ?? txId,
+      submitter: requester,
+      inputHashes: [],
+      outputs: [{ to, jwt: tokenJWT }],
+      createdAt: Date.now(),
+    };
+    let result;
+    try {
+      result = await this.commitMint(record, 1);
+    } catch (err) {
+      Debug.error(
+        `Mint ${txId} could not be committed: ${err}`,
+        "NonFungibleForge",
+      );
+      return await res.error(
+        NWPC_SPEC_ERRORS.INTERNAL_ERROR.code,
+        "Mint could not be committed; nothing was issued. Retry.",
+      );
+    }
+    if (!result.ok && !("existing" in result)) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.SUPPLY_LIMIT.code,
+        `Forging this token would exceed total supply (${this.state.totalSupply}). Remaining: ${await this.remainingSupply()}`,
+      );
+    }
+    if ("existing" in result) {
+      return await this.deliverAndReply(result.existing, res, requester);
+    }
+    return await this.deliverAndReply(
+      {
+        ...record,
+        outputs: record.outputs.map((o) => ({ ...o, delivered: false })),
+      },
+      res,
+      requester,
+    );
   }
 
   /*
@@ -101,6 +146,13 @@ export class NonFungibleForge extends ForgeBase {
           NWPC_SPEC_ERRORS.PARSE_ERROR.message,
         );
       }
+      const replay = await this.replayCommittedTransfer(
+        tx?.ins,
+        tx?.outs,
+        sender,
+        res,
+      );
+      if (replay) return replay.response as any;
       // Validate transaction
       const [validTx, error, code, params] = await this.validateTXInputs(
         tx,
@@ -132,6 +184,7 @@ export class NonFungibleForge extends ForgeBase {
         recipients,
         res,
         sender,
+        req.id,
       );
     });
   }
@@ -148,6 +201,7 @@ export class NonFungibleForge extends ForgeBase {
     outs: Recipient[],
     res: NWPCResponseObject,
     sender?: string,
+    requestId?: string,
   ) {
     if (!inputs?.length || !outs?.length) {
       return await res.error(
@@ -160,6 +214,7 @@ export class NonFungibleForge extends ForgeBase {
     // so without this a duplicate tokenID in `outs` would re-find the same input
     // and mint a second valid token from a single NFT.
     const consumedInputs = new Set<Token>();
+    const outputs: TxOutput[] = [];
     for (const recipient of outs) {
       const tokenID = recipient.tokenID;
       const to = recipient.to;
@@ -186,6 +241,7 @@ export class NonFungibleForge extends ForgeBase {
       // Forge new token for recipient
       const newToken = new Token();
       await newToken.build({
+        ver: this.tokenVersion,
         token_type: TokenType.TAT,
         payload: Token.createPayload({
           iss: this.keys.publicKey!,
@@ -194,20 +250,32 @@ export class NonFungibleForge extends ForgeBase {
               ? Number(token.payload.tokenID)
               : token.payload.tokenID,
           P2PKlock: to,
-          timeLock: token.payload.timeLock,
+          // The output's timeLock, which the spender signed (v2 digest). The
+          // input's own timeLock has already passed — validateTXInputs checked.
+          timeLock: recipient.timeLock,
           data_uri: token.payload.data_uri,
         }),
       });
-      const newTokenJWT = await this.signAndCreateJWT(newToken);
-      await this.publishSpentToken(await token.create_token_hash());
-      await this._saveState();
-      await res.send({ token: newTokenJWT }, to);
-      await res.send(
-        { spent: token.header.token_hash, issuer: this.keys.publicKey! },
-        sender,
+      outputs.push({ to, jwt: await this.signAndCreateJWT(newToken) });
+    }
+    // Every input must go somewhere. One left over would be neither spent nor
+    // in the tx id, so the id recorded here would not be the one the pocket
+    // computes from everything it sent, and `status` recovery would miss it.
+    if (consumedInputs.size !== inputs.length) {
+      return await res.error(
+        NWPC_SPEC_ERRORS.INVALID_PARAMS.code,
+        "Every input token must be sent to an output",
       );
     }
-    return;
+    // Every output is prepared before anything is spent; commit them with the
+    // spent inputs as one unit, then deliver.
+    const inputHashes = await Promise.all(
+      [...consumedInputs].map((t) => t.create_token_hash()),
+    );
+    return await this.commitAndDeliverTransfer(
+      { inputHashes, outs, outputs, submitter: sender ?? "", requestId },
+      res,
+    );
   }
 
   // Add a getter for total supply

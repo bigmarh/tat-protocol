@@ -7,7 +7,7 @@
   },
   "homepage": "https://github.com/bigmarh/tat-protocol#readme",
   "bugs": "https://github.com/bigmarh/tat-protocol/issues",
-  "version": "1.4.0",
+  "version": "2.0.0",
   "description": "Pocket module for TAT Protocol",
   "type": "module",
   "main": "dist-cjs/index.js",
@@ -43,6 +43,9 @@
   "author": "TAT Protocol",
   "license": "MIT",
   "dependencies": {
+    "@noble/hashes": "^1.0.0",
+    "@nostr-dev-kit/ndk": "2.14.15",
+    "@scure/bip39": "^1.6.0",
     "@tat-protocol/config": "workspace:*",
     "@tat-protocol/hdkeys": "workspace:*",
     "@tat-protocol/nwpc": "workspace:*",

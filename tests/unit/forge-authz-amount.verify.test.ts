@@ -119,7 +119,7 @@ describe("Fix 2: non-finite amount rejection", () => {
       [nanInput],
       [{ to: ATTACKER, amount: 1000 } as any],
     );
-    expect(err).toBe("Each input token must have a valid positive amount");
+    expect(err).toMatch(/input token must have a positive/i);
   });
 
   it("rejects an Infinity-amount input", async () => {
@@ -129,15 +129,15 @@ describe("Fix 2: non-finite amount rejection", () => {
       [infInput],
       [{ to: ATTACKER, amount: 1000 } as any],
     );
-    expect(err).toBe("Each input token must have a valid positive amount");
+    expect(err).toMatch(/input token must have a positive/i);
   });
 
-  it("still accepts a normal transfer within balance", async () => {
+  it("still accepts a normal transfer that spends its inputs exactly", async () => {
     const forge = makeForge();
     const input = await fungibleToken(100);
     const err = await forge.validateFungibleTransfer(
       [input],
-      [{ to: ATTACKER, amount: 40 } as any],
+      [{ to: ATTACKER, amount: 40 } as any, { to: OWNER, amount: 60 } as any],
     );
     expect(err).toBeNull();
   });
@@ -149,6 +149,6 @@ describe("Fix 2: non-finite amount rejection", () => {
       [input],
       [{ to: ATTACKER, amount: Infinity } as any],
     );
-    expect(err).toBe("Invalid or missing amount for recipient");
+    expect(err).toMatch(/recipient needs a positive/i);
   });
 });

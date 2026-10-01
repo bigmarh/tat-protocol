@@ -131,6 +131,12 @@ export interface Invoice {
   createdAt: number;
   paidAt?: number;
   buyerPubkey: string;
+  /**
+   * The key that paid: the sender of the `booth.pay` request, or the invoice's
+   * buyer for an externally confirmed payment. Only it is shown the purchased
+   * token and receipt.
+   */
+  paidBy?: string;
   quantity?: number;
   paymentReferences?: Record<
     string,
@@ -142,6 +148,14 @@ export interface Invoice {
       data?: Record<string, unknown>;
     }
   >;
+  /**
+   * How a token payment was taken: the forge transfer that moved the buyer's
+   * tokens to the booth, and the resulting outputs locked to the booth's key.
+   */
+  settlement?: {
+    txId: string;
+    collected: string[];
+  };
   fulfillment?: {
     status: "pending" | "fulfilled" | "failed";
     receiptId?: string;
