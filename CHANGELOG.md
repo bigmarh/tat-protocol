@@ -5,7 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-10-01
+
+A security-hardening release. **Upgrading breaks unchanged deployments.** The entries below mark each breaking change. In short:
+- A production forge needs a durable ledger (`ledger: new SqliteForgeLedger(db)`) or `allowBlobState: true`.
+- `NodeStore`/`BrowserStore` need an encryption key, or `allowPlaintext`; run `migratePlaintext()` once.
+- Burns need a witness (`Pocket.burn()`).
+- Legacy witnesses are rejected.
+- Gates take their requirements from `resources`.
+- Forges keep minting v1 tokens until `tokenHashVersion: "2.0.0"`.
+- The v1 spend-digest window closes 2026-11-01 unless `acceptV1SpendDigestUntil` is moved.
+
 
 ### Security
 - **Pocket: only the issuer can tell a pocket a token is spent** — any key could gift-wrap `{ result: { spent, issuer } }` to a pocket and it deleted the named token; on the public feed, an `issuer` field in the content overrode the event's author, and the author's signature was assumed checked by the relay. Spent notices (DM results, `TOKEN_SPENT` error replies, and feed events) are now acted on only when signed by the token's issuer — the seal's sender for a DM, the locally `verifyEvent`-checked author for a feed event — and a claimed issuer that differs from the signer is ignored.
