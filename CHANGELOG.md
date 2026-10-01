@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.0.1] - 2026-10-01
+
+The first 2.x release on npm; 2.0.0 was tagged but never published. It contains everything listed under 2.0.0, plus these fixes:
+
+### Fixed
+- **Storage entry points.** `@tat-protocol/storage`'s published `node.js`/`node.cjs`/`browser.js`/`browser.cjs` were hand-written files that had not been updated since March.
+  - Through them, ESM consumers could reach only `Storage`, `NodeStore`, `BrowserStore` and the interface, and `@tat-protocol/forge` failed to load. CJS consumers silently got `undefined` for everything else.
+  - The entries are now compiled from `src/node.ts` / `src/browser.ts`, and a test pins that they export everything the package index does. It also caught `tokenHashToBytes` missing from the browser entry.
+- **Dependencies.** Every package's runtime imports are now declared. Previously hidden by hoisting:
+  - `@scure/bip32`/`@scure/bip39` in hdkeys;
+  - `@nostr-dev-kit/ndk`, `uuid` and `lru-cache` in nwpc and forge;
+  - and others.
+- **CI.** The test workflow had failed during setup since at least July. It now installs pnpm first, runs on Node 22 and 24, and runs the full suite.
+
 ## [2.0.0] - 2026-10-01
 
 A security-hardening release. **Upgrading breaks unchanged deployments.** The entries below mark each breaking change. In short:

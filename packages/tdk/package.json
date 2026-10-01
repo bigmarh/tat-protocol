@@ -17,7 +17,7 @@
   ],
   "author": "TAT Protocol",
   "private": false,
-  "version": "2.0.0",
+  "version": "2.0.1",
   "description": "TAT Protocol - Unified SDK with factory helpers for all protocol packages",
   "type": "module",
   "main": "dist-cjs/index.js",
