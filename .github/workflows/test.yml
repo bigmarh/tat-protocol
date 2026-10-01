@@ -7,83 +7,38 @@ on:
     branches: [ main, develop ]
 
 jobs:
-  unit-tests:
-    name: Unit Tests
+  test:
+    name: Build and test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    
+    timeout-minutes: 20
+
     strategy:
+      fail-fast: false
       matrix:
-        node-version: [18, 20, 21]
-    
+        # 22 is the first line with node:sqlite, which the ledger tests use.
+        node-version: [22, 24]
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4
-      
+
+    # pnpm must exist before setup-node can use its store as the cache; the
+    # version comes from package.json's packageManager field.
+    - name: Install pnpm
+      uses: pnpm/action-setup@v4
+
     - name: Setup Node.js ${{ matrix.node-version }}
       uses: actions/setup-node@v4
       with:
         node-version: ${{ matrix.node-version }}
         cache: 'pnpm'
-        
-    - name: Install pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 8
-        
-    - name: Install dependencies
-      run: pnpm install --frozen-lockfile
-      
-    - name: Build packages
-      run: pnpm build
-      
-    - name: Run unit tests
-      run: pnpm test:unit
-      
-    - name: Upload test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: unit-test-results-node-${{ matrix.node-version }}
-        path: |
-          coverage/
-          test-results/
 
-  integration-tests:
-    name: Integration Tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    needs: unit-tests
-    
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      
-    - name: Setup Node.js
-      uses: actions/setup-node@v4
-      with:
-        node-version: 20
-        cache: 'pnpm'
-        
-    - name: Install pnpm
-      uses: pnpm/action-setup@v4
-      with:
-        version: 8
-        
     - name: Install dependencies
       run: pnpm install --frozen-lockfile
-      
+
     - name: Build packages
       run: pnpm build
-        
-    - name: Run integration tests
-      run: pnpm test:integration
-        
-    - name: Upload integration test results
-      uses: actions/upload-artifact@v4
-      if: always()
-      with:
-        name: integration-test-results
-        path: |
-          coverage/
-          test-results/
+
+    # The whole suite: unit, integration, conformance and package tests.
+    - name: Run tests
+      run: pnpm test
