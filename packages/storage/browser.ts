@@ -1,24 +1,2 @@
-export { Storage } from './src/Storage.js';
-export { BrowserStore } from './src/BrowserStorage.js';
-export type { BrowserStoreOptions } from './src/BrowserStorage.js';
-export * from './src/StorageInterface.js';
-export * from './src/SecretBox.js';
-export { EncryptedStorage } from './src/EncryptedStorage.js';
-export type { EncryptedStorageOptions } from './src/EncryptedStorage.js';
-export * from './src/SpentSetStore.js';
-export * from './src/ProcessedRequestStore.js';
-export * from './src/SupplyStore.js';
-export * from './src/ForgeLedger.js';
-export { MemoryForgeLedger } from './src/MemoryForgeLedger.js';
-export { MemorySupplyStore } from './src/MemorySupplyStore.js';
-export { SqliteSupplyStore } from './src/SqliteSupplyStore.js';
-export { MemoryProcessedRequestStore } from './src/MemoryProcessedRequestStore.js';
-export { SqliteProcessedRequestStore } from './src/SqliteProcessedRequestStore.js';
-export type { MemoryProcessedRequestStoreOptions } from './src/MemoryProcessedRequestStore.js';
-export { MemorySpentSetStore } from './src/MemorySpentSetStore.js';
-// SqliteSpentSetStore is exported here too: it imports no Node built-in, taking
-// an injected driver handle instead, so it is inert in a browser bundle unless
-// something actually constructs it. Pockets do not use the spent set at all —
-// it is forge-side — so this costs browser targets nothing.
-export { SqliteSpentSetStore } from './src/SqliteSpentSetStore.js';
-export { SqliteForgeLedger } from './src/SqliteForgeLedger.js';
+// Source-level entry (TypeScript resolves the package's main field here).
+export * from './src/browser.js';

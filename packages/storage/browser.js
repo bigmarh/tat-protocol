@@ -1,3 +1,2 @@
-export { Storage } from "./dist/Storage.js";
-export { BrowserStore } from "./dist/BrowserStorage.js";
-export * from "./dist/StorageInterface.js";
+// Thin entry: everything is exported from src/browser.ts.
+export * from "./dist/browser.js";
