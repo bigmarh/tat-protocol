@@ -44,7 +44,9 @@
   "author": "TAT Protocol",
   "license": "MIT",
   "dependencies": {
+    "@noble/hashes": "^1.0.0",
     "@tat-protocol/hdkeys": "workspace:*",
+    "@tat-protocol/nwpc": "workspace:*",
     "@tat-protocol/storage": "workspace:*",
     "@tat-protocol/token": "workspace:*",
     "@tat-protocol/types": "workspace:*",
